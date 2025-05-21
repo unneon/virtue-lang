@@ -17,6 +17,11 @@ pub enum Statement<'a> {
         variable: &'a str,
         expression: Expression<'a>,
     },
+    If {
+        condition: Expression<'a>,
+        true_block: Vec<Statement<'a>>,
+        false_block: Vec<Statement<'a>>,
+    },
     Print {
         fmt: Format<'a>,
     },
@@ -39,7 +44,13 @@ pub enum BinaryOperator {
     Subtract,
     Multiply,
     Divide,
+    Modulo,
+    Less,
     LessOrEqual,
+    Greater,
+    GreaterOrEqual,
+    Equal,
+    NotEqual,
 }
 
 #[derive(Debug)]

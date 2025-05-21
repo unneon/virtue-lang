@@ -40,7 +40,9 @@ fn block(nesting: usize, mut input: &str) -> IResult<&str, Vec<Statement>> {
 }
 
 fn statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
-    if let Ok(r) = print_statement(nesting, input) {
+    if let Ok(r) = if_statement(nesting, input) {
+        Ok(r)
+    } else if let Ok(r) = print_statement(nesting, input) {
         Ok(r)
     } else if let Ok(r) = while_statement(nesting, input) {
         Ok(r)
@@ -60,6 +62,26 @@ fn assingment_statement(nesting: usize, input: &str) -> IResult<&str, Statement>
         Statement::Assignment {
             variable,
             expression,
+        },
+    ))
+}
+
+fn if_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
+    let (input, _) = indentiation(nesting, input)?;
+    let (input, _) = tag("if")(input)?;
+    let (input, condition) = preceded(sp, expression).parse(input)?;
+    let (input, _) = newline(input)?;
+    let (input, true_block) = block(nesting + 1, input)?;
+    let (input, _) = indentiation(nesting, input)?;
+    let (input, _) = tag("else")(input)?;
+    let (input, _) = newline(input)?;
+    let (input, false_block) = block(nesting + 1, input)?;
+    Ok((
+        input,
+        Statement::If {
+            condition,
+            true_block,
+            false_block,
         },
     ))
 }
@@ -104,7 +126,18 @@ fn format_segment_variable(input: &str) -> IResult<&str, FormatSegment> {
 }
 
 fn expression(input: &str) -> IResult<&str, Expression> {
-    expression3(input)
+    expression4(input)
+}
+
+fn expression4(input: &str) -> IResult<&str, Expression> {
+    let (mut input, mut expression) = expression3(input)?;
+    while let Ok((subinput, (op, right))) =
+        pair(preceded(sp, binary_op4), preceded(sp, expression3)).parse(input)
+    {
+        input = subinput;
+        expression = Expression::BinaryOperation(op, Box::new((expression, right)));
+    }
+    Ok((input, expression))
 }
 
 fn expression3(input: &str) -> IResult<&str, Expression> {
@@ -144,8 +177,20 @@ fn expression0(input: &str) -> IResult<&str, Expression> {
     alt((integer_literal, variable_reference)).parse(input)
 }
 
+fn binary_op4(input: &str) -> IResult<&str, BinaryOperator> {
+    alt((
+        less_or_equal_op,
+        less,
+        greater_or_equal_op,
+        greater,
+        equal,
+        not_equal,
+    ))
+    .parse(input)
+}
+
 fn binary_op3(input: &str) -> IResult<&str, BinaryOperator> {
-    alt((less_or_equal_op,)).parse(input)
+    modulo_op(input)
 }
 
 fn binary_op2(input: &str) -> IResult<&str, BinaryOperator> {
@@ -172,8 +217,34 @@ fn divide_op(input: &str) -> IResult<&str, BinaryOperator> {
     char('/').map(|_| BinaryOperator::Divide).parse(input)
 }
 
+fn modulo_op(input: &str) -> IResult<&str, BinaryOperator> {
+    char('%').map(|_| BinaryOperator::Modulo).parse(input)
+}
+
+fn less(input: &str) -> IResult<&str, BinaryOperator> {
+    tag("<").map(|_| BinaryOperator::Less).parse(input)
+}
+
 fn less_or_equal_op(input: &str) -> IResult<&str, BinaryOperator> {
     tag("<=").map(|_| BinaryOperator::LessOrEqual).parse(input)
+}
+
+fn greater(input: &str) -> IResult<&str, BinaryOperator> {
+    tag(">").map(|_| BinaryOperator::Greater).parse(input)
+}
+
+fn greater_or_equal_op(input: &str) -> IResult<&str, BinaryOperator> {
+    tag(">=")
+        .map(|_| BinaryOperator::GreaterOrEqual)
+        .parse(input)
+}
+
+fn equal(input: &str) -> IResult<&str, BinaryOperator> {
+    tag("==").map(|_| BinaryOperator::Equal).parse(input)
+}
+
+fn not_equal(input: &str) -> IResult<&str, BinaryOperator> {
+    tag("!=").map(|_| BinaryOperator::NotEqual).parse(input)
 }
 
 fn identifier(input: &str) -> IResult<&str, &str> {
