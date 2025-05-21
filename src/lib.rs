@@ -1,4 +1,4 @@
-use crate::ast::{FormatSegment, Item, Module, Statement};
+use crate::ast::{BinaryOperator, Expression, FormatSegment, Item, Module, Statement};
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -29,12 +29,33 @@ pub fn interpret(module: &Module) -> String {
                         }
                         stdout.push('\n');
                     }
-                    Statement::Assignment { variable, value } => {
-                        variables.insert(*variable, *value);
+                    Statement::Assignment {
+                        variable,
+                        expression,
+                    } => {
+                        variables.insert(*variable, evaluate(expression, &variables));
                     }
                 }
             }
         }
     }
     stdout
+}
+
+fn evaluate(expression: &Expression, variables: &HashMap<&str, i64>) -> i64 {
+    match expression {
+        Expression::BinaryOperation(op, args) => {
+            let (left, right) = args.as_ref();
+            let left = evaluate(left, variables);
+            let right = evaluate(right, variables);
+            match op {
+                BinaryOperator::Add => left + right,
+                BinaryOperator::Subtract => left - right,
+                BinaryOperator::Multiply => left * right,
+                BinaryOperator::Divide => left / right,
+            }
+        }
+        Expression::Literal(value) => *value,
+        Expression::Variable(variable) => variables[variable],
+    }
 }

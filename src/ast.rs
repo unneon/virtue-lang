@@ -13,8 +13,28 @@ pub enum Item<'a> {
 
 #[derive(Debug)]
 pub enum Statement<'a> {
-    Assignment { variable: &'a str, value: i64 },
-    Print { fmt: Format<'a> },
+    Assignment {
+        variable: &'a str,
+        expression: Expression<'a>,
+    },
+    Print {
+        fmt: Format<'a>,
+    },
+}
+
+#[derive(Debug)]
+pub enum Expression<'a> {
+    BinaryOperation(BinaryOperator, Box<(Expression<'a>, Expression<'a>)>),
+    Literal(i64),
+    Variable(&'a str),
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum BinaryOperator {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
 }
 
 #[derive(Debug)]

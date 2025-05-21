@@ -1,4 +1,4 @@
-use crate::ast::{Format, FormatSegment, Item, Module, Statement};
+use crate::ast::{BinaryOperator, Expression, Format, FormatSegment, Item, Module, Statement};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1};
 use nom::character::anychar;
@@ -38,9 +38,15 @@ fn assingment_statement(input: &str) -> IResult<&str, Statement> {
     let (input, _) = indent(input)?;
     let (input, variable) = identifier(input)?;
     let (input, _) = preceded(sp, char('=')).parse(input)?;
-    let (input, value) = preceded(sp, integer_literal).parse(input)?;
+    let (input, expression) = preceded(sp, expression).parse(input)?;
     let (input, _) = newline(input)?;
-    Ok((input, Statement::Assignment { variable, value }))
+    Ok((
+        input,
+        Statement::Assignment {
+            variable,
+            expression,
+        },
+    ))
 }
 
 fn print_statement(input: &str) -> IResult<&str, Statement> {
@@ -73,6 +79,60 @@ fn format_segment_variable(input: &str) -> IResult<&str, FormatSegment> {
         .parse(input)
 }
 
+fn expression(input: &str) -> IResult<&str, Expression> {
+    expression2(input)
+}
+
+fn expression2(input: &str) -> IResult<&str, Expression> {
+    let (mut input, mut expression) = expression1(input)?;
+    while let Ok((subinput, (op, right))) =
+        pair(preceded(sp, binary_op2), preceded(sp, expression1)).parse(input)
+    {
+        input = subinput;
+        expression = Expression::BinaryOperation(op, Box::new((expression, right)));
+    }
+    Ok((input, expression))
+}
+
+fn expression1(input: &str) -> IResult<&str, Expression> {
+    let (mut input, mut expression) = expression0(input)?;
+    while let Ok((subinput, (op, right))) =
+        pair(preceded(sp, binary_op1), preceded(sp, expression0)).parse(input)
+    {
+        input = subinput;
+        expression = Expression::BinaryOperation(op, Box::new((expression, right)));
+    }
+    Ok((input, expression))
+}
+
+fn expression0(input: &str) -> IResult<&str, Expression> {
+    alt((integer_literal, variable_reference)).parse(input)
+}
+
+fn binary_op2(input: &str) -> IResult<&str, BinaryOperator> {
+    alt((add_op, subtraction_op)).parse(input)
+}
+
+fn binary_op1(input: &str) -> IResult<&str, BinaryOperator> {
+    alt((multiply_op, divide_op)).parse(input)
+}
+
+fn add_op(input: &str) -> IResult<&str, BinaryOperator> {
+    char('+').map(|_| BinaryOperator::Add).parse(input)
+}
+
+fn subtraction_op(input: &str) -> IResult<&str, BinaryOperator> {
+    char('-').map(|_| BinaryOperator::Subtract).parse(input)
+}
+
+fn multiply_op(input: &str) -> IResult<&str, BinaryOperator> {
+    char('*').map(|_| BinaryOperator::Multiply).parse(input)
+}
+
+fn divide_op(input: &str) -> IResult<&str, BinaryOperator> {
+    char('/').map(|_| BinaryOperator::Divide).parse(input)
+}
+
 fn identifier(input: &str) -> IResult<&str, &str> {
     recognize(pair(
         verify(anychar, |c| c.is_ascii_alphabetic()),
@@ -81,9 +141,15 @@ fn identifier(input: &str) -> IResult<&str, &str> {
     .parse(input)
 }
 
-fn integer_literal(input: &str) -> IResult<&str, i64> {
+fn integer_literal(input: &str) -> IResult<&str, Expression> {
     let (input, literal) = recognize(pair(opt(char('-')), digit1)).parse(input)?;
-    Ok((input, literal.parse().unwrap()))
+    let literal = literal.parse().unwrap();
+    let expression = Expression::Literal(literal);
+    Ok((input, expression))
+}
+
+fn variable_reference(input: &str) -> IResult<&str, Expression> {
+    identifier.map(Expression::Variable).parse(input)
 }
 
 fn indent(input: &str) -> IResult<&str, ()> {
