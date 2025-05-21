@@ -1,0 +1,7 @@
+func main()
+    n = 1
+    r = 1
+    while n <= 20
+        r = n * r
+        n = n + 1
+    print "{r}"

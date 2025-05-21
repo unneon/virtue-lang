@@ -20,6 +20,10 @@ pub enum Statement<'a> {
     Print {
         fmt: Format<'a>,
     },
+    While {
+        condition: Expression<'a>,
+        body: Vec<Statement<'a>>,
+    },
 }
 
 #[derive(Debug)]
@@ -35,6 +39,7 @@ pub enum BinaryOperator {
     Subtract,
     Multiply,
     Divide,
+    LessOrEqual,
 }
 
 #[derive(Debug)]

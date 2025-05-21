@@ -4,7 +4,7 @@ use nom::bytes::complete::{tag, take_while, take_while1};
 use nom::character::anychar;
 use nom::character::complete::{char, digit1};
 use nom::combinator::{all_consuming, opt, recognize, verify};
-use nom::multi::{many0, separated_list0};
+use nom::multi::{count, many0, separated_list0};
 use nom::sequence::{delimited, pair, preceded};
 use nom::{IResult, Parser};
 
@@ -26,16 +26,31 @@ fn item(input: &str) -> IResult<&str, Item> {
     let (input, _) = preceded(sp, char('(')).parse(input)?;
     let (input, _) = preceded(sp, char(')')).parse(input)?;
     let (input, _) = newline(input)?;
-    let (input, body) = many0(statement).parse(input)?;
+    let (input, body) = block(1, input)?;
     Ok((input, Item::Function { name, body }))
 }
 
-fn statement(input: &str) -> IResult<&str, Statement> {
-    alt((print_statement, assingment_statement)).parse(input)
+fn block(nesting: usize, mut input: &str) -> IResult<&str, Vec<Statement>> {
+    let mut statements = Vec::new();
+    while let Ok((subinput, statement)) = statement(nesting, input) {
+        input = subinput;
+        statements.push(statement);
+    }
+    Ok((input, statements))
 }
 
-fn assingment_statement(input: &str) -> IResult<&str, Statement> {
-    let (input, _) = indent(input)?;
+fn statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
+    if let Ok(r) = print_statement(nesting, input) {
+        Ok(r)
+    } else if let Ok(r) = while_statement(nesting, input) {
+        Ok(r)
+    } else {
+        assingment_statement(nesting, input)
+    }
+}
+
+fn assingment_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
+    let (input, _) = indentiation(nesting, input)?;
     let (input, variable) = identifier(input)?;
     let (input, _) = preceded(sp, char('=')).parse(input)?;
     let (input, expression) = preceded(sp, expression).parse(input)?;
@@ -49,12 +64,21 @@ fn assingment_statement(input: &str) -> IResult<&str, Statement> {
     ))
 }
 
-fn print_statement(input: &str) -> IResult<&str, Statement> {
-    let (input, _) = indent(input)?;
+fn print_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
+    let (input, _) = indentiation(nesting, input)?;
     let (input, _) = tag("print")(input)?;
     let (input, fmt) = preceded(sp, format_string).parse(input)?;
     let (input, _) = newline(input)?;
     Ok((input, Statement::Print { fmt }))
+}
+
+fn while_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
+    let (input, _) = indentiation(nesting, input)?;
+    let (input, _) = tag("while")(input)?;
+    let (input, condition) = preceded(sp, expression).parse(input)?;
+    let (input, _) = newline(input)?;
+    let (input, body) = block(nesting + 1, input)?;
+    Ok((input, Statement::While { condition, body }))
 }
 
 fn format_string(input: &str) -> IResult<&str, Format> {
@@ -80,7 +104,18 @@ fn format_segment_variable(input: &str) -> IResult<&str, FormatSegment> {
 }
 
 fn expression(input: &str) -> IResult<&str, Expression> {
-    expression2(input)
+    expression3(input)
+}
+
+fn expression3(input: &str) -> IResult<&str, Expression> {
+    let (mut input, mut expression) = expression2(input)?;
+    while let Ok((subinput, (op, right))) =
+        pair(preceded(sp, binary_op3), preceded(sp, expression2)).parse(input)
+    {
+        input = subinput;
+        expression = Expression::BinaryOperation(op, Box::new((expression, right)));
+    }
+    Ok((input, expression))
 }
 
 fn expression2(input: &str) -> IResult<&str, Expression> {
@@ -109,6 +144,10 @@ fn expression0(input: &str) -> IResult<&str, Expression> {
     alt((integer_literal, variable_reference)).parse(input)
 }
 
+fn binary_op3(input: &str) -> IResult<&str, BinaryOperator> {
+    alt((less_or_equal_op,)).parse(input)
+}
+
 fn binary_op2(input: &str) -> IResult<&str, BinaryOperator> {
     alt((add_op, subtraction_op)).parse(input)
 }
@@ -133,6 +172,10 @@ fn divide_op(input: &str) -> IResult<&str, BinaryOperator> {
     char('/').map(|_| BinaryOperator::Divide).parse(input)
 }
 
+fn less_or_equal_op(input: &str) -> IResult<&str, BinaryOperator> {
+    tag("<=").map(|_| BinaryOperator::LessOrEqual).parse(input)
+}
+
 fn identifier(input: &str) -> IResult<&str, &str> {
     recognize(pair(
         verify(anychar, |c| c.is_ascii_alphabetic()),
@@ -150,6 +193,10 @@ fn integer_literal(input: &str) -> IResult<&str, Expression> {
 
 fn variable_reference(input: &str) -> IResult<&str, Expression> {
     identifier.map(Expression::Variable).parse(input)
+}
+
+fn indentiation(nesting: usize, input: &str) -> IResult<&str, ()> {
+    count(indent, nesting).map(|_| ()).parse(input)
 }
 
 fn indent(input: &str) -> IResult<&str, ()> {
