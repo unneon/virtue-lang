@@ -4,3 +4,10 @@ version = "0.0.0"
 edition = "2024"
 
 [dependencies]
+libtest-mimic = "0.8"
+nom = "8.0"
+
+[[test]]
+name = "test"
+path = "tests/run.rs"
+harness = false
