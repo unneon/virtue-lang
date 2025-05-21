@@ -29,7 +29,7 @@ fn run_test(path: PathBuf) -> Result<(), Failed> {
     let ast = virtue::parse(&source);
     let actual_stdout = virtue::interpret(&ast);
     if actual_stdout != expected_stdout {
-        return Err(format!("\x1B[1;31mactual stdout:\x1B[0m\n{actual_stdout}\n\n\x1B[1;32mexpected stdout:\x1B[0m\n{expected_stdout}\n").into());
+        return Err(format!("{ast:#?}\n\n\x1B[1;31mactual stdout:\x1B[0m\n{actual_stdout}\n\n\x1B[1;32mexpected stdout:\x1B[0m\n{expected_stdout}\n").into());
     }
     Ok(())
 }
