@@ -1,0 +1,30 @@
+name: CI
+on: push
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install dependencies (QBE)
+      run: git clone git://c9x.me/qbe.git && cd qbe && make && sudo make install
+    - name: Build
+      run: cargo build
+    - name: Test
+      run: cargo test
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+    - uses: actions/checkout@v3
+    - name: Verify formatter
+      run: cargo fmt -- --check
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+    - uses: actions/checkout@v3
+    - name: Verify linter
+      run: cargo clippy -- -D warnings
