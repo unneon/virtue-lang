@@ -36,6 +36,10 @@ fn statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
         Ok(r)
     } else if let Ok(r) = while_statement(nesting, input) {
         Ok(r)
+    } else if let Ok(r) = func_statement(nesting, input) {
+        Ok(r)
+    } else if let Ok(r) = return_statement(nesting, input) {
+        Ok(r)
     } else {
         assingment_statement(nesting, input)
     }
@@ -62,10 +66,7 @@ fn if_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
     let (input, condition) = preceded(sp, expression).parse(input)?;
     let (input, _) = newline(input)?;
     let (input, true_block) = block(nesting + 1, input)?;
-    let (input, _) = indentiation(nesting, input)?;
-    let (input, _) = tag("else")(input)?;
-    let (input, _) = newline(input)?;
-    let (input, false_block) = block(nesting + 1, input)?;
+    let (input, false_block) = else_block(nesting, input).or_else(|_| Ok((input, vec![])))?;
     Ok((
         input,
         Statement::If {
@@ -74,6 +75,14 @@ fn if_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
             false_block,
         },
     ))
+}
+
+fn else_block(nesting: usize, input: &str) -> IResult<&str, Vec<Statement>> {
+    let (input, _) = indentiation(nesting, input)?;
+    let (input, _) = tag("else")(input)?;
+    let (input, _) = newline(input)?;
+    let (input, false_block) = block(nesting + 1, input)?;
+    Ok((input, false_block))
 }
 
 fn print_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
@@ -91,6 +100,27 @@ fn while_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
     let (input, _) = newline(input)?;
     let (input, body) = block(nesting + 1, input)?;
     Ok((input, Statement::While { condition, body }))
+}
+
+fn func_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
+    let (input, _) = indentiation(nesting, input)?;
+    let (input, _) = tag("func")(input)?;
+    let (input, name) = preceded(sp, identifier).parse(input)?;
+    let (input, _) = preceded(sp, char('(')).parse(input)?;
+    let (input, args) =
+        separated_list0(preceded(sp, char(',')), preceded(sp, identifier)).parse(input)?;
+    let (input, _) = preceded(sp, char(')')).parse(input)?;
+    let (input, _) = newline(input)?;
+    let (input, body) = block(nesting + 1, input)?;
+    Ok((input, Statement::Function { name, args, body }))
+}
+
+fn return_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
+    let (input, _) = indentiation(nesting, input)?;
+    let (input, _) = tag("return")(input)?;
+    let (input, value) = preceded(sp, expression).parse(input)?;
+    let (input, _) = newline(input)?;
+    Ok((input, Statement::Return { value }))
 }
 
 fn format_string(input: &str) -> IResult<&str, Format> {
@@ -164,7 +194,7 @@ fn expression1(input: &str) -> IResult<&str, Expression> {
 }
 
 fn expression0(input: &str) -> IResult<&str, Expression> {
-    alt((integer_literal, variable_reference)).parse(input)
+    alt((integer_literal, function_call, variable_reference)).parse(input)
 }
 
 fn binary_op4(input: &str) -> IResult<&str, BinaryOperator> {
@@ -250,6 +280,15 @@ fn integer_literal(input: &str) -> IResult<&str, Expression> {
     let literal = literal.parse().unwrap();
     let expression = Expression::Literal(literal);
     Ok((input, expression))
+}
+
+fn function_call(input: &str) -> IResult<&str, Expression> {
+    let (input, func) = identifier(input)?;
+    let (input, _) = preceded(sp, char('(')).parse(input)?;
+    let (input, args) =
+        separated_list0(preceded(sp, char(',')), preceded(sp, expression)).parse(input)?;
+    let (input, _) = preceded(sp, char(')')).parse(input)?;
+    Ok((input, Expression::Call(func, args)))
 }
 
 fn variable_reference(input: &str) -> IResult<&str, Expression> {

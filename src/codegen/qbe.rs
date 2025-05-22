@@ -5,16 +5,23 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-struct State {
+struct State<'a> {
     il: qbe::Module<'static>,
-    main: Function<'static>,
+    func: Function<'static>,
+    functions: Vec<(&'a str, &'a [&'a str], &'a [Statement<'a>])>,
     block_counter: usize,
     temp_counter: usize,
     print_counter: usize,
 }
 
-impl State {
-    fn block(&mut self, statements: &[Statement]) {
+#[derive(Eq, PartialEq)]
+enum Fallthrough {
+    Unreachable,
+    Reachable,
+}
+
+impl<'a> State<'a> {
+    fn block(&mut self, statements: &'a [Statement<'a>]) -> Fallthrough {
         for statement in statements {
             match statement {
                 Statement::Assignment {
@@ -22,6 +29,13 @@ impl State {
                     expression,
                 } => {
                     self.expression(expression, Some(variable));
+                }
+                Statement::Function {
+                    name,
+                    args: parameters,
+                    body,
+                } => {
+                    self.functions.push((name, parameters, body));
                 }
                 Statement::If {
                     condition,
@@ -34,21 +48,23 @@ impl State {
                     self.block_counter += 3;
 
                     let condition = self.expression(condition, None);
-                    self.main.add_instr(Instr::Jnz(
+                    self.func.add_instr(Instr::Jnz(
                         condition,
                         true_block_id.clone(),
                         false_block_id.clone(),
                     ));
 
-                    self.main.add_block(true_block_id);
-                    self.block(true_block);
-                    self.main.add_instr(Instr::Jmp(after_block_id.clone()));
+                    self.func.add_block(true_block_id);
+                    if self.block(true_block) == Fallthrough::Reachable {
+                        self.func.add_instr(Instr::Jmp(after_block_id.clone()));
+                    }
 
-                    self.main.add_block(false_block_id);
-                    self.block(false_block);
-                    self.main.add_instr(Instr::Jmp(after_block_id.clone()));
+                    self.func.add_block(false_block_id);
+                    if self.block(false_block) == Fallthrough::Reachable {
+                        self.func.add_instr(Instr::Jmp(after_block_id.clone()));
+                    }
 
-                    self.main.add_block(after_block_id);
+                    self.func.add_block(after_block_id);
                 }
                 Statement::Print { fmt } => {
                     let print_id = self.print_counter;
@@ -81,8 +97,13 @@ impl State {
                         ],
                     ));
 
-                    self.main
+                    self.func
                         .add_instr(Instr::Call("printf".into(), c_args, None));
+                }
+                Statement::Return { value } => {
+                    let value = self.expression(value, None);
+                    self.func.add_instr(Instr::Ret(Some(value)));
+                    return Fallthrough::Unreachable;
                 }
                 Statement::While { condition, body } => {
                     let condition_block = format!("_{}", self.block_counter);
@@ -90,24 +111,26 @@ impl State {
                     let after_block = format!("_{}", self.block_counter + 2);
                     self.block_counter += 3;
 
-                    self.main.add_instr(Instr::Jmp(condition_block.clone()));
+                    self.func.add_instr(Instr::Jmp(condition_block.clone()));
 
-                    self.main.add_block(condition_block.clone());
+                    self.func.add_block(condition_block.clone());
                     let condition = self.expression(condition, None);
-                    self.main.add_instr(Instr::Jnz(
+                    self.func.add_instr(Instr::Jnz(
                         condition,
                         body_block.clone(),
                         after_block.clone(),
                     ));
 
-                    self.main.add_block(body_block);
-                    self.block(body);
-                    self.main.add_instr(Instr::Jmp(condition_block));
+                    self.func.add_block(body_block);
+                    if self.block(body) == Fallthrough::Reachable {
+                        self.func.add_instr(Instr::Jmp(condition_block));
+                    }
 
-                    self.main.add_block(after_block);
+                    self.func.add_block(after_block);
                 }
             }
         }
+        Fallthrough::Reachable
     }
 
     fn expression(&mut self, expression: &Expression, assignment: Option<&str>) -> Value {
@@ -116,13 +139,7 @@ impl State {
                 let (left, right) = args.as_ref();
                 let left = self.expression(left, None);
                 let right = self.expression(right, None);
-                let temp = if let Some(assignment) = assignment {
-                    Value::Temporary(assignment.to_string())
-                } else {
-                    let temp_id = self.temp_counter;
-                    self.temp_counter += 1;
-                    Value::Temporary(format!("temp_{temp_id}"))
-                };
+                let temp = self.get_temporary(assignment);
                 let instr = match op {
                     BinaryOperator::Add => Instr::Add(left, right),
                     BinaryOperator::Subtract => Instr::Sub(left, right),
@@ -136,13 +153,26 @@ impl State {
                     BinaryOperator::Equal => Instr::Cmp(Type::Long, Cmp::Eq, left, right),
                     BinaryOperator::NotEqual => Instr::Cmp(Type::Long, Cmp::Ne, left, right),
                 };
-                self.main.assign_instr(temp.clone(), Type::Long, instr);
+                self.func.assign_instr(temp.clone(), Type::Long, instr);
+                temp
+            }
+            Expression::Call(func, args) => {
+                let temp = self.get_temporary(assignment);
+                let args = args
+                    .iter()
+                    .map(|arg| (Type::Long, self.expression(arg, None)))
+                    .collect();
+                self.func.assign_instr(
+                    temp.clone(),
+                    Type::Long,
+                    Instr::Call(func.to_string(), args, None),
+                );
                 temp
             }
             Expression::Literal(literal) => {
                 let value = Value::Const(*literal as u64);
                 if let Some(assignment) = assignment {
-                    self.main.assign_instr(
+                    self.func.assign_instr(
                         Value::Temporary(assignment.to_string()),
                         Type::Long,
                         Instr::Copy(value.clone()),
@@ -153,7 +183,7 @@ impl State {
             Expression::Variable(source) => {
                 let value = Value::Temporary(source.to_string());
                 if let Some(assignment) = assignment {
-                    self.main.assign_instr(
+                    self.func.assign_instr(
                         Value::Temporary(assignment.to_string()),
                         Type::Long,
                         Instr::Copy(value.clone()),
@@ -163,21 +193,42 @@ impl State {
             }
         }
     }
+
+    fn get_temporary(&mut self, assignment: Option<&str>) -> Value {
+        if let Some(assignment) = assignment {
+            Value::Temporary(assignment.to_string())
+        } else {
+            let temp_id = self.temp_counter;
+            self.temp_counter += 1;
+            Value::Temporary(format!("temp_{temp_id}"))
+        }
+    }
 }
 
 pub fn make_intermediate(ast: &ast::Module) -> qbe::Module<'static> {
     let mut state = State {
         il: qbe::Module::new(),
-        main: Function::new(Linkage::public(), "main", Vec::new(), Some(Type::Word)),
+        func: Function::new(Linkage::public(), "main", Vec::new(), Some(Type::Word)),
+        functions: Vec::new(),
         block_counter: 0,
         temp_counter: 0,
         print_counter: 0,
     };
 
-    state.main.add_block("start");
+    state.func.add_block("start");
     state.block(&ast.statements);
-    state.main.add_instr(Instr::Ret(Some(Value::Const(0))));
-    state.il.add_function(state.main);
+    state.func.add_instr(Instr::Ret(Some(Value::Const(0))));
+    state.il.add_function(state.func);
+    while let Some((name, args, body)) = state.functions.pop() {
+        let args = args
+            .iter()
+            .map(|arg| (Type::Long, Value::Temporary(arg.to_string())))
+            .collect();
+        state.func = Function::new(Linkage::private(), name, args, Some(Type::Long));
+        state.func.add_block("start");
+        state.block(body);
+        state.il.add_function(state.func);
+    }
     state.il
 }
 

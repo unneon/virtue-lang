@@ -9,6 +9,11 @@ pub enum Statement<'a> {
         variable: &'a str,
         expression: Expression<'a>,
     },
+    Function {
+        name: &'a str,
+        args: Vec<&'a str>,
+        body: Vec<Statement<'a>>,
+    },
     If {
         condition: Expression<'a>,
         true_block: Vec<Statement<'a>>,
@@ -16,6 +21,9 @@ pub enum Statement<'a> {
     },
     Print {
         fmt: Format<'a>,
+    },
+    Return {
+        value: Expression<'a>,
     },
     While {
         condition: Expression<'a>,
@@ -26,6 +34,7 @@ pub enum Statement<'a> {
 #[derive(Debug)]
 pub enum Expression<'a> {
     BinaryOperation(BinaryOperator, Box<(Expression<'a>, Expression<'a>)>),
+    Call(&'a str, Vec<Expression<'a>>),
     Literal(i64),
     Variable(&'a str),
 }
