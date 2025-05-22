@@ -1,0 +1,14 @@
+func ackermann(m, n)
+    if m == 0
+        return n + 1
+    if n == 0
+        return ackermann(m - 1, 1)
+    return ackermann(m - 1, ackermann(m, n - 1))
+
+a40 = ackermann(4, 0)
+a32 = ackermann(3, 2)
+a24 = ackermann(2, 4)
+a16 = ackermann(1, 6)
+a08 = ackermann(0, 8)
+
+print "{a40} {a32} {a24} {a16} {a08}"
