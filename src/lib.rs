@@ -1,6 +1,7 @@
 use crate::ast::Module;
 
 pub mod ast;
+pub mod codegen;
 mod interpreter;
 mod parser;
 
