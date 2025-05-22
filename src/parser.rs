@@ -9,15 +9,11 @@ use nom::sequence::{delimited, pair, preceded};
 use nom::{IResult, Parser};
 
 pub fn module(input: &str) -> Module {
-    all_consuming(delimited(
-        line_whitespace,
-        separated_list0(line_whitespace, |input| statement(0, input)),
-        line_whitespace,
-    ))
-    .map(|statements| Module { statements })
-    .parse(input)
-    .unwrap()
-    .1
+    let statements = all_consuming(|input| block(0, input))
+        .parse(input)
+        .unwrap()
+        .1;
+    Module { statements }
 }
 
 fn block(nesting: usize, mut input: &str) -> IResult<&str, Vec<Statement>> {
@@ -306,17 +302,19 @@ fn indent(input: &str) -> IResult<&str, ()> {
 }
 
 fn empty_lines(input: &str) -> IResult<&str, ()> {
-    many0(preceded(sp, newline)).map(|_| ()).parse(input)
+    many0(preceded(sp, alt((newline, comment))))
+        .map(|_| ())
+        .parse(input)
+}
+
+fn comment(input: &str) -> IResult<&str, ()> {
+    (tag("#"), take_while(|c| c != '\n'), char('\n'))
+        .map(|_| ())
+        .parse(input)
 }
 
 fn newline(input: &str) -> IResult<&str, ()> {
     preceded(sp, char('\n')).map(|_| ()).parse(input)
-}
-
-fn line_whitespace(input: &str) -> IResult<&str, ()> {
-    take_while(|c| c == ' ' || c == '\n')
-        .map(|_| ())
-        .parse(input)
 }
 
 fn sp(input: &str) -> IResult<&str, ()> {
