@@ -1,14 +1,6 @@
 #[derive(Debug)]
 pub struct Module<'a> {
-    pub items: Vec<Item<'a>>,
-}
-
-#[derive(Debug)]
-pub enum Item<'a> {
-    Function {
-        name: &'a str,
-        body: Vec<Statement<'a>>,
-    },
+    pub statements: Vec<Statement<'a>>,
 }
 
 #[derive(Debug)]

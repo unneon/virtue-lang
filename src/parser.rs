@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOperator, Expression, Format, FormatSegment, Item, Module, Statement};
+use crate::ast::{BinaryOperator, Expression, Format, FormatSegment, Module, Statement};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1};
 use nom::character::anychar;
@@ -11,23 +11,13 @@ use nom::{IResult, Parser};
 pub fn module(input: &str) -> Module {
     all_consuming(delimited(
         line_whitespace,
-        separated_list0(line_whitespace, item),
+        separated_list0(line_whitespace, |input| statement(0, input)),
         line_whitespace,
     ))
-    .map(|items| Module { items })
+    .map(|statements| Module { statements })
     .parse(input)
     .unwrap()
     .1
-}
-
-fn item(input: &str) -> IResult<&str, Item> {
-    let (input, _) = tag("func")(input)?;
-    let (input, name) = preceded(sp, identifier).parse(input)?;
-    let (input, _) = preceded(sp, char('(')).parse(input)?;
-    let (input, _) = preceded(sp, char(')')).parse(input)?;
-    let (input, _) = newline(input)?;
-    let (input, body) = block(1, input)?;
-    Ok((input, Item::Function { name, body }))
 }
 
 fn block(nesting: usize, mut input: &str) -> IResult<&str, Vec<Statement>> {

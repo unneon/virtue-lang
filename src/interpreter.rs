@@ -1,16 +1,11 @@
-use crate::ast::{BinaryOperator, Expression, FormatSegment, Item, Module, Statement};
+use crate::ast::{BinaryOperator, Expression, FormatSegment, Module, Statement};
 use std::collections::HashMap;
 use std::fmt::Write;
 
 pub fn run(module: &Module) -> String {
     let mut variables = HashMap::new();
     let mut stdout = String::new();
-    for item in &module.items {
-        let Item::Function { name, body } = item;
-        if *name == "main" {
-            execute(body, &mut variables, &mut stdout);
-        }
-    }
+    execute(&module.statements, &mut variables, &mut stdout);
     stdout
 }
 
