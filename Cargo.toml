@@ -4,10 +4,12 @@ version = "0.0.0"
 edition = "2024"
 
 [dependencies]
-libtest-mimic = "0.8"
 nom = "8.0"
 qbe = "2.5"
-tempfile = "3.20"
+tempfile = { version = "3.20", default-features = false }
+
+[dev-dependencies]
+libtest-mimic = "0.8"
 
 [[test]]
 name = "test"
