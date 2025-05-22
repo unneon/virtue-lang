@@ -22,7 +22,9 @@ pub fn module(input: &str) -> Module {
 
 fn block(nesting: usize, mut input: &str) -> IResult<&str, Vec<Statement>> {
     let mut statements = Vec::new();
-    while let Ok((subinput, statement)) = statement(nesting, input) {
+    while let Ok((subinput, statement)) =
+        preceded(empty_lines, |input| statement(nesting, input)).parse(input)
+    {
         input = subinput;
         statements.push(statement);
     }
@@ -301,6 +303,10 @@ fn indentiation(nesting: usize, input: &str) -> IResult<&str, ()> {
 
 fn indent(input: &str) -> IResult<&str, ()> {
     tag("    ").map(|_| ()).parse(input)
+}
+
+fn empty_lines(input: &str) -> IResult<&str, ()> {
+    many0(preceded(sp, newline)).map(|_| ()).parse(input)
 }
 
 fn newline(input: &str) -> IResult<&str, ()> {
