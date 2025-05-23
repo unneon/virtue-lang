@@ -150,15 +150,12 @@ impl<'a> State<'a> {
                         match segment {
                             FormatSegment::Text(text) => c_fmt.push_str(text),
                             FormatSegment::Arg(variable) => {
-                                c_fmt.push_str(
-                                    match self.hir_func.bindings[*variable].type_.as_ref().unwrap()
-                                    {
-                                        hir::Type::I64 => "%lld",
-                                        hir::Type::I32 => "%d",
-                                        hir::Type::String => "%s",
-                                        hir::Type::Struct(_) => todo!(),
-                                    },
-                                );
+                                c_fmt.push_str(match self.hir_func.bindings[*variable].type_ {
+                                    hir::Type::I64 => "%lld",
+                                    hir::Type::I32 => "%d",
+                                    hir::Type::String => "%s",
+                                    hir::Type::Struct(_) => todo!(),
+                                });
                                 c_args.push((Long, Value::Temporary(format!("_{variable}"))));
                             }
                         }
@@ -240,7 +237,7 @@ pub fn make_il(hir: &hir::Program) -> qbe::Module<'static> {
             .iter()
             .map(|arg| {
                 (
-                    convert_type(function.bindings[arg.binding].type_.as_ref().unwrap()),
+                    convert_type(&function.bindings[arg.binding].type_),
                     Value::Temporary(format!("_{}", arg.binding)),
                 )
             })

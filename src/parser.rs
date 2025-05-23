@@ -59,12 +59,12 @@ fn if_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
         preceded(newline, block(nesting + 1)),
         opt(else_block(nesting)),
     )
-        .map(|(condition, true_block, false_block)| {
-            let false_block = false_block.unwrap_or_else(Vec::new);
+        .map(|(condition, true_, false_block)| {
+            let false_ = false_block.unwrap_or_else(Vec::new);
             Statement::If {
                 condition,
-                true_block,
-                false_block,
+                true_,
+                false_,
             }
         })
 }

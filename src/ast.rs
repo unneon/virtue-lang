@@ -12,8 +12,8 @@ pub enum Statement<'a> {
     Function(Function<'a>),
     If {
         condition: Expression<'a>,
-        true_block: Vec<Statement<'a>>,
-        false_block: Vec<Statement<'a>>,
+        true_: Vec<Statement<'a>>,
+        false_: Vec<Statement<'a>>,
     },
     Print {
         fmt: Format<'a>,

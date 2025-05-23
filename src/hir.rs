@@ -27,7 +27,7 @@ pub struct Arg {
 
 #[derive(Debug)]
 pub struct Binding {
-    pub type_: Option<Type>,
+    pub type_: Type,
 }
 
 #[derive(Debug)]
@@ -68,4 +68,13 @@ pub enum Type {
     I32,
     String,
     Struct(usize),
+}
+
+impl Type {
+    pub fn unwrap_struct(&self) -> usize {
+        match self {
+            Type::Struct(i) => *i,
+            _ => panic!("expected struct, got {self:?}"),
+        }
+    }
 }

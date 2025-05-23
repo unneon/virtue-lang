@@ -19,57 +19,52 @@ enum Fallthrough {
 }
 
 impl<'a> State<'a> {
-    fn declare_function(
+    fn preprocess_function(
         &mut self,
-        f_name: &'a str,
-        f_args: &[(&'a str, &'a str)],
-        f_return_type: &'a str,
-        f_body: &'a [ast::Statement<'a>],
+        name: &'a str,
+        ast_args: &[(&'a str, &'a str)],
+        return_type: &'a str,
+        body: &'a [ast::Statement<'a>],
     ) {
-        let mut args = Vec::new();
+        let mut hir_args = Vec::new();
         let mut bindings = Vec::new();
         let mut binding_map = HashMap::new();
-        for (name, type_) in f_args {
+        for (name, type_) in ast_args {
             let binding = bindings.len();
-            args.push(hir::Arg { binding });
+            hir_args.push(hir::Arg { binding });
             bindings.push(hir::Binding {
-                type_: Some(self.lookup_type(type_)),
+                type_: self.convert_type(type_),
             });
             binding_map.insert(*name, binding);
         }
-        let return_type = self.lookup_type(f_return_type);
         self.functions.push(hir::Function {
-            exported: f_name == "main",
-            name: f_name,
-            args,
-            return_type,
+            exported: name == "main",
+            name,
+            args: hir_args,
+            return_type: self.convert_type(return_type),
             bindings,
             binding_map,
             blocks: Vec::new(),
-            ast_block: f_body,
+            ast_block: body,
         });
-        self.function_map.insert(f_name, self.functions.len() - 1);
+        self.function_map.insert(name, self.functions.len() - 1);
 
-        self.declare_block(f_body);
+        self.preprocess_block(body);
     }
 
-    fn declare_block(&mut self, statements: &'a [ast::Statement<'a>]) {
+    fn preprocess_block(&mut self, statements: &'a [ast::Statement<'a>]) {
         for statement in statements {
             match statement {
                 ast::Statement::Assignment { .. } => {}
-                ast::Statement::Function(function) => self.declare_function(
+                ast::Statement::Function(function) => self.preprocess_function(
                     function.name,
                     &function.args,
                     function.return_type,
                     &function.body,
                 ),
-                ast::Statement::If {
-                    true_block,
-                    false_block,
-                    ..
-                } => {
-                    self.declare_block(true_block);
-                    self.declare_block(false_block);
+                ast::Statement::If { true_, false_, .. } => {
+                    self.preprocess_block(true_);
+                    self.preprocess_block(false_);
                 }
                 ast::Statement::Print { .. } => {}
                 ast::Statement::Return { .. } => {}
@@ -80,7 +75,7 @@ impl<'a> State<'a> {
                     let mut fields = Vec::new();
                     let mut field_map = HashMap::new();
                     for (name, type_) in ast_fields {
-                        fields.push(self.lookup_type(type_));
+                        fields.push(self.convert_type(type_));
                         field_map.insert(*name, fields.len() - 1);
                     }
                     let struct_id = self.structs.len();
@@ -88,64 +83,42 @@ impl<'a> State<'a> {
                     self.structs.push(struct_);
                     self.struct_map.insert(name, struct_id);
                 }
-                ast::Statement::While { body, .. } => self.declare_block(body),
+                ast::Statement::While { body, .. } => self.preprocess_block(body),
             }
         }
     }
 
-    fn define_functions(&mut self) {
+    fn process_all_functions(&mut self) {
         for i in 0..self.functions.len() {
-            self.function(i);
+            self.current_function = i;
+            self.current_block = self.make_block();
+            self.process_block(self.functions[i].ast_block);
         }
     }
 
-    fn function(&mut self, index: usize) {
-        let block = self.functions[index].ast_block;
-        self.functions[index].blocks.push(Vec::new());
-        self.current_function = index;
-        self.current_block = 0;
-        self.block(block);
-    }
-
-    fn block(&mut self, statements: &'a [ast::Statement<'a>]) -> Fallthrough {
+    fn process_block(&mut self, statements: &'a [ast::Statement<'a>]) -> Fallthrough {
         for statement in statements {
             match statement {
                 ast::Statement::Assignment { left, right } => {
-                    let right = self.expression(right);
-                    let right_type = self.lookup_binding_type(right);
+                    let right_binding = self.process_expression(right);
+                    let right_type = self.binding_type(right_binding);
                     match left {
-                        ast::Expression::Field(object, field) => {
-                            let object_binding = self.expression(object);
-                            let object_type = self.lookup_binding_type(object_binding);
-                            let hir::Type::Struct(struct_id) = object_type else {
-                                panic!()
-                            };
-                            let field_id = self.structs[struct_id].field_map[field];
+                        ast::Expression::Field(object, field_name) => {
+                            let object_binding = self.process_expression(object);
+                            let struct_id = self.binding_type(object_binding).unwrap_struct();
+                            let field_id = self.structs[struct_id].field_map[field_name];
                             self.add_statement(hir::Statement::AssignmentField(
                                 object_binding,
                                 field_id,
-                                right,
+                                right_binding,
                             ));
                         }
-                        ast::Expression::Variable(left) => {
-                            let f = &mut self.functions[self.current_function];
-                            let binding_count = f.bindings.len();
-                            let left = match f.binding_map.entry(*left) {
-                                hash_map::Entry::Occupied(e) => {
-                                    let left = *e.get();
-                                    let left_type = f.bindings[left].type_.as_ref().unwrap();
-                                    assert_eq!(right_type, *left_type);
-                                    left
-                                }
-                                hash_map::Entry::Vacant(e) => {
-                                    let left = binding_count;
-                                    f.bindings.push(hir::Binding {
-                                        type_: Some(right_type),
-                                    });
-                                    *e.insert(left)
-                                }
-                            };
-                            self.add_statement(hir::Statement::Assignment(left, right));
+                        ast::Expression::Variable(variable) => {
+                            let left_binding = self.make_variable(variable, right_type);
+                            self.add_statement(hir::Statement::Assignment(
+                                left_binding,
+                                right_binding,
+                            ));
                         }
                         _ => todo!("hir assignment unimplemented {statement:?}"),
                     }
@@ -153,131 +126,105 @@ impl<'a> State<'a> {
                 ast::Statement::Function { .. } => {}
                 ast::Statement::If {
                     condition,
-                    true_block,
-                    false_block,
+                    true_,
+                    false_,
                 } => {
-                    let condition = self.expression(condition);
-                    let true_block_id = self.functions[self.current_function].blocks.len();
-                    let false_block_id = true_block_id + 1;
-                    let after_block_id = false_block_id + 1;
-                    for _ in 0..3 {
-                        self.functions[self.current_function]
-                            .blocks
-                            .push(Vec::new());
-                    }
+                    let true_block = self.make_block();
+                    let false_block = self.make_block();
+                    let after_block = self.make_block();
 
+                    let condition = self.process_expression(condition);
                     self.add_statement(hir::Statement::JumpConditional {
                         condition,
-                        true_block: true_block_id,
-                        false_block: false_block_id,
+                        true_block,
+                        false_block,
                     });
 
-                    self.current_block = true_block_id;
-                    if self.block(true_block) == Fallthrough::Reachable {
-                        self.add_statement(hir::Statement::JumpAlways(after_block_id));
+                    self.current_block = true_block;
+                    if self.process_block(true_) == Fallthrough::Reachable {
+                        self.add_statement(hir::Statement::JumpAlways(after_block));
                     }
 
-                    self.current_block = false_block_id;
-                    if self.block(false_block) == Fallthrough::Reachable {
-                        self.add_statement(hir::Statement::JumpAlways(after_block_id));
+                    self.current_block = false_block;
+                    if self.process_block(false_) == Fallthrough::Reachable {
+                        self.add_statement(hir::Statement::JumpAlways(after_block));
                     }
 
-                    self.current_block = after_block_id;
+                    self.current_block = after_block;
                 }
                 ast::Statement::Print { fmt } => {
-                    self.add_statement(hir::Statement::Print(
-                        fmt.segments
-                            .iter()
-                            .map(|segment| match segment {
-                                ast::FormatSegment::Text(text) => hir::FormatSegment::Text(text),
-                                ast::FormatSegment::Variable(variable) => {
-                                    hir::FormatSegment::Arg(self.lookup_variable(variable))
-                                }
-                            })
-                            .collect(),
-                    ));
+                    let segments = fmt
+                        .segments
+                        .iter()
+                        .map(|segment| self.convert_format_segment(segment))
+                        .collect();
+                    self.add_statement(hir::Statement::Print(segments));
                 }
                 ast::Statement::Return { value } => {
-                    let value = self.expression(value);
+                    let value = self.process_expression(value);
                     self.add_statement(hir::Statement::Return(value));
                     return Fallthrough::Unreachable;
                 }
                 ast::Statement::Struct { .. } => {}
                 ast::Statement::While { condition, body } => {
-                    let condition_block_id = self.functions[self.current_function].blocks.len();
-                    let body_block_id = condition_block_id + 1;
-                    let after_block_id = body_block_id + 1;
-                    for _ in 0..3 {
-                        self.functions[self.current_function]
-                            .blocks
-                            .push(Vec::new());
-                    }
+                    let condition_block = self.make_block();
+                    let body_block = self.make_block();
+                    let after_block = self.make_block();
 
-                    self.add_statement(hir::Statement::JumpAlways(condition_block_id));
+                    self.add_statement(hir::Statement::JumpAlways(condition_block));
 
-                    self.current_block = condition_block_id;
-                    let condition = self.expression(condition);
+                    self.current_block = condition_block;
+                    let condition = self.process_expression(condition);
                     self.add_statement(hir::Statement::JumpConditional {
                         condition,
-                        true_block: body_block_id,
-                        false_block: after_block_id,
+                        true_block: body_block,
+                        false_block: after_block,
                     });
 
-                    self.current_block = body_block_id;
-                    if self.block(body) == Fallthrough::Reachable {
-                        self.add_statement(hir::Statement::JumpAlways(condition_block_id));
+                    self.current_block = body_block;
+                    if self.process_block(body) == Fallthrough::Reachable {
+                        self.add_statement(hir::Statement::JumpAlways(condition_block));
                     }
 
-                    self.current_block = after_block_id;
+                    self.current_block = after_block;
                 }
             }
         }
         Fallthrough::Reachable
     }
 
-    fn expression(&mut self, expression: &ast::Expression<'a>) -> usize {
+    fn process_expression(&mut self, expression: &ast::Expression<'a>) -> usize {
         match expression {
             ast::Expression::BinaryOperation(op, args) => {
                 let (left, right) = args.as_ref();
-                let left = self.expression(left);
-                let right = self.expression(right);
+                let left = self.process_expression(left);
+                let right = self.process_expression(right);
                 let binding = self.make_temporary(hir::Type::I64);
                 self.add_statement(hir::Statement::BinaryOperator(binding, *op, left, right));
                 binding
             }
-            ast::Expression::Call(function_name, ast_args) => {
+            ast::Expression::Call(function_name, args_ast) => {
+                let arg_bindings: Vec<_> = args_ast
+                    .iter()
+                    .map(|arg| self.process_expression(arg))
+                    .collect();
                 let function_id = self.function_map[function_name];
                 let function = &self.functions[function_id];
-                let mut hir_args = Vec::new();
-                assert_eq!(function.args.len(), ast_args.len());
-                let decl_types: Vec<_> = function
-                    .args
-                    .iter()
-                    .map(|decl_arg| {
-                        self.functions[function_id].bindings[decl_arg.binding]
-                            .type_
-                            .clone()
-                            .unwrap()
-                    })
-                    .collect();
-                let return_temp = self.make_temporary(function.return_type.clone());
-                for (decl_type, call_arg) in decl_types.into_iter().zip(ast_args) {
-                    let call_binding = self.expression(call_arg);
-                    let call_type = self.lookup_binding_type(call_binding);
-                    assert_eq!(call_type, decl_type);
-                    hir_args.push(call_binding);
+                assert_eq!(arg_bindings.len(), function.args.len());
+                for (arg, arg_binding) in function.args.iter().zip(&arg_bindings) {
+                    let arg_type = &function.bindings[arg.binding].type_;
+                    let arg_binding_type = self.binding_type(*arg_binding);
+                    assert_eq!(arg_binding_type, *arg_type);
                 }
-                self.add_statement(hir::Statement::Call(return_temp, function_id, hir_args));
-                return_temp
+                let binding = self.make_temporary(function.return_type.clone());
+                self.add_statement(hir::Statement::Call(binding, function_id, arg_bindings));
+                binding
             }
-            ast::Expression::Field(object, field) => {
+            ast::Expression::Field(object_expr, field_name) => {
+                let object_binding = self.process_expression(object_expr);
+                let struct_id = self.binding_type(object_binding).unwrap_struct();
+                let field_id = self.structs[struct_id].field_map[field_name];
                 let binding = self.make_temporary(hir::Type::I64);
-                let object_binding = self.expression(object);
-                let object_type = self.lookup_binding_type(object_binding);
-                let hir::Type::Struct(struct_id) = object_type else {
-                    panic!("why field on non-struct")
-                };
-                let field_id = self.structs[struct_id].field_map[field];
                 self.add_statement(hir::Statement::Field(binding, object_binding, field_id));
                 binding
             }
@@ -286,33 +233,36 @@ impl<'a> State<'a> {
                 self.add_statement(hir::Statement::Literal(binding, *literal));
                 binding
             }
-            ast::Expression::New(type_) => {
-                let hir::Type::Struct(struct_id) = self.lookup_type(type_) else {
-                    panic!("why allocate non-struct")
-                };
+            ast::Expression::New(struct_name) => {
+                let struct_id = self.convert_type(struct_name).unwrap_struct();
                 let binding = self.make_temporary(hir::Type::Struct(struct_id));
                 self.add_statement(hir::Statement::New(binding, struct_id));
                 binding
             }
             ast::Expression::StringLiteral(literal) => {
-                let string_id = self.strings.len();
-                self.strings.push(literal);
-
+                let string_id = self.make_string(literal);
                 let binding = self.make_temporary(hir::Type::String);
                 self.add_statement(hir::Statement::StringConstant(binding, string_id));
                 binding
             }
-            ast::Expression::Variable(variable) => {
-                let f = &mut self.functions[self.current_function];
-                match f.binding_map.entry(variable) {
-                    hash_map::Entry::Occupied(entry) => *entry.get(),
-                    hash_map::Entry::Vacant(entry) => {
-                        let binding = f.bindings.len();
-                        let binding_data = hir::Binding { type_: None };
-                        f.bindings.push(binding_data);
-                        *entry.insert(binding)
-                    }
-                }
+            ast::Expression::Variable(variable) => self.variable_binding(variable),
+        }
+    }
+
+    fn make_variable(&mut self, variable: &'a str, type_: hir::Type) -> usize {
+        let f = &mut self.functions[self.current_function];
+        let binding_count = f.bindings.len();
+        match f.binding_map.entry(variable) {
+            hash_map::Entry::Occupied(entry) => {
+                let binding = *entry.get();
+                let binding_type = &f.bindings[binding].type_;
+                assert_eq!(type_, *binding_type);
+                binding
+            }
+            hash_map::Entry::Vacant(e) => {
+                let binding = binding_count;
+                f.bindings.push(hir::Binding { type_ });
+                *e.insert(binding)
             }
         }
     }
@@ -320,16 +270,29 @@ impl<'a> State<'a> {
     fn make_temporary(&mut self, type_: hir::Type) -> usize {
         let f = &mut self.functions[self.current_function];
         let binding = f.bindings.len();
-        let binding_data = hir::Binding { type_: Some(type_) };
+        let binding_data = hir::Binding { type_ };
         f.bindings.push(binding_data);
         binding
+    }
+
+    fn make_string(&mut self, text: &'a str) -> usize {
+        let string_id = self.strings.len();
+        self.strings.push(text);
+        string_id
+    }
+
+    fn make_block(&mut self) -> usize {
+        let current_function = &mut self.functions[self.current_function];
+        let block_id = current_function.blocks.len();
+        current_function.blocks.push(Vec::new());
+        block_id
     }
 
     fn add_statement(&mut self, statement: hir::Statement<'a>) {
         self.functions[self.current_function].blocks[self.current_block].push(statement);
     }
 
-    fn lookup_type(&self, type_: &str) -> hir::Type {
+    fn convert_type(&self, type_: &str) -> hir::Type {
         match type_ {
             "int" => hir::Type::I64,
             "i32" => hir::Type::I32,
@@ -338,15 +301,22 @@ impl<'a> State<'a> {
         }
     }
 
-    fn lookup_variable(&self, variable: &str) -> usize {
+    fn convert_format_segment(&self, segment: &ast::FormatSegment<'a>) -> hir::FormatSegment<'a> {
+        match segment {
+            ast::FormatSegment::Text(text) => hir::FormatSegment::Text(text),
+            ast::FormatSegment::Variable(variable) => {
+                hir::FormatSegment::Arg(self.variable_binding(variable))
+            }
+        }
+    }
+
+    fn variable_binding(&self, variable: &str) -> usize {
         self.functions[self.current_function].binding_map[variable]
     }
 
-    fn lookup_binding_type(&self, binding: usize) -> hir::Type {
+    fn binding_type(&self, binding: usize) -> hir::Type {
         self.functions[self.current_function].bindings[binding]
             .type_
-            .as_ref()
-            .unwrap()
             .clone()
     }
 }
@@ -362,8 +332,8 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> hir::Program<'a> {
         current_block: 0,
     };
 
-    state.declare_function("main", &[], "i32", &ast.statements);
-    state.define_functions();
+    state.preprocess_function("main", &[], "i32", &ast.statements);
+    state.process_all_functions();
 
     hir::Program {
         functions: state.functions,
