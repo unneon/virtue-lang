@@ -173,7 +173,13 @@ fn expression_binary<'a>(
 }
 
 fn expression0(input: &str) -> IResult<&str, Expression> {
-    alt((integer_literal, function_call, variable_reference)).parse(input)
+    alt((
+        integer_literal,
+        parentheses,
+        function_call,
+        variable_reference,
+    ))
+    .parse(input)
 }
 
 fn identifier(input: &str) -> IResult<&str, &str> {
@@ -189,6 +195,10 @@ fn integer_literal(input: &str) -> IResult<&str, Expression> {
     let literal = literal.parse().unwrap();
     let expression = Expression::Literal(literal);
     Ok((input, expression))
+}
+
+fn parentheses(input: &str) -> IResult<&str, Expression> {
+    delimited((sp, char('(')), expression(), (sp, char(')'))).parse(input)
 }
 
 fn function_call(input: &str) -> IResult<&str, Expression> {
