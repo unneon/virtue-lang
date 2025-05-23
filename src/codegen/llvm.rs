@@ -14,8 +14,21 @@ struct State<'a> {
 }
 
 impl State<'_> {
+    fn prologue_structs(&mut self) {
+        for (struct_id, struct_) in self.hir.structs.iter().enumerate() {
+            let mut fields = String::new();
+            for (field_id, field) in struct_.fields.iter().enumerate() {
+                if field_id > 0 {
+                    fields += ", ";
+                }
+                fields += &self.convert_type(field);
+            }
+            self.write(format!("%struct_{struct_id} = type {{ {fields} }}"));
+        }
+    }
+
     fn prologue_extern(&mut self) {
-        self.ir.push_str("declare i32 @printf(i8*, ...)\n\n");
+        self.write("declare i32 @printf(i8*, ...)");
     }
 
     fn prologue_strings(&mut self) {
@@ -25,7 +38,6 @@ impl State<'_> {
                 "@string_{string_id} = internal constant [{string_len} x i8] c\"{string}\\00\""
             ));
         }
-        self.ir += "\n";
     }
 
     fn prologue_format(&mut self) {
@@ -40,7 +52,6 @@ impl State<'_> {
                 }
             }
         }
-        self.ir += "\n";
     }
 
     fn all_functions(&mut self) {
@@ -118,6 +129,21 @@ impl State<'_> {
                     self.load(temp, right);
                     self.store(left, temp);
                 }
+                Statement::AssignmentField(object_binding, field_id, value_binding) => {
+                    let object_binding_id = object_binding.id;
+                    let struct_id = function.bindings[object_binding.id].type_.unwrap_struct();
+                    let field_type =
+                        self.convert_type(&self.hir.structs[struct_id].fields[*field_id]);
+                    let value_temp = self.make_temporary();
+                    let field_temp = self.make_temporary();
+                    self.load(value_temp, value_binding);
+                    self.write(format!(
+                        "%temp_{field_temp} = getelementptr inbounds %struct_{struct_id}, ptr %stack_{object_binding_id}, i32 0, i32 {field_id}"
+                    ));
+                    self.write(format!(
+                        "store {field_type} %temp_{value_temp}, {field_type}* %temp_{field_temp}"
+                    ));
+                }
                 Statement::BinaryOperator(binding, op, left, right) => {
                     let instr = match op {
                         BinaryOperator::Add => "add",
@@ -167,7 +193,7 @@ impl State<'_> {
                         if arg_index > 0 {
                             signature.push_str(", ");
                         }
-                        signature.push_str(type_);
+                        signature.push_str(&type_);
                         let temp = self.make_temporary();
                         self.load(temp, arg_binding);
                         if arg_index > 0 {
@@ -181,6 +207,21 @@ impl State<'_> {
                         "%temp_{temp_return} = call i64 ({signature}) @{callee_name}({args})"
                     ));
                     self.store(return_binding, temp_return);
+                }
+                Statement::Field(result_binding, object_binding, field_id) => {
+                    let object_binding_id = object_binding.id;
+                    let struct_id = function.bindings[object_binding.id].type_.unwrap_struct();
+                    let field_type =
+                        self.convert_type(&self.hir.structs[struct_id].fields[*field_id]);
+                    let result_temp = self.make_temporary();
+                    let field_temp = self.make_temporary();
+                    self.write(format!(
+                        "%temp_{field_temp} = getelementptr inbounds %struct_{struct_id}, ptr %stack_{object_binding_id}, i32 0, i32 {field_id}"
+                    ));
+                    self.write(format!(
+                        "%temp_{result_temp} = load {field_type}, {field_type}* %temp_{field_temp}"
+                    ));
+                    self.store(result_binding, result_temp);
                 }
                 Statement::JumpAlways(block) => {
                     self.write(format!(
@@ -208,6 +249,7 @@ impl State<'_> {
                     let binding_id = binding.id;
                     self.write(format!("store i64 {literal}, i64* %stack_{binding_id}"));
                 }
+                Statement::New(_, _) => {}
                 Statement::Print(fmt) => {
                     let function_id = self.current_function;
                     let mut args = String::new();
@@ -233,7 +275,6 @@ impl State<'_> {
                     self.write(format!("%temp_{temp} = getelementptr [{string_len} x i8], [{string_len} x i8]* @string_{string_id}, i32 0, i32 0"));
                     self.store(binding, temp);
                 }
-                _ => {}
             }
         }
 
@@ -264,7 +305,8 @@ impl State<'_> {
 
     fn write(&mut self, line: impl AsRef<str>) {
         let line = line.as_ref();
-        if !line.starts_with("declare")
+        if !line.starts_with("%struct_")
+            && !line.starts_with("declare")
             && !line.starts_with("@")
             && !line.starts_with("define")
             && !line.starts_with("}")
@@ -281,12 +323,12 @@ impl State<'_> {
         temp
     }
 
-    fn convert_type(&self, type_: &Type) -> &'static str {
+    fn convert_type(&self, type_: &Type) -> String {
         match type_ {
-            Type::I64 => "i64",
-            Type::I32 => "i32",
-            Type::String => "i8*",
-            Type::Struct(_) => todo!(),
+            Type::I64 => "i64".to_owned(),
+            Type::I32 => "i32".to_owned(),
+            Type::String => "i8*".to_owned(),
+            Type::Struct(id) => format!("%struct_{id}"),
         }
     }
 }
@@ -299,6 +341,7 @@ pub fn make_ir(hir: &Program) -> String {
         temp_counter: 0,
     };
 
+    state.prologue_structs();
     state.prologue_extern();
     state.prologue_strings();
     state.prologue_format();

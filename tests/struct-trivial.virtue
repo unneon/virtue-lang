@@ -5,5 +5,4 @@ t.a = 42
 a = t.a
 print "{a}"
 
-# ignore-llvm
 # 42
