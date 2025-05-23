@@ -21,7 +21,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Install dependencies (Rust nightly)
-      run: rustup default nightly
+      run: rustup default nightly && rustup component add rustfmt
     - name: Verify formatter
       run: cargo fmt -- --check
   lint:
@@ -31,6 +31,6 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Install dependencies (Rust nightly)
-      run: rustup default nightly
+      run: rustup default nightly && rustup component add clippy
     - name: Verify linter
       run: cargo clippy -- -D warnings
