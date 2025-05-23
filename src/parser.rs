@@ -7,12 +7,15 @@ use nom::character::complete::{char, digit1};
 use nom::combinator::{all_consuming, opt, recognize, verify};
 use nom::error::Error;
 use nom::multi::{count, fold_many0, many0, separated_list0};
-use nom::sequence::{delimited, pair, preceded};
+use nom::sequence::{delimited, pair, preceded, terminated};
 
 trait Parser<'a, T> = nom::Parser<&'a str, Output = T, Error = Error<&'a str>>;
 
 pub fn module(input: &str) -> Module {
-    let statements = all_consuming(block(0)).parse(input).unwrap().1;
+    let statements = all_consuming(terminated(block(0), empty_lines))
+        .parse(input)
+        .unwrap()
+        .1;
     Module { statements }
 }
 

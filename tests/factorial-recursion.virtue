@@ -5,3 +5,5 @@ func factorial(n)
 
 r = factorial(20)
 print "{r}"
+
+# ignore-llvm

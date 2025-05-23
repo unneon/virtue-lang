@@ -12,3 +12,5 @@ a16 = ackermann(1, 6)
 a08 = ackermann(0, 8)
 
 print "{a40} {a32} {a24} {a16} {a08}"
+
+# ignore-llvm

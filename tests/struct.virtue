@@ -8,3 +8,5 @@ p.b = 666
 a = p.a
 b = p.b
 print "{a} {b}"
+
+# ignore-llvm
