@@ -1,2 +1,4 @@
 greeting = "Hello, world!"
 print "{greeting}"
+
+# Hello, world!

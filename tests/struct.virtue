@@ -10,3 +10,4 @@ b = p.b
 print "{a} {b}"
 
 # ignore-llvm
+# 42 666

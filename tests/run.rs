@@ -3,10 +3,17 @@ use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
+use std::sync::Arc;
 
 enum Backend {
     Llvm,
     Qbe,
+}
+
+struct Directives {
+    stdout: String,
+    ignore_llvm: bool,
+    ignore_qbe: bool,
 }
 
 fn main() -> Result<ExitCode, Box<dyn Error>> {
@@ -23,32 +30,53 @@ fn find_tests() -> Result<Vec<Trial>, Box<dyn Error>> {
             let stem = entry.file_stem().unwrap().to_str().unwrap();
             let name = stem.replace('-', "_");
             let source = fs::read_to_string(&entry).unwrap();
-            let directives: Vec<_> = source
-                .lines()
-                .rev()
-                .take_while(|line| line.starts_with("#"))
-                .collect();
+            let directives = parse_directives(&source);
             let entry2 = entry.clone();
+            let stdout = Arc::new(directives.stdout);
+            let stdout2 = stdout.clone();
             tests.push(
                 Trial::test(format!("{name}::llvm"), move || {
-                    run_test(entry, Backend::Llvm)
+                    run_test(entry, Backend::Llvm, stdout)
                 })
-                .with_ignored_flag(directives.contains(&"# ignore-llvm")),
+                .with_ignored_flag(directives.ignore_llvm),
             );
             tests.push(
                 Trial::test(format!("{name}::qbe"), move || {
-                    run_test(entry2, Backend::Qbe)
+                    run_test(entry2, Backend::Qbe, stdout2)
                 })
-                .with_ignored_flag(directives.contains(&"# ignore-qbe")),
+                .with_ignored_flag(directives.ignore_qbe),
             );
         }
     }
     Ok(tests)
 }
 
-fn run_test(path: PathBuf, backend: Backend) -> Result<(), Failed> {
+fn parse_directives(source: &str) -> Directives {
+    let lines: Vec<_> = source
+        .lines()
+        .rev()
+        .take_while(|line| line.starts_with("#"))
+        .collect();
+    let mut directives = Directives {
+        stdout: String::new(),
+        ignore_llvm: false,
+        ignore_qbe: false,
+    };
+    for line in lines.into_iter().rev() {
+        if line == "# ignore-llvm" {
+            directives.ignore_llvm = true;
+        } else if line == "# ignore-qbe" {
+            directives.ignore_qbe = true;
+        } else {
+            directives.stdout += line.strip_prefix("# ").unwrap();
+            directives.stdout.push('\n');
+        }
+    }
+    directives
+}
+
+fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Result<(), Failed> {
     let source = fs::read_to_string(&path).unwrap();
-    let expected_stdout = fs::read_to_string(path.with_extension("stdout")).unwrap();
     let ast = virtue::parse(&source);
     let intermediate_name = match backend {
         Backend::Llvm => "LLVM IR",
@@ -84,7 +112,7 @@ fn run_test(path: PathBuf, backend: Backend) -> Result<(), Failed> {
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success());
     let actual_stdout = String::from_utf8(output.stdout).unwrap();
-    if actual_stdout != expected_stdout {
+    if actual_stdout != *expected_stdout {
         return Err(format!("\x1B[1m{intermediate_name}:\x1B[0m\n{intermediate}\n\x1B[1;31mactual stdout:\x1B[0m\n{actual_stdout}\n\x1B[1;32mexpected stdout:\x1B[0m\n{expected_stdout}").into());
     }
     Ok(())

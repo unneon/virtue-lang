@@ -6,3 +6,4 @@ while n <= 20
 print "{r}"
 
 # ignore-llvm
+# 2432902008176640000

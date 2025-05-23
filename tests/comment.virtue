@@ -4,3 +4,4 @@ a = 4 * 2 + 3
 print "{a}"
 
 # ignore-llvm
+# 11
