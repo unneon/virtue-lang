@@ -5,7 +5,7 @@ use std::collections::{HashMap, hash_map};
 struct State<'a> {
     functions: Vec<hir::Function<'a>>,
     function_map: HashMap<&'a str, usize>,
-    structs: Vec<hir::Struct>,
+    structs: Vec<hir::Struct<'a>>,
     struct_map: HashMap<&'a str, usize>,
     strings: Vec<&'a str>,
     current_function: usize,
@@ -55,13 +55,40 @@ impl<'a> State<'a> {
 
     fn declare_block(&mut self, statements: &'a [ast::Statement<'a>]) {
         for statement in statements {
-            if let ast::Statement::Function(function) = statement {
-                self.declare_function(
+            match statement {
+                ast::Statement::Assignment { .. } => {}
+                ast::Statement::Function(function) => self.declare_function(
                     function.name,
                     &function.args,
                     function.return_type,
                     &function.body,
-                );
+                ),
+                ast::Statement::If {
+                    true_block,
+                    false_block,
+                    ..
+                } => {
+                    self.declare_block(true_block);
+                    self.declare_block(false_block);
+                }
+                ast::Statement::Print { .. } => {}
+                ast::Statement::Return { .. } => {}
+                ast::Statement::Struct {
+                    name,
+                    fields: ast_fields,
+                } => {
+                    let mut fields = Vec::new();
+                    let mut field_map = HashMap::new();
+                    for (name, type_) in ast_fields {
+                        fields.push(self.lookup_type(type_));
+                        field_map.insert(*name, fields.len() - 1);
+                    }
+                    let struct_id = self.structs.len();
+                    let struct_ = hir::Struct { fields, field_map };
+                    self.structs.push(struct_);
+                    self.struct_map.insert(name, struct_id);
+                }
+                ast::Statement::While { body, .. } => self.declare_block(body),
             }
         }
     }
@@ -84,15 +111,44 @@ impl<'a> State<'a> {
         for statement in statements {
             match statement {
                 ast::Statement::Assignment { left, right } => {
-                    let left = self.expression(left);
                     let right = self.expression(right);
-                    let f = &mut self.functions[self.current_function];
-                    if let Some(left_type) = f.bindings[left].type_.as_ref() {
-                        assert_eq!(left_type, f.bindings[right].type_.as_ref().unwrap());
-                    } else {
-                        f.bindings[left].type_ = Some(f.bindings[right].type_.clone().unwrap());
+                    let right_type = self.lookup_binding_type(right);
+                    match left {
+                        ast::Expression::Field(object, field) => {
+                            let object_binding = self.expression(object);
+                            let object_type = self.lookup_binding_type(object_binding);
+                            let hir::Type::Struct(struct_id) = object_type else {
+                                panic!()
+                            };
+                            let field_id = self.structs[struct_id].field_map[field];
+                            self.add_statement(hir::Statement::AssignmentField(
+                                object_binding,
+                                field_id,
+                                right,
+                            ));
+                        }
+                        ast::Expression::Variable(left) => {
+                            let f = &mut self.functions[self.current_function];
+                            let binding_count = f.bindings.len();
+                            let left = match f.binding_map.entry(*left) {
+                                hash_map::Entry::Occupied(e) => {
+                                    let left = *e.get();
+                                    let left_type = f.bindings[left].type_.as_ref().unwrap();
+                                    assert_eq!(right_type, *left_type);
+                                    left
+                                }
+                                hash_map::Entry::Vacant(e) => {
+                                    let left = binding_count;
+                                    f.bindings.push(hir::Binding {
+                                        type_: Some(right_type),
+                                    });
+                                    *e.insert(left)
+                                }
+                            };
+                            self.add_statement(hir::Statement::Assignment(left, right));
+                        }
+                        _ => todo!("hir assignment unimplemented {statement:?}"),
                     }
-                    self.add_statement(hir::Statement::Assignment(left, right));
                 }
                 ast::Statement::Function { .. } => {}
                 ast::Statement::If {
@@ -214,9 +270,28 @@ impl<'a> State<'a> {
                 self.add_statement(hir::Statement::Call(return_temp, function_id, hir_args));
                 return_temp
             }
+            ast::Expression::Field(object, field) => {
+                let binding = self.make_temporary(hir::Type::I64);
+                let object_binding = self.expression(object);
+                let object_type = self.lookup_binding_type(object_binding);
+                let hir::Type::Struct(struct_id) = object_type else {
+                    panic!("why field on non-struct")
+                };
+                let field_id = self.structs[struct_id].field_map[field];
+                self.add_statement(hir::Statement::Field(binding, object_binding, field_id));
+                binding
+            }
             ast::Expression::Literal(literal) => {
                 let binding = self.make_temporary(hir::Type::I64);
                 self.add_statement(hir::Statement::Literal(binding, *literal));
+                binding
+            }
+            ast::Expression::New(type_) => {
+                let hir::Type::Struct(struct_id) = self.lookup_type(type_) else {
+                    panic!("why allocate non-struct")
+                };
+                let binding = self.make_temporary(hir::Type::Struct(struct_id));
+                self.add_statement(hir::Statement::New(binding, struct_id));
                 binding
             }
             ast::Expression::StringLiteral(literal) => {
@@ -239,7 +314,6 @@ impl<'a> State<'a> {
                     }
                 }
             }
-            _ => todo!("hir typecheck expression {expression:?}"),
         }
     }
 

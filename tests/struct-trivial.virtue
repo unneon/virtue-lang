@@ -1,0 +1,9 @@
+struct trivial
+    a int
+t = new trivial
+t.a = 42
+a = t.a
+print "{a}"
+
+# ignore-llvm
+# 42

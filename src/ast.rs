@@ -75,9 +75,3 @@ pub enum FormatSegment<'a> {
     Text(&'a str),
     Variable(&'a str),
 }
-
-impl Expression<'_> {
-    pub fn add<'a>(left: Expression<'a>, right: Expression<'a>) -> Expression<'a> {
-        Expression::BinaryOperation(BinaryOperator::Add, Box::new((left, right)))
-    }
-}

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 #[derive(Debug)]
 pub struct Program<'a> {
     pub functions: Vec<Function<'a>>,
-    pub structs: Vec<Struct>,
+    pub structs: Vec<Struct<'a>>,
     pub strings: Vec<&'a str>,
 }
 
@@ -33,8 +33,10 @@ pub struct Binding {
 #[derive(Debug)]
 pub enum Statement<'a> {
     Assignment(usize, usize),
+    AssignmentField(usize, usize, usize),
     BinaryOperator(usize, ast::BinaryOperator, usize, usize),
     Call(usize, usize, Vec<usize>),
+    Field(usize, usize, usize),
     JumpAlways(usize),
     JumpConditional {
         condition: usize,
@@ -42,6 +44,7 @@ pub enum Statement<'a> {
         false_block: usize,
     },
     Literal(usize, i64),
+    New(usize, usize),
     Print(Vec<FormatSegment<'a>>),
     Return(usize),
     StringConstant(usize, usize),
@@ -54,8 +57,9 @@ pub enum FormatSegment<'a> {
 }
 
 #[derive(Debug)]
-pub struct Struct {
+pub struct Struct<'a> {
     pub fields: Vec<Type>,
+    pub field_map: HashMap<&'a str, usize>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

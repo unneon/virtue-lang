@@ -14,6 +14,7 @@ struct State<'a> {
     il: qbe::Module<'static>,
     func: Function<'static>,
     string_counter: usize,
+    temp_counter: usize,
 }
 
 #[derive(Eq, PartialEq)]
@@ -26,24 +27,27 @@ impl<'a> State<'a> {
     fn block(&mut self, statements: &'a [Statement]) -> Fallthrough {
         for statement in statements {
             match statement {
-                Statement::Assignment(left, right) => {
+                Statement::Assignment(left, right) => self.func.assign_instr(
+                    Value::Temporary(format!("_{left}")),
+                    Long,
+                    Instr::Copy(Value::Temporary(format!("_{right}"))),
+                ),
+                Statement::AssignmentField(object_binding, field, value) => {
+                    let field_offset = 8 * field;
+                    let field_binding = self.make_temporary();
                     self.func.assign_instr(
-                        Value::Temporary(format!("_{left}")),
+                        field_binding.clone(),
                         Long,
-                        Instr::Copy(Value::Temporary(format!("_{right}"))),
-                    )
-                    // Expression::Field(object, field) => {
-                    //     let temporary = self.expression(right, None);
-                    //     let field_offset = self.types[self.type_(object)].fields[field];
-                    //     let field = self.expression(
-                    //         &Expression::add(
-                    //             object.as_ref().clone(),
-                    //             Expression::Literal(field_offset as i64),
-                    //         ),
-                    //         None,
-                    //     );
-                    //     self.func.add_instr(Instr::Store(Long, field, temporary));
-                    // }
+                        Instr::Add(
+                            Value::Temporary(format!("_{object_binding}")),
+                            Value::Const(field_offset as u64),
+                        ),
+                    );
+                    self.func.add_instr(Instr::Store(
+                        Long,
+                        field_binding,
+                        Value::Temporary(format!("_{value}")),
+                    ));
                 }
                 Statement::BinaryOperator(result, op, left, right) => {
                     let left = Value::Temporary(format!("_{left}"));
@@ -84,6 +88,23 @@ impl<'a> State<'a> {
                         ),
                     )
                 }
+                Statement::Field(binding, object_binding, field) => {
+                    let field_offset = 8 * field;
+                    let field_binding = self.make_temporary();
+                    self.func.assign_instr(
+                        field_binding.clone(),
+                        Long,
+                        Instr::Add(
+                            Value::Temporary(format!("_{object_binding}")),
+                            Value::Const(field_offset as u64),
+                        ),
+                    );
+                    self.func.assign_instr(
+                        Value::Temporary(format!("_{binding}")),
+                        Long,
+                        Instr::Load(Long, field_binding),
+                    );
+                }
                 Statement::JumpAlways(block) => {
                     self.func.add_instr(Instr::Jmp(format!("_{block}")));
                     return Fallthrough::Unreachable;
@@ -105,6 +126,15 @@ impl<'a> State<'a> {
                         Value::Temporary(format!("_{binding}")),
                         Long,
                         Instr::Copy(Value::Const(*literal as u64)),
+                    );
+                }
+                Statement::New(binding, struct_id) => {
+                    let field_count = self.hir.structs[*struct_id].fields.len();
+                    let struct_size = 8 * field_count;
+                    self.func.assign_instr(
+                        Value::Temporary(format!("_{binding}")),
+                        Long,
+                        Instr::Alloc8(struct_size as u64),
                     );
                 }
                 Statement::Print(fmt) => {
@@ -158,35 +188,11 @@ impl<'a> State<'a> {
         Fallthrough::Reachable
     }
 
-    // fn expression(&mut self, expression: &Expression<'a>, assignment: Option<&'a str>) -> Value {
-    //     match expression {
-    //         Expression::Field(object, field) => {
-    //             let field_offset = self.types[self.type_(object)].fields[field];
-    //             let temp = self.get_temporary(assignment);
-    //             let field = self.expression(
-    //                 &Expression::add(
-    //                     object.as_ref().clone(),
-    //                     Expression::Literal(field_offset as i64),
-    //                 ),
-    //                 None,
-    //             );
-    //             self.func
-    //                 .assign_instr(temp.clone(), Long, Instr::Load(Long, field));
-    //             temp
-    //         }
-    //         Expression::New(type_) => {
-    //             self.variables
-    //                 .insert(assignment.unwrap(), Variable { type_ });
-    //             let temp = self.get_temporary(assignment);
-    //             self.func.assign_instr(
-    //                 temp.clone(),
-    //                 Long,
-    //                 Instr::Alloc8(self.types[type_].size as u64),
-    //             );
-    //             temp
-    //         }
-    //     }
-    // }
+    fn make_temporary(&mut self) -> Value {
+        let temp_id = self.temp_counter;
+        self.temp_counter += 1;
+        Value::Temporary(format!("tmp_{temp_id}"))
+    }
 
     fn string_constant(&mut self, text: String, assignment: Option<String>) -> Value {
         let name = if let Some(assignment) = assignment {
@@ -215,6 +221,7 @@ pub fn make_il(hir: &hir::Program) -> qbe::Module<'static> {
         il: qbe::Module::new(),
         func: Function::new(Linkage::public(), "main", Vec::new(), Some(Word)),
         string_counter: 0,
+        temp_counter: 0,
     };
 
     state.string_counter = hir.strings.len();
@@ -245,6 +252,7 @@ pub fn make_il(hir: &hir::Program) -> qbe::Module<'static> {
             args,
             Some(convert_type(&function.return_type)),
         );
+        state.temp_counter = 0;
         for (block_id, block) in function.blocks.iter().enumerate() {
             state.func.add_block(format!("_{block_id}"));
             if state.block(block) == Fallthrough::Reachable {
