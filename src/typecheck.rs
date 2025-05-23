@@ -5,11 +5,17 @@ use std::collections::{HashMap, hash_map};
 struct State<'a> {
     functions: Vec<hir::Function<'a>>,
     function_map: HashMap<&'a str, usize>,
-    function_queue: Vec<&'a ast::Function<'a>>,
     structs: Vec<hir::Struct>,
     struct_map: HashMap<&'a str, usize>,
     strings: Vec<&'a str>,
     current_function: usize,
+    current_block: usize,
+}
+
+#[derive(Eq, PartialEq)]
+enum Fallthrough {
+    Unreachable,
+    Reachable,
 }
 
 impl<'a> State<'a> {
@@ -39,7 +45,7 @@ impl<'a> State<'a> {
             return_type,
             bindings,
             binding_map,
-            block: vec![],
+            blocks: Vec::new(),
             ast_block: f_body,
         });
         self.function_map.insert(f_name, self.functions.len() - 1);
@@ -53,7 +59,7 @@ impl<'a> State<'a> {
                 self.declare_function(
                     function.name,
                     &function.args,
-                    &function.return_type,
+                    function.return_type,
                     &function.body,
                 );
             }
@@ -68,11 +74,13 @@ impl<'a> State<'a> {
 
     fn function(&mut self, index: usize) {
         let block = self.functions[index].ast_block;
+        self.functions[index].blocks.push(Vec::new());
         self.current_function = index;
+        self.current_block = 0;
         self.block(block);
     }
 
-    fn block(&mut self, statements: &'a [ast::Statement<'a>]) {
+    fn block(&mut self, statements: &'a [ast::Statement<'a>]) -> Fallthrough {
         for statement in statements {
             match statement {
                 ast::Statement::Assignment { left, right } => {
@@ -87,7 +95,39 @@ impl<'a> State<'a> {
                     self.add_statement(hir::Statement::Assignment(left, right));
                 }
                 ast::Statement::Function { .. } => {}
-                ast::Statement::If { .. } => {}
+                ast::Statement::If {
+                    condition,
+                    true_block,
+                    false_block,
+                } => {
+                    let condition = self.expression(condition);
+                    let true_block_id = self.functions[self.current_function].blocks.len();
+                    let false_block_id = true_block_id + 1;
+                    let after_block_id = false_block_id + 1;
+                    for _ in 0..3 {
+                        self.functions[self.current_function]
+                            .blocks
+                            .push(Vec::new());
+                    }
+
+                    self.add_statement(hir::Statement::JumpConditional {
+                        condition,
+                        true_block: true_block_id,
+                        false_block: false_block_id,
+                    });
+
+                    self.current_block = true_block_id;
+                    if self.block(true_block) == Fallthrough::Reachable {
+                        self.add_statement(hir::Statement::JumpAlways(after_block_id));
+                    }
+
+                    self.current_block = false_block_id;
+                    if self.block(false_block) == Fallthrough::Reachable {
+                        self.add_statement(hir::Statement::JumpAlways(after_block_id));
+                    }
+
+                    self.current_block = after_block_id;
+                }
                 ast::Statement::Print { fmt } => {
                     self.add_statement(hir::Statement::Print(
                         fmt.segments
@@ -104,11 +144,39 @@ impl<'a> State<'a> {
                 ast::Statement::Return { value } => {
                     let value = self.expression(value);
                     self.add_statement(hir::Statement::Return(value));
+                    return Fallthrough::Unreachable;
                 }
                 ast::Statement::Struct { .. } => {}
-                ast::Statement::While { .. } => {}
+                ast::Statement::While { condition, body } => {
+                    let condition_block_id = self.functions[self.current_function].blocks.len();
+                    let body_block_id = condition_block_id + 1;
+                    let after_block_id = body_block_id + 1;
+                    for _ in 0..3 {
+                        self.functions[self.current_function]
+                            .blocks
+                            .push(Vec::new());
+                    }
+
+                    self.add_statement(hir::Statement::JumpAlways(condition_block_id));
+
+                    self.current_block = condition_block_id;
+                    let condition = self.expression(condition);
+                    self.add_statement(hir::Statement::JumpConditional {
+                        condition,
+                        true_block: body_block_id,
+                        false_block: after_block_id,
+                    });
+
+                    self.current_block = body_block_id;
+                    if self.block(body) == Fallthrough::Reachable {
+                        self.add_statement(hir::Statement::JumpAlways(condition_block_id));
+                    }
+
+                    self.current_block = after_block_id;
+                }
             }
         }
+        Fallthrough::Reachable
     }
 
     fn expression(&mut self, expression: &ast::Expression<'a>) -> usize {
@@ -118,12 +186,7 @@ impl<'a> State<'a> {
                 let left = self.expression(left);
                 let right = self.expression(right);
                 let binding = self.make_temporary(hir::Type::I64);
-                self.add_statement(hir::Statement::BinaryOperator(
-                    binding,
-                    op.clone(),
-                    left,
-                    right,
-                ));
+                self.add_statement(hir::Statement::BinaryOperator(binding, *op, left, right));
                 binding
             }
             ast::Expression::Call(function_name, ast_args) => {
@@ -189,7 +252,7 @@ impl<'a> State<'a> {
     }
 
     fn add_statement(&mut self, statement: hir::Statement<'a>) {
-        self.functions[self.current_function].block.push(statement);
+        self.functions[self.current_function].blocks[self.current_block].push(statement);
     }
 
     fn lookup_type(&self, type_: &str) -> hir::Type {
@@ -218,11 +281,11 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> hir::Program<'a> {
     let mut state = State {
         functions: Vec::new(),
         function_map: HashMap::new(),
-        function_queue: Vec::new(),
         structs: Vec::new(),
         struct_map: HashMap::new(),
         strings: Vec::new(),
         current_function: 0,
+        current_block: 0,
     };
 
     state.declare_function("main", &[], "i32", &ast.statements);

@@ -16,7 +16,7 @@ pub struct Function<'a> {
     pub return_type: Type,
     pub bindings: Vec<Binding>,
     pub binding_map: HashMap<&'a str, usize>,
-    pub block: Vec<Statement<'a>>,
+    pub blocks: Vec<Vec<Statement<'a>>>,
     pub ast_block: &'a [ast::Statement<'a>],
 }
 
@@ -35,7 +35,12 @@ pub enum Statement<'a> {
     Assignment(usize, usize),
     BinaryOperator(usize, ast::BinaryOperator, usize, usize),
     Call(usize, usize, Vec<usize>),
-    Jump(usize, usize, usize),
+    JumpAlways(usize),
+    JumpConditional {
+        condition: usize,
+        true_block: usize,
+        false_block: usize,
+    },
     Literal(usize, i64),
     Print(Vec<FormatSegment<'a>>),
     Return(usize),

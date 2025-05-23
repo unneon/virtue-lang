@@ -15,7 +15,7 @@ pub fn compile_il(module: &qbe::Module, output_path: Option<&Path>) -> Result<()
     if let Some(output_path) = output_path {
         cc_command.arg("-o").arg(output_path);
     }
-    let mut cc_process = cc_command
+    let cc_process = cc_command
         .args(["-x", "assembler", "-"])
         .stdin(qbe_stdout)
         .stderr(Stdio::piped())

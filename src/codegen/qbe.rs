@@ -7,28 +7,13 @@ use crate::hir;
 use crate::hir::{FormatSegment, Statement};
 use qbe::Type::{Byte, Long, Word};
 use qbe::{Cmp, DataDef, DataItem, Function, Instr, Linkage, Value};
-use std::collections::HashMap;
 
 struct State<'a> {
     hir: &'a hir::Program<'a>,
     hir_func: &'a hir::Function<'a>,
     il: qbe::Module<'static>,
     func: Function<'static>,
-    functions: Vec<(&'a str, &'a [(&'a str, &'a str)], &'a [Statement<'a>])>,
-    types: HashMap<&'a str, Type<'a>>,
-    variables: HashMap<&'a str, Variable<'a>>,
-    block_counter: usize,
-    temp_counter: usize,
     string_counter: usize,
-}
-
-struct Type<'a> {
-    size: usize,
-    fields: HashMap<&'a str, usize>,
-}
-
-struct Variable<'a> {
-    type_: &'a str,
 }
 
 #[derive(Eq, PartialEq)]
@@ -47,15 +32,6 @@ impl<'a> State<'a> {
                         Long,
                         Instr::Copy(Value::Temporary(format!("_{right}"))),
                     )
-                    // Expression::Variable(variable) => {
-                    //     self.expression(right, Some(variable));
-                    //     self.variables.insert(
-                    //         *variable,
-                    //         Variable {
-                    //             type_: self.type_(right),
-                    //         },
-                    //     );
-                    // }
                     // Expression::Field(object, field) => {
                     //     let temporary = self.expression(right, None);
                     //     let field_offset = self.types[self.type_(object)].fields[field];
@@ -68,7 +44,6 @@ impl<'a> State<'a> {
                     //     );
                     //     self.func.add_instr(Instr::Store(Long, field, temporary));
                     // }
-                    //     _ => todo!("unsupported assignment to {left:?}"),
                 }
                 Statement::BinaryOperator(result, op, left, right) => {
                     let left = Value::Temporary(format!("_{left}"));
@@ -109,35 +84,22 @@ impl<'a> State<'a> {
                         ),
                     )
                 }
-                // Statement::If {
-                //     condition,
-                //     true_block,
-                //     false_block,
-                // } => {
-                //     let true_block_id = format!("_{}", self.block_counter);
-                //     let false_block_id = format!("_{}", self.block_counter + 1);
-                //     let after_block_id = format!("_{}", self.block_counter + 2);
-                //     self.block_counter += 3;
-                //
-                //     let condition = self.expression(condition, None);
-                //     self.func.add_instr(Instr::Jnz(
-                //         condition,
-                //         true_block_id.clone(),
-                //         false_block_id.clone(),
-                //     ));
-                //
-                //     self.func.add_block(true_block_id);
-                //     if self.block(true_block) == Fallthrough::Reachable {
-                //         self.func.add_instr(Instr::Jmp(after_block_id.clone()));
-                //     }
-                //
-                //     self.func.add_block(false_block_id);
-                //     if self.block(false_block) == Fallthrough::Reachable {
-                //         self.func.add_instr(Instr::Jmp(after_block_id.clone()));
-                //     }
-                //
-                //     self.func.add_block(after_block_id);
-                // }
+                Statement::JumpAlways(block) => {
+                    self.func.add_instr(Instr::Jmp(format!("_{block}")));
+                    return Fallthrough::Unreachable;
+                }
+                Statement::JumpConditional {
+                    condition,
+                    true_block,
+                    false_block,
+                } => {
+                    self.func.add_instr(Instr::Jnz(
+                        Value::Temporary(format!("_{condition}")),
+                        format!("_{true_block}"),
+                        format!("_{false_block}"),
+                    ));
+                    return Fallthrough::Unreachable;
+                }
                 Statement::Literal(binding, literal) => {
                     self.func.assign_instr(
                         Value::Temporary(format!("_{binding}")),
@@ -191,39 +153,6 @@ impl<'a> State<'a> {
                         Instr::Copy(Value::Global(format!("string_{string}"))),
                     );
                 }
-                // Statement::Struct { name, fields } => {
-                //     let size = 8 * fields.len();
-                //     let fields = fields
-                //         .iter()
-                //         .enumerate()
-                //         .map(|(i, (name, _))| (*name, i * 8))
-                //         .collect();
-                //     self.types.insert(name, Type { size, fields });
-                // }
-                // Statement::While { condition, body } => {
-                //     let condition_block = format!("_{}", self.block_counter);
-                //     let body_block = format!("_{}", self.block_counter + 1);
-                //     let after_block = format!("_{}", self.block_counter + 2);
-                //     self.block_counter += 3;
-                //
-                //     self.func.add_instr(Instr::Jmp(condition_block.clone()));
-                //
-                //     self.func.add_block(condition_block.clone());
-                //     let condition = self.expression(condition, None);
-                //     self.func.add_instr(Instr::Jnz(
-                //         condition,
-                //         body_block.clone(),
-                //         after_block.clone(),
-                //     ));
-                //
-                //     self.func.add_block(body_block);
-                //     if self.block(body) == Fallthrough::Reachable {
-                //         self.func.add_instr(Instr::Jmp(condition_block));
-                //     }
-                //
-                //     self.func.add_block(after_block);
-                // }
-                _ => todo!("qbe statement not implemented {statement:?}"),
             }
         }
         Fallthrough::Reachable
@@ -231,40 +160,6 @@ impl<'a> State<'a> {
 
     // fn expression(&mut self, expression: &Expression<'a>, assignment: Option<&'a str>) -> Value {
     //     match expression {
-    //         Expression::BinaryOperation(op, args) => {
-    //             let (left, right) = args.as_ref();
-    //             let left = self.expression(left, None);
-    //             let right = self.expression(right, None);
-    //             let temp = self.get_temporary(assignment);
-    //             let instr = match op {
-    //                 BinaryOperator::Add => Instr::Add(left, right),
-    //                 BinaryOperator::Subtract => Instr::Sub(left, right),
-    //                 BinaryOperator::Multiply => Instr::Mul(left, right),
-    //                 BinaryOperator::Divide => Instr::Div(left, right),
-    //                 BinaryOperator::Modulo => Instr::Rem(left, right),
-    //                 BinaryOperator::Less => Instr::Cmp(Long, Cmp::Slt, left, right),
-    //                 BinaryOperator::LessOrEqual => Instr::Cmp(Long, Cmp::Sle, left, right),
-    //                 BinaryOperator::Greater => Instr::Cmp(Long, Cmp::Sgt, left, right),
-    //                 BinaryOperator::GreaterOrEqual => Instr::Cmp(Long, Cmp::Sge, left, right),
-    //                 BinaryOperator::Equal => Instr::Cmp(Long, Cmp::Eq, left, right),
-    //                 BinaryOperator::NotEqual => Instr::Cmp(Long, Cmp::Ne, left, right),
-    //             };
-    //             self.func.assign_instr(temp.clone(), Long, instr);
-    //             temp
-    //         }
-    //         Expression::Call(func, args) => {
-    //             let temp = self.get_temporary(assignment);
-    //             let args = args
-    //                 .iter()
-    //                 .map(|arg| (Long, self.expression(arg, None)))
-    //                 .collect();
-    //             self.func.assign_instr(
-    //                 temp.clone(),
-    //                 Long,
-    //                 Instr::Call(func.to_string(), args, None),
-    //             );
-    //             temp
-    //         }
     //         Expression::Field(object, field) => {
     //             let field_offset = self.types[self.type_(object)].fields[field];
     //             let temp = self.get_temporary(assignment);
@@ -279,17 +174,6 @@ impl<'a> State<'a> {
     //                 .assign_instr(temp.clone(), Long, Instr::Load(Long, field));
     //             temp
     //         }
-    //         Expression::Literal(literal) => {
-    //             let value = Value::Const(*literal as u64);
-    //             if let Some(assignment) = assignment {
-    //                 self.func.assign_instr(
-    //                     Value::Temporary(assignment.to_string()),
-    //                     Long,
-    //                     Instr::Copy(value.clone()),
-    //                 );
-    //             }
-    //             value
-    //         }
     //         Expression::New(type_) => {
     //             self.variables
     //                 .insert(assignment.unwrap(), Variable { type_ });
@@ -300,28 +184,6 @@ impl<'a> State<'a> {
     //                 Instr::Alloc8(self.types[type_].size as u64),
     //             );
     //             temp
-    //         }
-    //         Expression::StringLiteral(text) => {
-    //             let value = self.string_constant(text.to_string(), None);
-    //             if let Some(assignment) = assignment {
-    //                 let assignment = Value::Temporary(assignment.to_string());
-    //                 self.func
-    //                     .assign_instr(assignment.clone(), Long, Instr::Copy(value.clone()));
-    //                 assignment
-    //             } else {
-    //                 value
-    //             }
-    //         }
-    //         Expression::Variable(source) => {
-    //             let value = Value::Temporary(source.to_string());
-    //             if let Some(assignment) = assignment {
-    //                 self.func.assign_instr(
-    //                     Value::Temporary(assignment.to_string()),
-    //                     Long,
-    //                     Instr::Copy(value.clone()),
-    //                 );
-    //             }
-    //             value
     //         }
     //     }
     // }
@@ -344,28 +206,6 @@ impl<'a> State<'a> {
 
         Value::Global(name)
     }
-
-    // fn type_(&self, expression: &'a Expression) -> &'a str {
-    //     match expression {
-    //         Expression::BinaryOperation(_, _) => "int",
-    //         Expression::Call(_, _) => "int",
-    //         Expression::Field(_, _) => "int",
-    //         Expression::Literal(_) => "int",
-    //         Expression::New(type_) => type_,
-    //         Expression::StringLiteral(_) => "string",
-    //         Expression::Variable(variable) => self.variables[variable].type_,
-    //     }
-    // }
-
-    fn get_temporary(&mut self, assignment: Option<&str>) -> Value {
-        if let Some(assignment) = assignment {
-            Value::Temporary(assignment.to_string())
-        } else {
-            let temp_id = self.temp_counter;
-            self.temp_counter += 1;
-            Value::Temporary(format!("temp_{temp_id}"))
-        }
-    }
 }
 
 pub fn make_il(hir: &hir::Program) -> qbe::Module<'static> {
@@ -374,11 +214,6 @@ pub fn make_il(hir: &hir::Program) -> qbe::Module<'static> {
         hir_func: &hir.functions[0],
         il: qbe::Module::new(),
         func: Function::new(Linkage::public(), "main", Vec::new(), Some(Word)),
-        functions: Vec::new(),
-        types: HashMap::new(),
-        variables: HashMap::new(),
-        block_counter: 0,
-        temp_counter: 0,
         string_counter: 0,
     };
 
@@ -410,9 +245,11 @@ pub fn make_il(hir: &hir::Program) -> qbe::Module<'static> {
             args,
             Some(convert_type(&function.return_type)),
         );
-        state.func.add_block("start");
-        if state.block(&function.block) == Fallthrough::Reachable {
-            state.func.add_instr(Instr::Ret(Some(Value::Const(0))));
+        for (block_id, block) in function.blocks.iter().enumerate() {
+            state.func.add_block(format!("_{block_id}"));
+            if state.block(block) == Fallthrough::Reachable {
+                state.func.add_instr(Instr::Ret(Some(Value::Const(0))));
+            }
         }
         state.il.add_function(state.func);
     }
