@@ -192,12 +192,16 @@ fn integer_literal(input: &str) -> IResult<&str, Expression> {
 }
 
 fn function_call(input: &str) -> IResult<&str, Expression> {
-    let (input, func) = identifier(input)?;
-    let (input, _) = preceded(sp, char('(')).parse(input)?;
-    let (input, args) =
-        separated_list0(preceded(sp, char(',')), preceded(sp, expression())).parse(input)?;
-    let (input, _) = preceded(sp, char(')')).parse(input)?;
-    Ok((input, Expression::Call(func, args)))
+    (
+        preceded(sp, identifier),
+        delimited(
+            (sp, char('(')),
+            separated_list0(preceded(sp, char(',')), preceded(sp, expression())),
+            (sp, char(')')),
+        ),
+    )
+        .map(|(func, args)| Expression::Call(func, args))
+        .parse(input)
 }
 
 fn variable_reference(input: &str) -> IResult<&str, Expression> {
