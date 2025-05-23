@@ -189,6 +189,7 @@ fn expression0(input: &str) -> IResult<&str, Expression> {
         field_expression,
         function_call,
         new_expression,
+        string_literal,
         variable_reference,
     ))
     .parse(input)
@@ -235,6 +236,12 @@ fn function_call(input: &str) -> IResult<&str, Expression> {
 fn new_expression(input: &str) -> IResult<&str, Expression> {
     preceded((sp, tag("new"), sp), identifier)
         .map(Expression::New)
+        .parse(input)
+}
+
+fn string_literal(input: &str) -> IResult<&str, Expression> {
+    delimited(preceded(sp, char('"')), take_while(|c| c != '"'), char('"'))
+        .map(Expression::StringLiteral)
         .parse(input)
 }
 

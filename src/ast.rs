@@ -42,6 +42,7 @@ pub enum Expression<'a> {
     Literal(i64),
     New(&'a str),
     Field(Box<Expression<'a>>, &'a str),
+    StringLiteral(&'a str),
     Variable(&'a str),
 }
 

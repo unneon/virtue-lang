@@ -16,7 +16,7 @@ struct State<'a> {
     variables: HashMap<&'a str, Variable<'a>>,
     block_counter: usize,
     temp_counter: usize,
-    print_counter: usize,
+    string_counter: usize,
 }
 
 struct Type<'a> {
@@ -41,6 +41,12 @@ impl<'a> State<'a> {
                 Statement::Assignment { left, right } => match left {
                     Expression::Variable(variable) => {
                         self.expression(right, Some(variable));
+                        self.variables.insert(
+                            *variable,
+                            Variable {
+                                type_: self.type_(right),
+                            },
+                        );
                     }
                     Expression::Field(object, field) => {
                         let temporary = self.expression(right, None);
@@ -93,19 +99,23 @@ impl<'a> State<'a> {
                     self.func.add_block(after_block_id);
                 }
                 Statement::Print { fmt } => {
-                    let print_id = self.print_counter;
-                    self.print_counter += 1;
+                    let string_id = format!("string_{}", self.string_counter);
+                    self.string_counter += 1;
 
                     let mut c_fmt = String::new();
                     let mut c_args = Vec::new();
 
-                    c_args.push((Long, Value::Global(format!("print_{print_id}"))));
+                    c_args.push((Long, Value::Global(string_id.clone())));
 
                     for segment in &fmt.segments {
                         match segment {
                             FormatSegment::Text(text) => c_fmt.push_str(text),
                             FormatSegment::Variable(variable) => {
-                                c_fmt.push_str("%lld");
+                                c_fmt.push_str(match self.variables[variable].type_ {
+                                    "int" => "%lld",
+                                    "string" => "%s",
+                                    _ => todo!(),
+                                });
                                 c_args.push((Long, Value::Temporary(variable.to_string())));
                             }
                         }
@@ -113,12 +123,7 @@ impl<'a> State<'a> {
 
                     c_fmt.push_str("\\n");
 
-                    self.il.add_data(DataDef::new(
-                        Linkage::private(),
-                        format!("print_{print_id}"),
-                        None,
-                        vec![(Byte, DataItem::Str(c_fmt)), (Byte, DataItem::Const(0))],
-                    ));
+                    self.string_constant(c_fmt, Some(string_id));
 
                     self.func
                         .add_instr(Instr::Call("printf".into(), c_args, None));
@@ -237,6 +242,17 @@ impl<'a> State<'a> {
                 );
                 temp
             }
+            Expression::StringLiteral(text) => {
+                let value = self.string_constant(text.to_string(), None);
+                if let Some(assignment) = assignment {
+                    let assignment = Value::Temporary(assignment.to_string());
+                    self.func
+                        .assign_instr(assignment.clone(), Long, Instr::Copy(value.clone()));
+                    assignment
+                } else {
+                    value
+                }
+            }
             Expression::Variable(source) => {
                 let value = Value::Temporary(source.to_string());
                 if let Some(assignment) = assignment {
@@ -251,10 +267,34 @@ impl<'a> State<'a> {
         }
     }
 
+    fn string_constant(&mut self, text: String, assignment: Option<String>) -> Value {
+        let name = if let Some(assignment) = assignment {
+            assignment
+        } else {
+            let string_id = self.string_counter;
+            self.string_counter += 1;
+            format!("string_{string_id}")
+        };
+
+        self.il.add_data(DataDef::new(
+            Linkage::private(),
+            name.clone(),
+            None,
+            vec![(Byte, DataItem::Str(text)), (Byte, DataItem::Const(0))],
+        ));
+
+        Value::Global(name)
+    }
+
     fn type_(&self, expression: &'a Expression) -> &'a str {
         match expression {
+            Expression::BinaryOperation(_, _) => "int",
+            Expression::Call(_, _) => "int",
+            Expression::Field(_, _) => "int",
+            Expression::Literal(_) => "int",
+            Expression::New(type_) => type_,
+            Expression::StringLiteral(_) => "string",
             Expression::Variable(variable) => self.variables[variable].type_,
-            _ => todo!("type of {expression:?}"),
         }
     }
 
@@ -278,7 +318,7 @@ pub fn make_il(ast: &ast::Module) -> qbe::Module<'static> {
         variables: HashMap::new(),
         block_counter: 0,
         temp_counter: 0,
-        print_counter: 0,
+        string_counter: 0,
     };
 
     state.func.add_block("start");

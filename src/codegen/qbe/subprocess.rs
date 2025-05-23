@@ -18,6 +18,7 @@ pub fn compile_il(module: &qbe::Module, output_path: Option<&Path>) -> Result<()
     let mut cc_process = cc_command
         .args(["-x", "assembler", "-"])
         .stdin(qbe_stdout)
+        .stderr(Stdio::piped())
         .spawn()
         .unwrap();
 
