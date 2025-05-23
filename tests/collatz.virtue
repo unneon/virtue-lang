@@ -6,7 +6,6 @@ while n > 1
         n = 3 * n + 1
     print "{n}"
 
-# ignore-llvm
 # 88
 # 44
 # 22

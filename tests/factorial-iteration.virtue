@@ -5,5 +5,4 @@ while n <= 20
     n = n + 1
 print "{r}"
 
-# ignore-llvm
 # 2432902008176640000

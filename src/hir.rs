@@ -97,7 +97,7 @@ impl FormatString<'_> {
 impl Type {
     fn printf_format(&self) -> &'static str {
         match self {
-            Type::I64 => "%ld",
+            Type::I64 => "%lld",
             Type::I32 => "%d",
             Type::String => "%s",
             Type::Struct(_) => panic!("print not supported for {self:?}"),
