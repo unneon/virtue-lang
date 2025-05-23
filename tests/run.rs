@@ -29,7 +29,12 @@ fn run_test(path: PathBuf) -> Result<(), Failed> {
     let ast = virtue::parse(&source);
     let il = virtue::codegen::qbe::make_intermediate(&ast);
     let output_path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
-    virtue::codegen::qbe::compile_intermediate(&il, Some(&output_path));
+    if let Err(e) = virtue::codegen::qbe::compile_intermediate(&il, Some(&output_path)) {
+        return Err(format!(
+            "\x1B[1mintermediate language:\x1B[0m\n{il}\n\x1B[1mqbe error:\x1B[0m\n{e}"
+        )
+        .into());
+    }
     let child = Command::new(&output_path)
         .stdout(Stdio::piped())
         .spawn()
@@ -38,7 +43,7 @@ fn run_test(path: PathBuf) -> Result<(), Failed> {
     assert!(output.status.success());
     let actual_stdout = String::from_utf8(output.stdout).unwrap();
     if actual_stdout != expected_stdout {
-        return Err(format!("{ast:#?}\n\n\x1B[1;31mactual stdout:\x1B[0m\n{actual_stdout}\n\n\x1B[1;32mexpected stdout:\x1B[0m\n{expected_stdout}\n").into());
+        return Err(format!("\x1B[1mintermediate language:\x1B[0m\n{il}\n\x1B[1;31mactual stdout:\x1B[0m\n{actual_stdout}\n\n\x1B[1;32mexpected stdout:\x1B[0m\n{expected_stdout}\n").into());
     }
     Ok(())
 }

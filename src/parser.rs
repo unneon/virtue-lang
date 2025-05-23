@@ -34,6 +34,7 @@ fn statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
             while_statement(nesting),
             func_statement(nesting),
             return_statement(),
+            struct_statement(nesting),
             assingment_statement(),
         )),
     )
@@ -41,13 +42,10 @@ fn statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
 
 fn assingment_statement<'a>() -> impl Parser<'a, Statement<'a>> {
     (
-        identifier,
+        expression(),
         delimited((sp, char('='), sp), expression(), newline),
     )
-        .map(|(variable, expression)| Statement::Assignment {
-            variable,
-            expression,
-        })
+        .map(|(left, right)| Statement::Assignment { left, right })
 }
 
 fn if_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
@@ -99,6 +97,18 @@ fn func_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
 
 fn return_statement<'a>() -> impl Parser<'a, Statement<'a>> {
     delimited((tag("return"), sp), expression(), newline).map(|value| Statement::Return { value })
+}
+
+fn struct_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
+    (
+        delimited((tag("struct"), sp), identifier, newline),
+        many0(delimited(
+            (empty_lines, indentiation(nesting + 1)),
+            (identifier, preceded(sp, identifier)),
+            newline,
+        )),
+    )
+        .map(|(name, fields)| Statement::Struct { name, fields })
 }
 
 fn format_string<'a>() -> impl Parser<'a, Format<'a>> {
@@ -176,7 +186,9 @@ fn expression0(input: &str) -> IResult<&str, Expression> {
     alt((
         integer_literal,
         parentheses,
+        field_expression,
         function_call,
+        new_expression,
         variable_reference,
     ))
     .parse(input)
@@ -201,6 +213,12 @@ fn parentheses(input: &str) -> IResult<&str, Expression> {
     delimited((sp, char('(')), expression(), (sp, char(')'))).parse(input)
 }
 
+fn field_expression(input: &str) -> IResult<&str, Expression> {
+    (variable_reference, preceded(char('.'), identifier))
+        .map(|(object, field)| Expression::Field(Box::new(object), field))
+        .parse(input)
+}
+
 fn function_call(input: &str) -> IResult<&str, Expression> {
     (
         preceded(sp, identifier),
@@ -211,6 +229,12 @@ fn function_call(input: &str) -> IResult<&str, Expression> {
         ),
     )
         .map(|(func, args)| Expression::Call(func, args))
+        .parse(input)
+}
+
+fn new_expression(input: &str) -> IResult<&str, Expression> {
+    preceded((sp, tag("new"), sp), identifier)
+        .map(Expression::New)
         .parse(input)
 }
 

@@ -6,8 +6,8 @@ pub struct Module<'a> {
 #[derive(Debug)]
 pub enum Statement<'a> {
     Assignment {
-        variable: &'a str,
-        expression: Expression<'a>,
+        left: Expression<'a>,
+        right: Expression<'a>,
     },
     Function {
         name: &'a str,
@@ -25,6 +25,10 @@ pub enum Statement<'a> {
     Return {
         value: Expression<'a>,
     },
+    Struct {
+        name: &'a str,
+        fields: Vec<(&'a str, &'a str)>,
+    },
     While {
         condition: Expression<'a>,
         body: Vec<Statement<'a>>,
@@ -36,6 +40,8 @@ pub enum Expression<'a> {
     BinaryOperation(BinaryOperator, Box<(Expression<'a>, Expression<'a>)>),
     Call(&'a str, Vec<Expression<'a>>),
     Literal(i64),
+    New(&'a str),
+    Field(Box<Expression<'a>>, &'a str),
     Variable(&'a str),
 }
 
@@ -63,4 +69,10 @@ pub struct Format<'a> {
 pub enum FormatSegment<'a> {
     Text(&'a str),
     Variable(&'a str),
+}
+
+impl Expression<'_> {
+    pub fn add<'a>(left: Expression<'a>, right: Expression<'a>) -> Expression<'a> {
+        Expression::BinaryOperation(BinaryOperator::Add, Box::new((left, right)))
+    }
 }
