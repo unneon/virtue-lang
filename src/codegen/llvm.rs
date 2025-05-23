@@ -36,7 +36,29 @@ pub fn make_ir(hir: &Program) -> String {
 
     for (function_id, function) in hir.functions.iter().enumerate() {
         let function_name = function.name;
-        writeln!(&mut ir, "define i32 @{function_name}() {{").unwrap();
+        let function_return_type = match function.return_type {
+            Type::I64 => "i64",
+            Type::I32 => "i32",
+            _ => todo!(),
+        };
+
+        let mut function_args_decl = String::new();
+        for (arg_id, arg) in function.args.iter().enumerate() {
+            if arg_id > 0 {
+                function_args_decl.push_str(", ");
+            }
+            let type_ = match function.bindings[arg.binding.id].type_ {
+                Type::I64 => "i64",
+                _ => todo!(),
+            };
+            write!(&mut function_args_decl, "{type_} %arg_{arg_id}").unwrap();
+        }
+
+        writeln!(
+            &mut ir,
+            "define {function_return_type} @{function_name}({function_args_decl}) {{"
+        )
+        .unwrap();
         for (binding_id, binding) in function.bindings.iter().enumerate() {
             let type_ = match binding.type_ {
                 Type::I64 => "i64",
@@ -44,6 +66,18 @@ pub fn make_ir(hir: &Program) -> String {
                 _ => todo!(),
             };
             writeln!(&mut ir, "    %stack_{binding_id} = alloca {type_}").unwrap();
+        }
+
+        for (arg_id, arg) in function.args.iter().enumerate() {
+            let type_ = match function.bindings[arg.binding.id].type_ {
+                Type::I64 => "i64",
+                _ => todo!(),
+            };
+            writeln!(
+                &mut ir,
+                "    store {type_} %arg_{arg_id}, {type_}* %stack_{arg_id}"
+            )
+            .unwrap();
         }
 
         'for_blocks: for (block_id, block) in function.blocks.iter().enumerate() {
@@ -155,6 +189,46 @@ pub fn make_ir(hir: &Program) -> String {
                             .unwrap();
                         }
                     }
+                    Statement::Call(return_binding, callee_id, arg_bindings) => {
+                        let mut signature = String::new();
+                        let mut args = String::new();
+                        for (arg_index, arg_binding) in arg_bindings.iter().enumerate() {
+                            let type_ = match function.bindings[arg_binding.id].type_ {
+                                Type::I64 => "i64",
+                                Type::String => "i8*",
+                                _ => todo!(),
+                            };
+                            if arg_index > 0 {
+                                signature.push_str(", ");
+                            }
+                            signature.push_str(type_);
+                            let temp = temp_counter;
+                            temp_counter += 1;
+                            writeln!(
+                                &mut ir,
+                                "    %temp_{temp} = load {type_}, {type_}* %stack_{}",
+                                arg_binding.id
+                            )
+                            .unwrap();
+                            if arg_index > 0 {
+                                args.push_str(", ");
+                            }
+                            write!(&mut args, "{type_} %temp_{temp}").unwrap();
+                        }
+                        let temp_return = temp_counter;
+                        temp_counter += 1;
+                        let callee_name = hir.functions[*callee_id].name;
+                        writeln!(
+                            &mut ir,
+                            "    %temp_{temp_return} = call i64 ({signature}) @{callee_name}({args})",
+                        ).unwrap();
+                        writeln!(
+                            &mut ir,
+                            "    store i64 %temp_{temp_return}, i64* %stack_{}",
+                            return_binding.id
+                        )
+                        .unwrap();
+                    }
                     Statement::JumpAlways(block) => {
                         writeln!(
                             &mut ir,
@@ -218,6 +292,18 @@ pub fn make_ir(hir: &Program) -> String {
                             }
                         }
                         writeln!(&mut ir, "    call i32 (i8*, ...) @printf(i8* @fmt_{function_id}_{block_id}_{statement_id}{args})").unwrap();
+                    }
+                    Statement::Return(binding) => {
+                        let temp = temp_counter;
+                        temp_counter += 1;
+                        writeln!(
+                            &mut ir,
+                            "    %temp_{temp} = load i64, i64* %stack_{}",
+                            binding.id
+                        )
+                        .unwrap();
+                        writeln!(&mut ir, "    ret i64 %temp_{temp}").unwrap();
+                        continue 'for_blocks;
                     }
                     Statement::StringConstant(binding, string_id) => {
                         let string_len = hir.strings[*string_id].len() + 1;

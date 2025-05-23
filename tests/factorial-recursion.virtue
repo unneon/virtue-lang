@@ -6,5 +6,4 @@ func factorial(n int) int
 r = factorial(20)
 print "{r}"
 
-# ignore-llvm
 # 2432902008176640000
