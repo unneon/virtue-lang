@@ -31,7 +31,7 @@ pub enum Statement<'a> {
     },
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Expression<'a> {
     BinaryOperation(BinaryOperator, Box<(Expression<'a>, Expression<'a>)>),
     Call(&'a str, Vec<Expression<'a>>),

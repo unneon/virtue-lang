@@ -6,7 +6,7 @@ use nom::character::anychar;
 use nom::character::complete::{char, digit1};
 use nom::combinator::{all_consuming, opt, recognize, verify};
 use nom::error::Error;
-use nom::multi::{count, many0, separated_list0};
+use nom::multi::{count, fold_many0, many0, separated_list0};
 use nom::sequence::{delimited, pair, preceded};
 
 trait Parser<'a, T> = nom::Parser<&'a str, Output = T, Error = Error<&'a str>>;
@@ -122,121 +122,58 @@ fn expression<'a>() -> impl Parser<'a, Expression<'a>> {
 }
 
 fn expression4(input: &str) -> IResult<&str, Expression> {
-    let (mut input, mut expression) = expression3(input)?;
-    while let Ok((subinput, (op, right))) =
-        pair(preceded(sp, binary_op4), preceded(sp, expression3)).parse(input)
-    {
-        input = subinput;
-        expression = Expression::BinaryOperation(op, Box::new((expression, right)));
-    }
-    Ok((input, expression))
+    let less_or_equal = tag("<=").map(|_| BinaryOperator::LessOrEqual);
+    let less = tag("<").map(|_| BinaryOperator::Less);
+    let greater_or_equal = tag(">=").map(|_| BinaryOperator::GreaterOrEqual);
+    let greater = tag(">").map(|_| BinaryOperator::Greater);
+    let equal = tag("==").map(|_| BinaryOperator::Equal);
+    let not_equal = tag("!=").map(|_| BinaryOperator::NotEqual);
+    let op = alt((
+        less_or_equal,
+        less,
+        greater_or_equal,
+        greater,
+        equal,
+        not_equal,
+    ));
+    expression_binary(expression3, op, input)
 }
 
 fn expression3(input: &str) -> IResult<&str, Expression> {
-    let (mut input, mut expression) = expression2(input)?;
-    while let Ok((subinput, (op, right))) =
-        pair(preceded(sp, binary_op3), preceded(sp, expression2)).parse(input)
-    {
-        input = subinput;
-        expression = Expression::BinaryOperation(op, Box::new((expression, right)));
-    }
-    Ok((input, expression))
+    let modulo = char('%').map(|_| BinaryOperator::Modulo);
+    expression_binary(expression2, modulo, input)
 }
 
 fn expression2(input: &str) -> IResult<&str, Expression> {
-    let (mut input, mut expression) = expression1(input)?;
-    while let Ok((subinput, (op, right))) =
-        pair(preceded(sp, binary_op2), preceded(sp, expression1)).parse(input)
-    {
-        input = subinput;
-        expression = Expression::BinaryOperation(op, Box::new((expression, right)));
-    }
-    Ok((input, expression))
+    let add = char('+').map(|_| BinaryOperator::Add);
+    let subtract = char('-').map(|_| BinaryOperator::Subtract);
+    let op = alt((add, subtract));
+    expression_binary(expression1, op, input)
 }
 
 fn expression1(input: &str) -> IResult<&str, Expression> {
-    let (mut input, mut expression) = expression0(input)?;
-    while let Ok((subinput, (op, right))) =
-        pair(preceded(sp, binary_op1), preceded(sp, expression0)).parse(input)
-    {
-        input = subinput;
-        expression = Expression::BinaryOperation(op, Box::new((expression, right)));
-    }
-    Ok((input, expression))
+    let multiply = char('*').map(|_| BinaryOperator::Multiply);
+    let divide = char('/').map(|_| BinaryOperator::Divide);
+    let op = alt((multiply, divide));
+    expression_binary(expression0, op, input)
+}
+
+fn expression_binary<'a>(
+    mut sub_expr: impl Parser<'a, Expression<'a>>,
+    op: impl Parser<'a, BinaryOperator>,
+    input: &'a str,
+) -> IResult<&'a str, Expression<'a>> {
+    let (input, expression) = sub_expr.parse(input)?;
+    fold_many0(
+        (preceded(sp, op), preceded(sp, sub_expr)),
+        || expression.clone(),
+        |left, (op, right)| Expression::BinaryOperation(op, Box::new((left, right))),
+    )
+    .parse(input)
 }
 
 fn expression0(input: &str) -> IResult<&str, Expression> {
     alt((integer_literal, function_call, variable_reference)).parse(input)
-}
-
-fn binary_op4(input: &str) -> IResult<&str, BinaryOperator> {
-    alt((
-        less_or_equal_op,
-        less,
-        greater_or_equal_op,
-        greater,
-        equal,
-        not_equal,
-    ))
-    .parse(input)
-}
-
-fn binary_op3(input: &str) -> IResult<&str, BinaryOperator> {
-    modulo_op(input)
-}
-
-fn binary_op2(input: &str) -> IResult<&str, BinaryOperator> {
-    alt((add_op, subtraction_op)).parse(input)
-}
-
-fn binary_op1(input: &str) -> IResult<&str, BinaryOperator> {
-    alt((multiply_op, divide_op)).parse(input)
-}
-
-fn add_op(input: &str) -> IResult<&str, BinaryOperator> {
-    char('+').map(|_| BinaryOperator::Add).parse(input)
-}
-
-fn subtraction_op(input: &str) -> IResult<&str, BinaryOperator> {
-    char('-').map(|_| BinaryOperator::Subtract).parse(input)
-}
-
-fn multiply_op(input: &str) -> IResult<&str, BinaryOperator> {
-    char('*').map(|_| BinaryOperator::Multiply).parse(input)
-}
-
-fn divide_op(input: &str) -> IResult<&str, BinaryOperator> {
-    char('/').map(|_| BinaryOperator::Divide).parse(input)
-}
-
-fn modulo_op(input: &str) -> IResult<&str, BinaryOperator> {
-    char('%').map(|_| BinaryOperator::Modulo).parse(input)
-}
-
-fn less(input: &str) -> IResult<&str, BinaryOperator> {
-    tag("<").map(|_| BinaryOperator::Less).parse(input)
-}
-
-fn less_or_equal_op(input: &str) -> IResult<&str, BinaryOperator> {
-    tag("<=").map(|_| BinaryOperator::LessOrEqual).parse(input)
-}
-
-fn greater(input: &str) -> IResult<&str, BinaryOperator> {
-    tag(">").map(|_| BinaryOperator::Greater).parse(input)
-}
-
-fn greater_or_equal_op(input: &str) -> IResult<&str, BinaryOperator> {
-    tag(">=")
-        .map(|_| BinaryOperator::GreaterOrEqual)
-        .parse(input)
-}
-
-fn equal(input: &str) -> IResult<&str, BinaryOperator> {
-    tag("==").map(|_| BinaryOperator::Equal).parse(input)
-}
-
-fn not_equal(input: &str) -> IResult<&str, BinaryOperator> {
-    tag("!=").map(|_| BinaryOperator::NotEqual).parse(input)
 }
 
 fn identifier(input: &str) -> IResult<&str, &str> {
