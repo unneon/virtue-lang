@@ -1,150 +1,124 @@
 use crate::ast::{BinaryOperator, Expression, Format, FormatSegment, Module, Statement};
+use nom::IResult;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1};
 use nom::character::anychar;
 use nom::character::complete::{char, digit1};
 use nom::combinator::{all_consuming, opt, recognize, verify};
+use nom::error::Error;
 use nom::multi::{count, many0, separated_list0};
 use nom::sequence::{delimited, pair, preceded};
-use nom::{IResult, Parser};
+
+trait Parser<'a, T> = nom::Parser<&'a str, Output = T, Error = Error<&'a str>>;
 
 pub fn module(input: &str) -> Module {
-    let statements = all_consuming(|input| block(0, input))
-        .parse(input)
-        .unwrap()
-        .1;
+    let statements = all_consuming(block(0)).parse(input).unwrap().1;
     Module { statements }
 }
 
-fn block(nesting: usize, mut input: &str) -> IResult<&str, Vec<Statement>> {
-    let mut statements = Vec::new();
-    while let Ok((subinput, statement)) =
-        preceded(empty_lines, |input| statement(nesting, input)).parse(input)
-    {
-        input = subinput;
-        statements.push(statement);
-    }
-    Ok((input, statements))
+fn block<'a>(nesting: usize) -> impl Parser<'a, Vec<Statement<'a>>> {
+    move |input| block_(nesting, input)
 }
 
-fn statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
-    if let Ok(r) = if_statement(nesting, input) {
-        Ok(r)
-    } else if let Ok(r) = print_statement(nesting, input) {
-        Ok(r)
-    } else if let Ok(r) = while_statement(nesting, input) {
-        Ok(r)
-    } else if let Ok(r) = func_statement(nesting, input) {
-        Ok(r)
-    } else if let Ok(r) = return_statement(nesting, input) {
-        Ok(r)
-    } else {
-        assingment_statement(nesting, input)
-    }
+// Helper function seems to be necessary to break cyclic dependency of impl trait.
+fn block_(nesting: usize, input: &str) -> IResult<&str, Vec<Statement>> {
+    many0(preceded(empty_lines, statement(nesting))).parse(input)
 }
 
-fn assingment_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
-    let (input, _) = indentiation(nesting, input)?;
-    let (input, variable) = identifier(input)?;
-    let (input, _) = preceded(sp, char('=')).parse(input)?;
-    let (input, expression) = preceded(sp, expression).parse(input)?;
-    let (input, _) = newline(input)?;
-    Ok((
-        input,
-        Statement::Assignment {
+fn statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
+    preceded(
+        indentiation(nesting),
+        alt((
+            if_statement(nesting),
+            print_statement(),
+            while_statement(nesting),
+            func_statement(nesting),
+            return_statement(),
+            assingment_statement(),
+        )),
+    )
+}
+
+fn assingment_statement<'a>() -> impl Parser<'a, Statement<'a>> {
+    (
+        identifier,
+        delimited((sp, char('='), sp), expression(), newline),
+    )
+        .map(|(variable, expression)| Statement::Assignment {
             variable,
             expression,
-        },
-    ))
+        })
 }
 
-fn if_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
-    let (input, _) = indentiation(nesting, input)?;
-    let (input, _) = tag("if")(input)?;
-    let (input, condition) = preceded(sp, expression).parse(input)?;
-    let (input, _) = newline(input)?;
-    let (input, true_block) = block(nesting + 1, input)?;
-    let (input, false_block) = else_block(nesting, input).or_else(|_| Ok((input, vec![])))?;
-    Ok((
-        input,
-        Statement::If {
-            condition,
-            true_block,
-            false_block,
-        },
-    ))
+fn if_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
+    (
+        preceded((tag("if"), sp), expression()),
+        preceded(newline, block(nesting + 1)),
+        opt(else_block(nesting)),
+    )
+        .map(|(condition, true_block, false_block)| {
+            let false_block = false_block.unwrap_or_else(Vec::new);
+            Statement::If {
+                condition,
+                true_block,
+                false_block,
+            }
+        })
 }
 
-fn else_block(nesting: usize, input: &str) -> IResult<&str, Vec<Statement>> {
-    let (input, _) = indentiation(nesting, input)?;
-    let (input, _) = tag("else")(input)?;
-    let (input, _) = newline(input)?;
-    let (input, false_block) = block(nesting + 1, input)?;
-    Ok((input, false_block))
+fn else_block<'a>(nesting: usize) -> impl Parser<'a, Vec<Statement<'a>>> {
+    preceded(
+        (indentiation(nesting), tag("else"), newline),
+        block(nesting + 1),
+    )
 }
 
-fn print_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
-    let (input, _) = indentiation(nesting, input)?;
-    let (input, _) = tag("print")(input)?;
-    let (input, fmt) = preceded(sp, format_string).parse(input)?;
-    let (input, _) = newline(input)?;
-    Ok((input, Statement::Print { fmt }))
+fn print_statement<'a>() -> impl Parser<'a, Statement<'a>> {
+    delimited((tag("print"), sp), format_string(), newline).map(|fmt| Statement::Print { fmt })
 }
 
-fn while_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
-    let (input, _) = indentiation(nesting, input)?;
-    let (input, _) = tag("while")(input)?;
-    let (input, condition) = preceded(sp, expression).parse(input)?;
-    let (input, _) = newline(input)?;
-    let (input, body) = block(nesting + 1, input)?;
-    Ok((input, Statement::While { condition, body }))
+fn while_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
+    (
+        preceded((tag("while"), sp), expression()),
+        preceded(newline, block(nesting + 1)),
+    )
+        .map(|(condition, body)| Statement::While { condition, body })
 }
 
-fn func_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
-    let (input, _) = indentiation(nesting, input)?;
-    let (input, _) = tag("func")(input)?;
-    let (input, name) = preceded(sp, identifier).parse(input)?;
-    let (input, _) = preceded(sp, char('(')).parse(input)?;
-    let (input, args) =
-        separated_list0(preceded(sp, char(',')), preceded(sp, identifier)).parse(input)?;
-    let (input, _) = preceded(sp, char(')')).parse(input)?;
-    let (input, _) = newline(input)?;
-    let (input, body) = block(nesting + 1, input)?;
-    Ok((input, Statement::Function { name, args, body }))
+fn func_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
+    (
+        preceded((tag("func"), sp), identifier),
+        preceded(
+            (sp, char('(')),
+            separated_list0(preceded(sp, char(',')), preceded(sp, identifier)),
+        ),
+        preceded((sp, char(')'), newline), block(nesting + 1)),
+    )
+        .map(|(name, args, body)| Statement::Function { name, args, body })
 }
 
-fn return_statement(nesting: usize, input: &str) -> IResult<&str, Statement> {
-    let (input, _) = indentiation(nesting, input)?;
-    let (input, _) = tag("return")(input)?;
-    let (input, value) = preceded(sp, expression).parse(input)?;
-    let (input, _) = newline(input)?;
-    Ok((input, Statement::Return { value }))
+fn return_statement<'a>() -> impl Parser<'a, Statement<'a>> {
+    delimited((tag("return"), sp), expression(), newline).map(|value| Statement::Return { value })
 }
 
-fn format_string(input: &str) -> IResult<&str, Format> {
-    delimited(char('"'), many0(format_segment), char('"'))
-        .map(|segments| Format { segments })
-        .parse(input)
+fn format_string<'a>() -> impl Parser<'a, Format<'a>> {
+    delimited(char('"'), many0(format_segment()), char('"')).map(|segments| Format { segments })
 }
 
-fn format_segment(input: &str) -> IResult<&str, FormatSegment> {
-    alt((format_segment_text, format_segment_variable)).parse(input)
+fn format_segment<'a>() -> impl Parser<'a, FormatSegment<'a>> {
+    alt((format_segment_text(), format_segment_variable()))
 }
 
-fn format_segment_text(input: &str) -> IResult<&str, FormatSegment> {
-    take_while1(|c| c != '"' && c != '{')
-        .map(FormatSegment::Text)
-        .parse(input)
+fn format_segment_text<'a>() -> impl Parser<'a, FormatSegment<'a>> {
+    take_while1(|c| c != '"' && c != '{').map(FormatSegment::Text)
 }
 
-fn format_segment_variable(input: &str) -> IResult<&str, FormatSegment> {
-    delimited(char('{'), identifier, char('}'))
-        .map(FormatSegment::Variable)
-        .parse(input)
+fn format_segment_variable<'a>() -> impl Parser<'a, FormatSegment<'a>> {
+    delimited(char('{'), identifier, char('}')).map(FormatSegment::Variable)
 }
 
-fn expression(input: &str) -> IResult<&str, Expression> {
-    expression4(input)
+fn expression<'a>() -> impl Parser<'a, Expression<'a>> {
+    |input| expression4(input)
 }
 
 fn expression4(input: &str) -> IResult<&str, Expression> {
@@ -284,7 +258,7 @@ fn function_call(input: &str) -> IResult<&str, Expression> {
     let (input, func) = identifier(input)?;
     let (input, _) = preceded(sp, char('(')).parse(input)?;
     let (input, args) =
-        separated_list0(preceded(sp, char(',')), preceded(sp, expression)).parse(input)?;
+        separated_list0(preceded(sp, char(',')), preceded(sp, expression())).parse(input)?;
     let (input, _) = preceded(sp, char(')')).parse(input)?;
     Ok((input, Expression::Call(func, args)))
 }
@@ -293,8 +267,8 @@ fn variable_reference(input: &str) -> IResult<&str, Expression> {
     identifier.map(Expression::Variable).parse(input)
 }
 
-fn indentiation(nesting: usize, input: &str) -> IResult<&str, ()> {
-    count(indent, nesting).map(|_| ()).parse(input)
+fn indentiation<'a>(nesting: usize) -> impl Parser<'a, ()> {
+    count(indent, nesting).map(|_| ())
 }
 
 fn indent(input: &str) -> IResult<&str, ()> {

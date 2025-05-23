@@ -1,3 +1,5 @@
+#![feature(trait_alias)]
+
 use crate::ast::Module;
 
 pub mod ast;
