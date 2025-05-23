@@ -77,7 +77,10 @@ fn parse_directives(source: &str) -> Directives {
 
 fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Result<(), Failed> {
     let source = fs::read_to_string(&path).unwrap();
-    let ast = virtue::parse(&source);
+    let ast = match virtue::parser::parse(&source) {
+        Ok(ast) => ast,
+        Err(e) => return Err(format!("\x1B[1mparse error:\x1B[0m\n{e}").into()),
+    };
     let intermediate_name = match backend {
         Backend::Llvm => "LLVM IR",
         Backend::Qbe => "QBE IL",
@@ -95,7 +98,8 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
             ir
         }
         Backend::Qbe => {
-            let il = virtue::codegen::qbe::make_il(&ast);
+            let hir = virtue::typecheck::typecheck(&ast);
+            let il = virtue::codegen::qbe::make_il(&hir);
             if let Err(e) = virtue::codegen::qbe::compile_il(&il, Some(&output_path)) {
                 return Err(format!(
                     "\x1B[1m{intermediate_name}:\x1B[0m\n{il}\n\x1B[1mqbe error:\x1B[0m\n{e}"
@@ -110,6 +114,12 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
         .spawn()
         .unwrap();
     let output = child.wait_with_output().unwrap();
+    if !output.status.success() {
+        return Err(format!(
+            "\x1B[1m{intermediate_name}:\x1B[0m\n{intermediate}\n\x1B[1;31mcrash\x1B[0m"
+        )
+        .into());
+    }
     assert!(output.status.success());
     let actual_stdout = String::from_utf8(output.stdout).unwrap();
     if actual_stdout != *expected_stdout {

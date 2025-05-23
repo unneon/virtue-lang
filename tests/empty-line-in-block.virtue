@@ -1,4 +1,4 @@
-func f()
+func f() int
     print "a"
 
     print "b"

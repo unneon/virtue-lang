@@ -9,11 +9,7 @@ pub enum Statement<'a> {
         left: Expression<'a>,
         right: Expression<'a>,
     },
-    Function {
-        name: &'a str,
-        args: Vec<&'a str>,
-        body: Vec<Statement<'a>>,
-    },
+    Function(Function<'a>),
     If {
         condition: Expression<'a>,
         true_block: Vec<Statement<'a>>,
@@ -33,6 +29,14 @@ pub enum Statement<'a> {
         condition: Expression<'a>,
         body: Vec<Statement<'a>>,
     },
+}
+
+#[derive(Debug)]
+pub struct Function<'a> {
+    pub name: &'a str,
+    pub args: Vec<(&'a str, &'a str)>,
+    pub return_type: &'a str,
+    pub body: Vec<Statement<'a>>,
 }
 
 #[derive(Clone, Debug)]

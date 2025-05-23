@@ -28,12 +28,13 @@ pub fn compile_il(module: &qbe::Module, output_path: Option<&Path>) -> Result<()
     drop(qbe_stdin);
 
     let qbe_output = qbe_process.wait_with_output().unwrap();
-    let cc_output = cc_process.wait().unwrap();
+    let cc_output = cc_process.wait_with_output().unwrap();
 
     if !qbe_output.status.success() {
         return Err(String::from_utf8(qbe_output.stderr).unwrap());
     }
-    assert!(cc_output.success());
-
+    if !cc_output.status.success() {
+        return Err(String::from_utf8(cc_output.stderr).unwrap());
+    }
     Ok(())
 }

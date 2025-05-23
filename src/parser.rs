@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOperator, Expression, Format, FormatSegment, Module, Statement};
+use crate::ast::{BinaryOperator, Expression, Format, FormatSegment, Function, Module, Statement};
 use nom::IResult;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1};
@@ -11,12 +11,14 @@ use nom::sequence::{delimited, pair, preceded, terminated};
 
 trait Parser<'a, T> = nom::Parser<&'a str, Output = T, Error = Error<&'a str>>;
 
-pub fn module(input: &str) -> Module {
-    let statements = all_consuming(terminated(block(0), empty_lines))
+pub fn parse(input: &str) -> Result<Module, String> {
+    Ok(module(input).map_err(|e| e.to_string())?.1)
+}
+
+pub fn module(input: &str) -> IResult<&str, Module> {
+    all_consuming(terminated(block(0), empty_lines))
+        .map(|statements| Module { statements })
         .parse(input)
-        .unwrap()
-        .1;
-    Module { statements }
 }
 
 fn block<'a>(nesting: usize) -> impl Parser<'a, Vec<Statement<'a>>> {
@@ -91,11 +93,22 @@ fn func_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
         preceded((tag("func"), sp), identifier),
         preceded(
             (sp, char('(')),
-            separated_list0(preceded(sp, char(',')), preceded(sp, identifier)),
+            separated_list0(
+                preceded(sp, char(',')),
+                (preceded(sp, identifier), preceded(sp, identifier)),
+            ),
         ),
-        preceded((sp, char(')'), newline), block(nesting + 1)),
+        preceded((sp, char(')'), sp), identifier),
+        preceded(newline, block(nesting + 1)),
     )
-        .map(|(name, args, body)| Statement::Function { name, args, body })
+        .map(|(name, args, return_type, body)| {
+            Statement::Function(Function {
+                name,
+                args,
+                return_type,
+                body,
+            })
+        })
 }
 
 fn return_statement<'a>() -> impl Parser<'a, Statement<'a>> {
