@@ -6,6 +6,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    - name: Install dependencies (LLVM)
+      run: sudo apt update && sudo apt install llvm
     - name: Install dependencies (QBE)
       run: git clone git://c9x.me/qbe.git && cd qbe && make && sudo make install
     - name: Install dependencies (Rust nightly)
