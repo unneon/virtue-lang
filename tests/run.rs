@@ -88,7 +88,8 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
     let output_path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
     let intermediate = match backend {
         Backend::Llvm => {
-            let ir = virtue::codegen::llvm::make_ir(&ast);
+            let hir = virtue::typecheck::typecheck(&ast);
+            let ir = virtue::codegen::llvm::make_ir(&hir);
             if let Err(e) = virtue::codegen::llvm::compile_ir(&ir, Some(&output_path)) {
                 return Err(format!(
                     "\x1B[1m{intermediate_name}:\x1B[0m\n{ir}\n\x1B[1mllvm error:\x1B[0m\n{e}"

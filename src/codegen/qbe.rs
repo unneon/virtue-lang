@@ -96,7 +96,7 @@ impl<'a> State<'a> {
                     self.assign(binding, Instr::Alloc8(struct_size as u64));
                 }
                 Statement::Print(fmt) => {
-                    let fmt_printf = fmt.printf_format(self.hir_func);
+                    let fmt_printf = fmt.printf_format(self.hir_func, "\\n");
                     let fmt_string_id = self.string_constant(fmt_printf, None);
 
                     let mut args = vec![(Long, fmt_string_id)];

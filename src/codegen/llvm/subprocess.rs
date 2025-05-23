@@ -1,9 +1,8 @@
+use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 pub fn compile_ir(ir: &str, output_path: Option<&Path>) -> Result<(), String> {
-    use std::io::Write;
-
     let mut llvm_as_process = Command::new("llvm-as")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

@@ -3,5 +3,4 @@ a = 4 * 2 + 3
 # Explain something else.
 print "{a}"
 
-# ignore-llvm
 # 11

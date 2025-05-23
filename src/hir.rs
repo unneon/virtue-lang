@@ -81,7 +81,7 @@ pub enum Type {
 }
 
 impl FormatString<'_> {
-    pub fn printf_format(&self, function: &Function) -> String {
+    pub fn printf_format(&self, function: &Function, suffix: &str) -> String {
         let mut fmt = String::new();
         for segment in &self.segments {
             fmt.push_str(match segment {
@@ -89,7 +89,7 @@ impl FormatString<'_> {
                 FormatSegment::Arg(arg) => function.bindings[arg.id].type_.printf_format(),
             });
         }
-        fmt.push_str("\\n");
+        fmt.push_str(suffix);
         fmt
     }
 }
