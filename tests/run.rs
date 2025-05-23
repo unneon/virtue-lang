@@ -27,9 +27,9 @@ fn run_test(path: PathBuf) -> Result<(), Failed> {
     let source = fs::read_to_string(&path).unwrap();
     let expected_stdout = fs::read_to_string(path.with_extension("stdout")).unwrap();
     let ast = virtue::parse(&source);
-    let il = virtue::codegen::qbe::make_intermediate(&ast);
+    let il = virtue::codegen::qbe::make_il(&ast);
     let output_path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
-    if let Err(e) = virtue::codegen::qbe::compile_intermediate(&il, Some(&output_path)) {
+    if let Err(e) = virtue::codegen::qbe::compile_il(&il, Some(&output_path)) {
         return Err(format!(
             "\x1B[1mintermediate language:\x1B[0m\n{il}\n\x1B[1mqbe error:\x1B[0m\n{e}"
         )

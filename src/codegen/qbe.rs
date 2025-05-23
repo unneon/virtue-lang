@@ -1,11 +1,12 @@
+mod subprocess;
+
+pub use subprocess::compile_il;
+
 use crate::ast;
 use crate::ast::{BinaryOperator, Expression, FormatSegment, Statement};
 use qbe::Type::{Byte, Long, Word};
 use qbe::{Cmp, DataDef, DataItem, Function, Instr, Linkage, Value};
 use std::collections::HashMap;
-use std::io::Write;
-use std::path::Path;
-use std::process::{Command, Stdio};
 
 struct State<'a> {
     il: qbe::Module<'static>,
@@ -268,7 +269,7 @@ impl<'a> State<'a> {
     }
 }
 
-pub fn make_intermediate(ast: &ast::Module) -> qbe::Module<'static> {
+pub fn make_il(ast: &ast::Module) -> qbe::Module<'static> {
     let mut state = State {
         il: qbe::Module::new(),
         func: Function::new(Linkage::public(), "main", Vec::new(), Some(Word)),
@@ -295,42 +296,4 @@ pub fn make_intermediate(ast: &ast::Module) -> qbe::Module<'static> {
         state.il.add_function(state.func);
     }
     state.il
-}
-
-pub fn compile_intermediate(
-    module: &qbe::Module,
-    output_path: Option<&Path>,
-) -> Result<(), String> {
-    let mut qbe_process = Command::new("qbe")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let qbe_stdout = qbe_process.stdout.take().unwrap();
-
-    let mut cc_command = Command::new("cc");
-    if let Some(output_path) = output_path {
-        cc_command.arg("-o").arg(output_path);
-    }
-    let mut cc_process = cc_command
-        .args(["-x", "assembler", "-"])
-        .stdin(qbe_stdout)
-        .spawn()
-        .unwrap();
-
-    let mut qbe_stdin = qbe_process.stdin.take().unwrap();
-    write!(qbe_stdin, "{module}").unwrap();
-    qbe_stdin.flush().unwrap();
-    drop(qbe_stdin);
-
-    let qbe_output = qbe_process.wait_with_output().unwrap();
-    let cc_output = cc_process.wait().unwrap();
-
-    if !qbe_output.status.success() {
-        return Err(String::from_utf8(qbe_output.stderr).unwrap());
-    }
-    assert!(cc_output.success());
-
-    Ok(())
 }
