@@ -4,7 +4,7 @@ pub use subprocess::compile_il;
 
 use crate::ast::BinaryOperator;
 use crate::hir;
-use crate::hir::{FormatSegment, Statement};
+use crate::hir::{Binding, FormatSegment, Statement};
 use qbe::Type::{Byte, Long, Word};
 use qbe::{Cmp, DataDef, DataItem, Function, Instr, Linkage, Value};
 
@@ -27,83 +27,49 @@ impl<'a> State<'a> {
     fn block(&mut self, statements: &'a [Statement]) -> Fallthrough {
         for statement in statements {
             match statement {
-                Statement::Assignment(left, right) => self.func.assign_instr(
-                    Value::Temporary(format!("_{left}")),
-                    Long,
-                    Instr::Copy(Value::Temporary(format!("_{right}"))),
-                ),
+                Statement::Assignment(left, right) => {
+                    self.assign(left, Instr::Copy(right.into()));
+                }
                 Statement::AssignmentField(object_binding, field, value) => {
                     let field_offset = 8 * field;
                     let field_binding = self.make_temporary();
-                    self.func.assign_instr(
-                        field_binding.clone(),
-                        Long,
-                        Instr::Add(
-                            Value::Temporary(format!("_{object_binding}")),
-                            Value::Const(field_offset as u64),
-                        ),
-                    );
-                    self.func.add_instr(Instr::Store(
-                        Long,
-                        field_binding,
-                        Value::Temporary(format!("_{value}")),
-                    ));
+                    let field_address =
+                        Instr::Add(object_binding.into(), Value::Const(field_offset as u64));
+                    self.assign(field_binding.clone(), field_address);
+                    self.func
+                        .add_instr(Instr::Store(Long, field_binding, value.into()));
                 }
-                Statement::BinaryOperator(result, op, left, right) => {
-                    let left = Value::Temporary(format!("_{left}"));
-                    let right = Value::Temporary(format!("_{right}"));
-                    self.func.assign_instr(
-                        Value::Temporary(format!("_{result}")),
-                        Long,
-                        match op {
-                            BinaryOperator::Add => Instr::Add(left, right),
-                            BinaryOperator::Subtract => Instr::Sub(left, right),
-                            BinaryOperator::Multiply => Instr::Mul(left, right),
-                            BinaryOperator::Divide => Instr::Div(left, right),
-                            BinaryOperator::Modulo => Instr::Rem(left, right),
-                            BinaryOperator::Less => Instr::Cmp(Long, Cmp::Slt, left, right),
-                            BinaryOperator::LessOrEqual => Instr::Cmp(Long, Cmp::Sle, left, right),
-                            BinaryOperator::Greater => Instr::Cmp(Long, Cmp::Sgt, left, right),
-                            BinaryOperator::GreaterOrEqual => {
-                                Instr::Cmp(Long, Cmp::Sge, left, right)
-                            }
-                            BinaryOperator::Equal => Instr::Cmp(Long, Cmp::Eq, left, right),
-                            BinaryOperator::NotEqual => Instr::Cmp(Long, Cmp::Ne, left, right),
-                        },
-                    );
+                Statement::BinaryOperator(result_binding, op, left, right) => {
+                    let left = left.into();
+                    let right = right.into();
+                    let result = match op {
+                        BinaryOperator::Add => Instr::Add(left, right),
+                        BinaryOperator::Subtract => Instr::Sub(left, right),
+                        BinaryOperator::Multiply => Instr::Mul(left, right),
+                        BinaryOperator::Divide => Instr::Div(left, right),
+                        BinaryOperator::Modulo => Instr::Rem(left, right),
+                        BinaryOperator::Less => Instr::Cmp(Long, Cmp::Slt, left, right),
+                        BinaryOperator::LessOrEqual => Instr::Cmp(Long, Cmp::Sle, left, right),
+                        BinaryOperator::Greater => Instr::Cmp(Long, Cmp::Sgt, left, right),
+                        BinaryOperator::GreaterOrEqual => Instr::Cmp(Long, Cmp::Sge, left, right),
+                        BinaryOperator::Equal => Instr::Cmp(Long, Cmp::Eq, left, right),
+                        BinaryOperator::NotEqual => Instr::Cmp(Long, Cmp::Ne, left, right),
+                    };
+                    self.assign(result_binding, result);
                 }
                 Statement::Call(return_binding, function_id, args) => {
-                    let return_binding = Value::Temporary(format!("_{return_binding}"));
-                    let args = args
-                        .iter()
-                        .map(|arg| (Long, Value::Temporary(format!("_{arg}"))))
-                        .collect();
-                    self.func.assign_instr(
-                        return_binding.clone(),
-                        Long,
-                        Instr::Call(
-                            self.hir.functions[*function_id].name.to_string(),
-                            args,
-                            None,
-                        ),
-                    )
+                    let function_name = self.hir.functions[*function_id].name;
+                    let args = args.iter().map(|arg| (Long, arg.into())).collect();
+                    let return_ = Instr::Call(function_name.to_string(), args, None);
+                    self.assign(return_binding, return_)
                 }
                 Statement::Field(binding, object_binding, field) => {
                     let field_offset = 8 * field;
                     let field_binding = self.make_temporary();
-                    self.func.assign_instr(
-                        field_binding.clone(),
-                        Long,
-                        Instr::Add(
-                            Value::Temporary(format!("_{object_binding}")),
-                            Value::Const(field_offset as u64),
-                        ),
-                    );
-                    self.func.assign_instr(
-                        Value::Temporary(format!("_{binding}")),
-                        Long,
-                        Instr::Load(Long, field_binding),
-                    );
+                    let field_address =
+                        Instr::Add(object_binding.into(), Value::Const(field_offset as u64));
+                    self.assign(field_binding.clone(), field_address);
+                    self.assign(binding, Instr::Load(Long, field_binding));
                 }
                 Statement::JumpAlways(block) => {
                     self.func.add_instr(Instr::Jmp(format!("_{block}")));
@@ -115,74 +81,51 @@ impl<'a> State<'a> {
                     false_block,
                 } => {
                     self.func.add_instr(Instr::Jnz(
-                        Value::Temporary(format!("_{condition}")),
+                        condition.into(),
                         format!("_{true_block}"),
                         format!("_{false_block}"),
                     ));
                     return Fallthrough::Unreachable;
                 }
                 Statement::Literal(binding, literal) => {
-                    self.func.assign_instr(
-                        Value::Temporary(format!("_{binding}")),
-                        Long,
-                        Instr::Copy(Value::Const(*literal as u64)),
-                    );
+                    self.assign(binding, Instr::Copy(Value::Const(*literal as u64)));
                 }
                 Statement::New(binding, struct_id) => {
                     let field_count = self.hir.structs[*struct_id].fields.len();
                     let struct_size = 8 * field_count;
-                    self.func.assign_instr(
-                        Value::Temporary(format!("_{binding}")),
-                        Long,
-                        Instr::Alloc8(struct_size as u64),
-                    );
+                    self.assign(binding, Instr::Alloc8(struct_size as u64));
                 }
                 Statement::Print(fmt) => {
-                    let string_id = format!("string_{}", self.string_counter);
-                    self.string_counter += 1;
+                    let fmt_printf = fmt.printf_format(self.hir_func);
+                    let fmt_string_id = self.string_constant(fmt_printf, None);
 
-                    let mut c_fmt = String::new();
-                    let mut c_args = Vec::new();
-
-                    c_args.push((Long, Value::Global(string_id.clone())));
-
-                    for segment in fmt {
-                        match segment {
-                            FormatSegment::Text(text) => c_fmt.push_str(text),
-                            FormatSegment::Arg(variable) => {
-                                c_fmt.push_str(match self.hir_func.bindings[*variable].type_ {
-                                    hir::Type::I64 => "%lld",
-                                    hir::Type::I32 => "%d",
-                                    hir::Type::String => "%s",
-                                    hir::Type::Struct(_) => todo!(),
-                                });
-                                c_args.push((Long, Value::Temporary(format!("_{variable}"))));
-                            }
+                    let mut args = vec![(Long, fmt_string_id)];
+                    for segment in &fmt.segments {
+                        if let FormatSegment::Arg(arg) = segment {
+                            args.push((Long, arg.into()));
                         }
                     }
 
-                    c_fmt.push_str("\\n");
-
-                    self.string_constant(c_fmt, Some(string_id));
-
                     self.func
-                        .add_instr(Instr::Call("printf".into(), c_args, None));
+                        .add_instr(Instr::Call("printf".into(), args, None));
                 }
                 Statement::Return(value) => {
-                    self.func
-                        .add_instr(Instr::Ret(Some(Value::Temporary(format!("_{value}")))));
+                    self.func.add_instr(Instr::Ret(Some(value.into())));
                     return Fallthrough::Unreachable;
                 }
                 Statement::StringConstant(binding, string) => {
-                    self.func.assign_instr(
-                        Value::Temporary(format!("_{binding}")),
-                        Long,
+                    self.assign(
+                        binding,
                         Instr::Copy(Value::Global(format!("string_{string}"))),
                     );
                 }
             }
         }
         Fallthrough::Reachable
+    }
+
+    fn assign(&mut self, left: impl Into<Value>, right: Instr<'static>) {
+        self.func.assign_instr(left.into(), Long, right);
     }
 
     fn make_temporary(&mut self) -> Value {
@@ -208,6 +151,12 @@ impl<'a> State<'a> {
         ));
 
         Value::Global(name)
+    }
+}
+
+impl From<&Binding> for Value {
+    fn from(value: &Binding) -> Value {
+        Value::Temporary(format!("_{}", value.id))
     }
 }
 
@@ -237,8 +186,8 @@ pub fn make_il(hir: &hir::Program) -> qbe::Module<'static> {
             .iter()
             .map(|arg| {
                 (
-                    convert_type(&function.bindings[arg.binding].type_),
-                    Value::Temporary(format!("_{}", arg.binding)),
+                    convert_type(&function.bindings[arg.binding.id].type_),
+                    (&arg.binding).into(),
                 )
             })
             .collect();

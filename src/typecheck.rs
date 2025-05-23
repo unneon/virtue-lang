@@ -1,3 +1,4 @@
+use crate::hir::Binding;
 use crate::{ast, hir};
 use std::collections::{HashMap, hash_map};
 
@@ -30,9 +31,9 @@ impl<'a> State<'a> {
         let mut bindings = Vec::new();
         let mut binding_map = HashMap::new();
         for (name, type_) in ast_args {
-            let binding = bindings.len();
+            let binding = Binding { id: bindings.len() };
             hir_args.push(hir::Arg { binding });
-            bindings.push(hir::Binding {
+            bindings.push(hir::BindingData {
                 type_: self.convert_type(type_),
             });
             binding_map.insert(*name, binding);
@@ -158,7 +159,7 @@ impl<'a> State<'a> {
                         .iter()
                         .map(|segment| self.convert_format_segment(segment))
                         .collect();
-                    self.add_statement(hir::Statement::Print(segments));
+                    self.add_statement(hir::Statement::Print(hir::FormatString { segments }));
                 }
                 ast::Statement::Return { value } => {
                     let value = self.process_expression(value);
@@ -193,7 +194,7 @@ impl<'a> State<'a> {
         Fallthrough::Reachable
     }
 
-    fn process_expression(&mut self, expression: &ast::Expression<'a>) -> usize {
+    fn process_expression(&mut self, expression: &ast::Expression<'a>) -> Binding {
         match expression {
             ast::Expression::BinaryOperation(op, args) => {
                 let (left, right) = args.as_ref();
@@ -212,7 +213,7 @@ impl<'a> State<'a> {
                 let function = &self.functions[function_id];
                 assert_eq!(arg_bindings.len(), function.args.len());
                 for (arg, arg_binding) in function.args.iter().zip(&arg_bindings) {
-                    let arg_type = &function.bindings[arg.binding].type_;
+                    let arg_type = &function.bindings[arg.binding.id].type_;
                     let arg_binding_type = self.binding_type(*arg_binding);
                     assert_eq!(arg_binding_type, *arg_type);
                 }
@@ -249,28 +250,30 @@ impl<'a> State<'a> {
         }
     }
 
-    fn make_variable(&mut self, variable: &'a str, type_: hir::Type) -> usize {
+    fn make_variable(&mut self, variable: &'a str, type_: hir::Type) -> Binding {
         let f = &mut self.functions[self.current_function];
         let binding_count = f.bindings.len();
         match f.binding_map.entry(variable) {
             hash_map::Entry::Occupied(entry) => {
                 let binding = *entry.get();
-                let binding_type = &f.bindings[binding].type_;
+                let binding_type = &f.bindings[binding.id].type_;
                 assert_eq!(type_, *binding_type);
                 binding
             }
             hash_map::Entry::Vacant(e) => {
-                let binding = binding_count;
-                f.bindings.push(hir::Binding { type_ });
+                let binding = Binding { id: binding_count };
+                f.bindings.push(hir::BindingData { type_ });
                 *e.insert(binding)
             }
         }
     }
 
-    fn make_temporary(&mut self, type_: hir::Type) -> usize {
+    fn make_temporary(&mut self, type_: hir::Type) -> Binding {
         let f = &mut self.functions[self.current_function];
-        let binding = f.bindings.len();
-        let binding_data = hir::Binding { type_ };
+        let binding = Binding {
+            id: f.bindings.len(),
+        };
+        let binding_data = hir::BindingData { type_ };
         f.bindings.push(binding_data);
         binding
     }
@@ -310,12 +313,12 @@ impl<'a> State<'a> {
         }
     }
 
-    fn variable_binding(&self, variable: &str) -> usize {
+    fn variable_binding(&self, variable: &str) -> Binding {
         self.functions[self.current_function].binding_map[variable]
     }
 
-    fn binding_type(&self, binding: usize) -> hir::Type {
-        self.functions[self.current_function].bindings[binding]
+    fn binding_type(&self, binding: Binding) -> hir::Type {
+        self.functions[self.current_function].bindings[binding.id]
             .type_
             .clone()
     }

@@ -14,46 +14,56 @@ pub struct Function<'a> {
     pub name: &'a str,
     pub args: Vec<Arg>,
     pub return_type: Type,
-    pub bindings: Vec<Binding>,
-    pub binding_map: HashMap<&'a str, usize>,
+    pub bindings: Vec<BindingData>,
+    pub binding_map: HashMap<&'a str, Binding>,
     pub blocks: Vec<Vec<Statement<'a>>>,
     pub ast_block: &'a [ast::Statement<'a>],
 }
 
 #[derive(Debug)]
 pub struct Arg {
-    pub binding: usize,
+    pub binding: Binding,
 }
 
 #[derive(Debug)]
-pub struct Binding {
+pub struct BindingData {
     pub type_: Type,
 }
 
 #[derive(Debug)]
 pub enum Statement<'a> {
-    Assignment(usize, usize),
-    AssignmentField(usize, usize, usize),
-    BinaryOperator(usize, ast::BinaryOperator, usize, usize),
-    Call(usize, usize, Vec<usize>),
-    Field(usize, usize, usize),
+    Assignment(Binding, Binding),
+    AssignmentField(Binding, usize, Binding),
+    BinaryOperator(Binding, ast::BinaryOperator, Binding, Binding),
+    Call(Binding, usize, Vec<Binding>),
+    Field(Binding, Binding, usize),
     JumpAlways(usize),
     JumpConditional {
-        condition: usize,
+        condition: Binding,
         true_block: usize,
         false_block: usize,
     },
-    Literal(usize, i64),
-    New(usize, usize),
-    Print(Vec<FormatSegment<'a>>),
-    Return(usize),
-    StringConstant(usize, usize),
+    Literal(Binding, i64),
+    New(Binding, usize),
+    Print(FormatString<'a>),
+    Return(Binding),
+    StringConstant(Binding, usize),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Binding {
+    pub id: usize,
+}
+
+#[derive(Debug)]
+pub struct FormatString<'a> {
+    pub segments: Vec<FormatSegment<'a>>,
 }
 
 #[derive(Debug)]
 pub enum FormatSegment<'a> {
     Text(&'a str),
-    Arg(usize),
+    Arg(Binding),
 }
 
 #[derive(Debug)]
@@ -70,7 +80,30 @@ pub enum Type {
     Struct(usize),
 }
 
+impl FormatString<'_> {
+    pub fn printf_format(&self, function: &Function) -> String {
+        let mut fmt = String::new();
+        for segment in &self.segments {
+            fmt.push_str(match segment {
+                FormatSegment::Text(text) => text,
+                FormatSegment::Arg(arg) => function.bindings[arg.id].type_.printf_format(),
+            });
+        }
+        fmt.push_str("\\n");
+        fmt
+    }
+}
+
 impl Type {
+    fn printf_format(&self) -> &'static str {
+        match self {
+            Type::I64 => "%ld",
+            Type::I32 => "%d",
+            Type::String => "%s",
+            Type::Struct(_) => panic!("print not supported for {self:?}"),
+        }
+    }
+
     pub fn unwrap_struct(&self) -> usize {
         match self {
             Type::Struct(i) => *i,
