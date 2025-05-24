@@ -1,3 +1,5 @@
+use crate::hir;
+
 #[derive(Debug)]
 pub struct Module<'a> {
     pub statements: Vec<Statement<'a>>,
@@ -42,9 +44,12 @@ pub struct Function<'a> {
 #[derive(Clone, Debug)]
 pub enum Expression<'a> {
     ArrayLiteral(Vec<Expression<'a>>),
+    ArrayRepeat(Box<(Expression<'a>, Expression<'a>)>),
     BinaryOperation(BinaryOperator, Box<(Expression<'a>, Expression<'a>)>),
     Call(&'a str, Vec<Expression<'a>>),
+    CallMethod(Box<Expression<'a>>, &'a str, Vec<Expression<'a>>),
     Index(Box<(Expression<'a>, Expression<'a>)>),
+    InternalBinding(hir::Binding),
     Literal(i64),
     New(&'a str),
     Field(Box<Expression<'a>>, &'a str),

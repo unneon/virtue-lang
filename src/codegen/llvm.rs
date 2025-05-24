@@ -287,9 +287,13 @@ impl State<'_> {
                 Statement::New(_, _) => {}
                 Statement::NewArray(binding, type_, length) => {
                     let type_ = convert_type(type_);
-                    let temp = self.make_temporary();
-                    self.write(format!("%temp_{temp} = alloca {type_}, i64 {length}"));
-                    self.store(binding, temp);
+                    let length_temp = self.make_temporary();
+                    let result_temp = self.make_temporary();
+                    self.load(length_temp, length);
+                    self.write(format!(
+                        "%temp_{result_temp} = alloca {type_}, i64 %temp_{length_temp}"
+                    ));
+                    self.store(binding, result_temp);
                 }
                 Statement::Print(fmt) => {
                     let function_id = self.current_function;

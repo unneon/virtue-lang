@@ -203,6 +203,8 @@ fn expression0(input: &str) -> IResult<&str, Expression> {
         integer_literal,
         parentheses,
         array_literal,
+        array_repeat,
+        method_call,
         field_expression,
         function_call,
         index_expression,
@@ -241,6 +243,30 @@ fn array_literal(input: &str) -> IResult<&str, Expression> {
     )
     .map(Expression::ArrayLiteral)
     .parse(input)
+}
+
+fn array_repeat(input: &str) -> IResult<&str, Expression> {
+    delimited(
+        (sp, char('[')),
+        (expression(), preceded((sp, char(';')), expression())),
+        (sp, char(']')),
+    )
+    .map(|(initializer, length)| Expression::ArrayRepeat(Box::new((initializer, length))))
+    .parse(input)
+}
+
+fn method_call(input: &str) -> IResult<&str, Expression> {
+    (
+        variable_reference,
+        preceded(char('.'), identifier),
+        delimited(
+            (sp, char('(')),
+            separated_list0(preceded(sp, char(',')), expression()),
+            (sp, char(')')),
+        ),
+    )
+        .map(|(object, method, args)| Expression::CallMethod(Box::new(object), method, args))
+        .parse(input)
 }
 
 fn field_expression(input: &str) -> IResult<&str, Expression> {
@@ -293,7 +319,9 @@ fn bool_literal(input: &str) -> IResult<&str, Expression> {
 }
 
 fn variable_reference(input: &str) -> IResult<&str, Expression> {
-    identifier.map(Expression::Variable).parse(input)
+    preceded(sp, identifier)
+        .map(Expression::Variable)
+        .parse(input)
 }
 
 fn indentiation<'a>(nesting: usize) -> impl Parser<'a, ()> {

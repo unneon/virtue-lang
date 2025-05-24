@@ -1,3 +1,4 @@
+use crate::ast::BinaryOperator;
 use crate::hir::Binding;
 use crate::{ast, hir};
 use std::collections::{HashMap, hash_map};
@@ -130,6 +131,12 @@ impl<'a> State<'a> {
                                 right_binding,
                             ));
                         }
+                        ast::Expression::InternalBinding(left_binding) => {
+                            self.add_statement(hir::Statement::Assignment(
+                                *left_binding,
+                                right_binding,
+                            ));
+                        }
                         ast::Expression::Variable(variable) => {
                             let left_binding = self.make_variable(variable, right_type);
                             self.add_statement(hir::Statement::Assignment(
@@ -221,8 +228,13 @@ impl<'a> State<'a> {
                 for initial in &initials {
                     assert_eq!(self.binding_type(*initial), type_);
                 }
+                let length_binding = self.make_temporary(hir::Type::I64);
                 let binding = self.make_temporary(hir::Type::Array(Box::new(type_.clone())));
-                self.add_statement(hir::Statement::NewArray(binding, type_, initials.len()));
+                self.add_statement(hir::Statement::Literal(
+                    length_binding,
+                    initials.len() as i64,
+                ));
+                self.add_statement(hir::Statement::NewArray(binding, type_, length_binding));
                 for (i, initial) in initials.iter().enumerate() {
                     let i_binding = self.make_temporary(hir::Type::I64);
                     self.add_statement(hir::Statement::Literal(i_binding, i as i64));
@@ -230,6 +242,48 @@ impl<'a> State<'a> {
                         binding, i_binding, *initial,
                     ));
                 }
+                binding
+            }
+            ast::Expression::ArrayRepeat(repeat) => {
+                let (initial, length) = repeat.as_ref();
+                let initial = self.process_expression(initial);
+                let length = self.process_expression(length);
+                let type_ = self.binding_type(initial);
+                let binding = self.make_temporary(hir::Type::Array(Box::new(type_.clone())));
+                self.add_statement(hir::Statement::NewArray(binding, type_, length));
+                let i_binding = self.make_variable("__i", hir::Type::I64);
+                self.add_statement(hir::Statement::Literal(i_binding, 0));
+                self.process_block(
+                    vec![ast::Statement::While {
+                        condition: ast::Expression::BinaryOperation(
+                            BinaryOperator::Less,
+                            Box::new((
+                                ast::Expression::InternalBinding(i_binding),
+                                ast::Expression::InternalBinding(length),
+                            )),
+                        ),
+                        body: vec![
+                            ast::Statement::Assignment {
+                                left: ast::Expression::Index(Box::new((
+                                    ast::Expression::InternalBinding(binding),
+                                    ast::Expression::InternalBinding(i_binding),
+                                ))),
+                                right: ast::Expression::InternalBinding(initial),
+                            },
+                            ast::Statement::Assignment {
+                                left: ast::Expression::InternalBinding(i_binding),
+                                right: ast::Expression::BinaryOperation(
+                                    BinaryOperator::Add,
+                                    Box::new((
+                                        ast::Expression::InternalBinding(i_binding),
+                                        ast::Expression::Literal(1),
+                                    )),
+                                ),
+                            },
+                        ],
+                    }]
+                    .leak(),
+                );
                 binding
             }
             ast::Expression::BinaryOperation(op, args) => {
@@ -257,6 +311,11 @@ impl<'a> State<'a> {
                 self.add_statement(hir::Statement::Call(binding, function_id, arg_bindings));
                 binding
             }
+            ast::Expression::CallMethod(object_expr, _method_name, _args_ast) => {
+                let object_binding = self.process_expression(object_expr);
+                let _struct_id = self.binding_type(object_binding).unwrap_struct();
+                todo!()
+            }
             ast::Expression::Field(object_expr, field_name) => {
                 let object_binding = self.process_expression(object_expr);
                 let struct_id = self.binding_type(object_binding).unwrap_struct();
@@ -273,6 +332,7 @@ impl<'a> State<'a> {
                 self.add_statement(hir::Statement::Index(binding, array, index));
                 binding
             }
+            ast::Expression::InternalBinding(binding) => *binding,
             ast::Expression::Literal(literal) => {
                 let binding = self.make_temporary(hir::Type::I64);
                 self.add_statement(hir::Statement::Literal(binding, *literal));

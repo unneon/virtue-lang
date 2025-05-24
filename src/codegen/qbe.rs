@@ -117,7 +117,12 @@ impl<'a> State<'a> {
                     self.assign(binding, Instr::Alloc8(struct_size as u64));
                 }
                 Statement::NewArray(binding, _, length) => {
-                    self.assign(binding, Instr::Alloc8((8 * length) as u64));
+                    let size = self.make_temporary();
+                    self.assign(size.clone(), Instr::Mul(length.into(), Value::Const(8)));
+                    self.assign(
+                        binding,
+                        Instr::Call("malloc".into(), vec![(Long, size)], None),
+                    );
                 }
                 Statement::Print(fmt) => {
                     let fmt_printf = fmt.printf_format(self.hir_func, "\\n");
