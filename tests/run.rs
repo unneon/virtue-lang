@@ -12,6 +12,7 @@ enum Backend {
 
 struct Directives {
     stdout: String,
+    ignore: bool,
     ignore_llvm: bool,
     ignore_qbe: bool,
 }
@@ -38,13 +39,13 @@ fn find_tests() -> Result<Vec<Trial>, Box<dyn Error>> {
                 Trial::test(format!("{name}::llvm"), move || {
                     run_test(entry, Backend::Llvm, stdout)
                 })
-                .with_ignored_flag(directives.ignore_llvm),
+                .with_ignored_flag(directives.ignore || directives.ignore_llvm),
             );
             tests.push(
                 Trial::test(format!("{name}::qbe"), move || {
                     run_test(entry2, Backend::Qbe, stdout2)
                 })
-                .with_ignored_flag(directives.ignore_qbe),
+                .with_ignored_flag(directives.ignore || directives.ignore_qbe),
             );
         }
     }
@@ -59,11 +60,14 @@ fn parse_directives(source: &str) -> Directives {
         .collect();
     let mut directives = Directives {
         stdout: String::new(),
+        ignore: false,
         ignore_llvm: false,
         ignore_qbe: false,
     };
     for line in lines.into_iter().rev() {
-        if line == "# ignore-llvm" {
+        if line == "# ignore" {
+            directives.ignore = true;
+        } else if line == "# ignore-llvm" {
             directives.ignore_llvm = true;
         } else if line == "# ignore-qbe" {
             directives.ignore_qbe = true;
