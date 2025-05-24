@@ -41,8 +41,10 @@ pub struct Function<'a> {
 
 #[derive(Clone, Debug)]
 pub enum Expression<'a> {
+    ArrayLiteral(Vec<Expression<'a>>),
     BinaryOperation(BinaryOperator, Box<(Expression<'a>, Expression<'a>)>),
     Call(&'a str, Vec<Expression<'a>>),
+    Index(Box<(Expression<'a>, Expression<'a>)>),
     Literal(i64),
     New(&'a str),
     Field(Box<Expression<'a>>, &'a str),

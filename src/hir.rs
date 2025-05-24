@@ -34,9 +34,11 @@ pub struct BindingData {
 pub enum Statement<'a> {
     Assignment(Binding, Binding),
     AssignmentField(Binding, usize, Binding),
+    AssignmentIndex(Binding, Binding, Binding),
     BinaryOperator(Binding, ast::BinaryOperator, Binding, Binding),
     Call(Binding, usize, Vec<Binding>),
     Field(Binding, Binding, usize),
+    Index(Binding, Binding, Binding),
     JumpAlways(usize),
     JumpConditional {
         condition: Binding,
@@ -45,6 +47,7 @@ pub enum Statement<'a> {
     },
     Literal(Binding, i64),
     New(Binding, usize),
+    NewArray(Binding, Type, usize),
     Print(FormatString<'a>),
     Return(Binding),
     StringConstant(Binding, usize),
@@ -74,6 +77,7 @@ pub struct Struct<'a> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Type {
+    Array(Box<Type>),
     I64,
     I32,
     String,
@@ -100,7 +104,14 @@ impl Type {
             Type::I64 => "%lld",
             Type::I32 => "%d",
             Type::String => "%s",
-            Type::Struct(_) => panic!("print not supported for {self:?}"),
+            Type::Array(_) | Type::Struct(_) => panic!("print not supported for {self:?}"),
+        }
+    }
+
+    pub fn unwrap_list(&self) -> &Type {
+        match self {
+            Type::Array(i) => i,
+            _ => panic!("expected array, got {self:?}"),
         }
     }
 

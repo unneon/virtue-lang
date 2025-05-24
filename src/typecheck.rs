@@ -120,6 +120,16 @@ impl<'a> State<'a> {
                                 right_binding,
                             ));
                         }
+                        ast::Expression::Index(indexing) => {
+                            let (array, index) = indexing.as_ref();
+                            let array = self.process_expression(array);
+                            let index = self.process_expression(index);
+                            self.add_statement(hir::Statement::AssignmentIndex(
+                                array,
+                                index,
+                                right_binding,
+                            ));
+                        }
                         ast::Expression::Variable(variable) => {
                             let left_binding = self.make_variable(variable, right_type);
                             self.add_statement(hir::Statement::Assignment(
@@ -202,6 +212,26 @@ impl<'a> State<'a> {
 
     fn process_expression(&mut self, expression: &ast::Expression<'a>) -> Binding {
         match expression {
+            ast::Expression::ArrayLiteral(initials) => {
+                let initials: Vec<_> = initials
+                    .iter()
+                    .map(|initial| self.process_expression(initial))
+                    .collect();
+                let type_ = self.binding_type(initials[0]);
+                for initial in &initials {
+                    assert_eq!(self.binding_type(*initial), type_);
+                }
+                let binding = self.make_temporary(hir::Type::Array(Box::new(type_.clone())));
+                self.add_statement(hir::Statement::NewArray(binding, type_, initials.len()));
+                for (i, initial) in initials.iter().enumerate() {
+                    let i_binding = self.make_temporary(hir::Type::I64);
+                    self.add_statement(hir::Statement::Literal(i_binding, i as i64));
+                    self.add_statement(hir::Statement::AssignmentIndex(
+                        binding, i_binding, *initial,
+                    ));
+                }
+                binding
+            }
             ast::Expression::BinaryOperation(op, args) => {
                 let (left, right) = args.as_ref();
                 let left = self.process_expression(left);
@@ -233,6 +263,14 @@ impl<'a> State<'a> {
                 let field_id = self.structs[struct_id].field_map[field_name];
                 let binding = self.make_temporary(hir::Type::I64);
                 self.add_statement(hir::Statement::Field(binding, object_binding, field_id));
+                binding
+            }
+            ast::Expression::Index(indexing) => {
+                let (array, index) = indexing.as_ref();
+                let array = self.process_expression(array);
+                let index = self.process_expression(index);
+                let binding = self.make_temporary(self.binding_type(array).unwrap_list().clone());
+                self.add_statement(hir::Statement::Index(binding, array, index));
                 binding
             }
             ast::Expression::Literal(literal) => {

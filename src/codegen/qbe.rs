@@ -33,6 +33,7 @@ impl<'a> State<'a> {
                     self.func
                         .add_instr(Instr::Store(Long, field_binding, value.into()));
                 }
+                Statement::AssignmentIndex(_, _, _) => todo!(),
                 Statement::BinaryOperator(result_binding, op, left, right) => {
                     let left = left.into();
                     let right = right.into();
@@ -65,6 +66,7 @@ impl<'a> State<'a> {
                     self.assign(field_binding.clone(), field_address);
                     self.assign(binding, Instr::Load(Long, field_binding));
                 }
+                Statement::Index(_, _, _) => todo!(),
                 Statement::JumpAlways(block) => {
                     self.func.add_instr(Instr::Jmp(format!("_{block}")));
                     return;
@@ -89,6 +91,7 @@ impl<'a> State<'a> {
                     let struct_size = 8 * field_count;
                     self.assign(binding, Instr::Alloc8(struct_size as u64));
                 }
+                Statement::NewArray(_, _, _) => todo!(),
                 Statement::Print(fmt) => {
                     let fmt_printf = fmt.printf_format(self.hir_func, "\\n");
                     let fmt_string_id = self.string_constant(fmt_printf, None);
@@ -204,6 +207,7 @@ pub fn make_il(hir: &hir::Program) -> qbe::Module<'static> {
 
 fn convert_type(type_: &hir::Type) -> qbe::Type<'static> {
     match type_ {
+        hir::Type::Array(_) => Long,
         hir::Type::I64 => Long,
         hir::Type::I32 => Word,
         hir::Type::String => Long,

@@ -1,6 +1,6 @@
 n = 100
 
-is_prime = new list bool
+is_prime = [true]
 is_prime.resize(n + 1, true)
 is_prime[0] = false
 is_prime[1] = false

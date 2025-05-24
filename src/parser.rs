@@ -202,8 +202,10 @@ fn expression0(input: &str) -> IResult<&str, Expression> {
     alt((
         integer_literal,
         parentheses,
+        array_literal,
         field_expression,
         function_call,
+        index_expression,
         new_expression,
         string_literal,
         variable_reference,
@@ -220,7 +222,7 @@ fn identifier(input: &str) -> IResult<&str, &str> {
 }
 
 fn integer_literal(input: &str) -> IResult<&str, Expression> {
-    let (input, literal) = recognize(pair(opt(char('-')), digit1)).parse(input)?;
+    let (input, literal) = preceded(sp, recognize(pair(opt(char('-')), digit1))).parse(input)?;
     let literal = literal.parse().unwrap();
     let expression = Expression::Literal(literal);
     Ok((input, expression))
@@ -228,6 +230,16 @@ fn integer_literal(input: &str) -> IResult<&str, Expression> {
 
 fn parentheses(input: &str) -> IResult<&str, Expression> {
     delimited((sp, char('(')), expression(), (sp, char(')'))).parse(input)
+}
+
+fn array_literal(input: &str) -> IResult<&str, Expression> {
+    delimited(
+        (sp, char('[')),
+        separated_list0((sp, char(',')), expression()),
+        (sp, char(']')),
+    )
+    .map(Expression::ArrayLiteral)
+    .parse(input)
 }
 
 fn field_expression(input: &str) -> IResult<&str, Expression> {
@@ -249,6 +261,18 @@ fn function_call(input: &str) -> IResult<&str, Expression> {
         .parse(input)
 }
 
+fn index_expression(input: &str) -> IResult<&str, Expression> {
+    (
+        variable_reference,
+        delimited(
+            preceded(sp, char('[')),
+            expression(),
+            preceded(sp, char(']')),
+        ),
+    )
+        .map(|(list, index)| Expression::Index(Box::new((list, index))))
+        .parse(input)
+}
 fn new_expression(input: &str) -> IResult<&str, Expression> {
     preceded((sp, tag("new"), sp), identifier)
         .map(Expression::New)
