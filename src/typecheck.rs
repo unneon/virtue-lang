@@ -93,7 +93,13 @@ impl<'a> State<'a> {
         for i in 0..self.functions.len() {
             self.current_function = i;
             self.current_block = self.make_block();
-            self.process_block(self.functions[i].ast_block);
+            if self.process_block(self.functions[i].ast_block) == Fallthrough::Reachable
+                && self.functions[i].name == "main"
+            {
+                let default_return = self.make_temporary(hir::Type::I32);
+                self.add_statement(hir::Statement::Literal(default_return, 0));
+                self.add_statement(hir::Statement::Return(default_return));
+            }
         }
     }
 

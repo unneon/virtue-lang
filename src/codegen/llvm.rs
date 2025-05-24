@@ -247,7 +247,10 @@ impl State<'_> {
                 }
                 Statement::Literal(binding, literal) => {
                     let binding_id = binding.id;
-                    self.write(format!("store i64 {literal}, i64* %stack_{binding_id}"));
+                    let type_ = self.convert_type(&function.bindings[binding_id].type_);
+                    self.write(format!(
+                        "store {type_} {literal}, {type_}* %stack_{binding_id}"
+                    ));
                 }
                 Statement::New(_, _) => {}
                 Statement::Print(fmt) => {
@@ -264,9 +267,10 @@ impl State<'_> {
                     self.write(format!("call i32 (i8*, ...) @printf(i8* @fmt_{function_id}_{block_id}_{statement_id}{args})"));
                 }
                 Statement::Return(binding) => {
+                    let type_ = self.convert_type(&function.return_type);
                     let temp = self.make_temporary();
                     self.load(temp, binding);
-                    self.write(format!("ret i64 %temp_{temp}"));
+                    self.write(format!("ret {type_} %temp_{temp}"));
                     return;
                 }
                 Statement::StringConstant(binding, string_id) => {
@@ -277,8 +281,6 @@ impl State<'_> {
                 }
             }
         }
-
-        self.write("ret i32 0");
     }
 
     fn function_epilogue(&mut self) {

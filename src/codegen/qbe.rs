@@ -17,14 +17,8 @@ struct State<'a> {
     temp_counter: usize,
 }
 
-#[derive(Eq, PartialEq)]
-enum Fallthrough {
-    Unreachable,
-    Reachable,
-}
-
 impl<'a> State<'a> {
-    fn block(&mut self, statements: &'a [Statement]) -> Fallthrough {
+    fn block(&mut self, statements: &'a [Statement]) {
         for statement in statements {
             match statement {
                 Statement::Assignment(left, right) => {
@@ -73,7 +67,7 @@ impl<'a> State<'a> {
                 }
                 Statement::JumpAlways(block) => {
                     self.func.add_instr(Instr::Jmp(format!("_{block}")));
-                    return Fallthrough::Unreachable;
+                    return;
                 }
                 Statement::JumpConditional {
                     condition,
@@ -85,7 +79,7 @@ impl<'a> State<'a> {
                         format!("_{true_block}"),
                         format!("_{false_block}"),
                     ));
-                    return Fallthrough::Unreachable;
+                    return;
                 }
                 Statement::Literal(binding, literal) => {
                     self.assign(binding, Instr::Copy(Value::Const(*literal as u64)));
@@ -111,7 +105,7 @@ impl<'a> State<'a> {
                 }
                 Statement::Return(value) => {
                     self.func.add_instr(Instr::Ret(Some(value.into())));
-                    return Fallthrough::Unreachable;
+                    return;
                 }
                 Statement::StringConstant(binding, string) => {
                     self.assign(
@@ -121,7 +115,6 @@ impl<'a> State<'a> {
                 }
             }
         }
-        Fallthrough::Reachable
     }
 
     fn assign(&mut self, left: impl Into<Value>, right: Instr<'static>) {
@@ -201,9 +194,7 @@ pub fn make_il(hir: &hir::Program) -> qbe::Module<'static> {
         state.temp_counter = 0;
         for (block_id, block) in function.blocks.iter().enumerate() {
             state.func.add_block(format!("_{block_id}"));
-            if state.block(block) == Fallthrough::Reachable {
-                state.func.add_instr(Instr::Ret(Some(Value::Const(0))));
-            }
+            state.block(block);
         }
         state.il.add_function(state.func);
     }
