@@ -3,5 +3,4 @@ xs[0] = 42
 x0 = xs[0]
 print "{x0}"
 
-# ignore-qbe
 # 42

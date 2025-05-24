@@ -33,7 +33,20 @@ impl<'a> State<'a> {
                     self.func
                         .add_instr(Instr::Store(Long, field_binding, value.into()));
                 }
-                Statement::AssignmentIndex(_, _, _) => todo!(),
+                Statement::AssignmentIndex(array_binding, index_binding, right_binding) => {
+                    let offset_binding = self.make_temporary();
+                    let left_binding = self.make_temporary();
+                    self.assign(
+                        offset_binding.clone(),
+                        Instr::Mul(index_binding.into(), Value::Const(8)),
+                    );
+                    self.assign(
+                        left_binding.clone(),
+                        Instr::Add(array_binding.into(), offset_binding),
+                    );
+                    self.func
+                        .add_instr(Instr::Store(Long, left_binding, right_binding.into()));
+                }
                 Statement::BinaryOperator(result_binding, op, left, right) => {
                     let left = left.into();
                     let right = right.into();
@@ -66,7 +79,19 @@ impl<'a> State<'a> {
                     self.assign(field_binding.clone(), field_address);
                     self.assign(binding, Instr::Load(Long, field_binding));
                 }
-                Statement::Index(_, _, _) => todo!(),
+                Statement::Index(binding, array_binding, index_binding) => {
+                    let offset_binding = self.make_temporary();
+                    let right_binding = self.make_temporary();
+                    self.assign(
+                        offset_binding.clone(),
+                        Instr::Mul(index_binding.into(), Value::Const(8)),
+                    );
+                    self.assign(
+                        right_binding.clone(),
+                        Instr::Add(array_binding.into(), offset_binding),
+                    );
+                    self.assign(binding, Instr::Load(Long, right_binding));
+                }
                 Statement::JumpAlways(block) => {
                     self.func.add_instr(Instr::Jmp(format!("_{block}")));
                     return;
@@ -91,7 +116,9 @@ impl<'a> State<'a> {
                     let struct_size = 8 * field_count;
                     self.assign(binding, Instr::Alloc8(struct_size as u64));
                 }
-                Statement::NewArray(_, _, _) => todo!(),
+                Statement::NewArray(binding, _, length) => {
+                    self.assign(binding, Instr::Alloc8((8 * length) as u64));
+                }
                 Statement::Print(fmt) => {
                     let fmt_printf = fmt.printf_format(self.hir_func, "\\n");
                     let fmt_string_id = self.string_constant(fmt_printf, None);
