@@ -208,6 +208,7 @@ fn expression0(input: &str) -> IResult<&str, Expression> {
         index_expression,
         new_expression,
         string_literal,
+        bool_literal,
         variable_reference,
     ))
     .parse(input)
@@ -283,6 +284,12 @@ fn string_literal(input: &str) -> IResult<&str, Expression> {
     delimited(preceded(sp, char('"')), take_while(|c| c != '"'), char('"'))
         .map(Expression::StringLiteral)
         .parse(input)
+}
+
+fn bool_literal(input: &str) -> IResult<&str, Expression> {
+    let true_ = tag("true").map(|_| Expression::Literal(1));
+    let false_ = tag("false").map(|_| Expression::Literal(0));
+    preceded(sp, alt((true_, false_))).parse(input)
 }
 
 fn variable_reference(input: &str) -> IResult<&str, Expression> {
