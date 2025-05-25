@@ -58,6 +58,9 @@ impl<'a> State<'a> {
         for statement in statements {
             match statement {
                 ast::Statement::Assignment { .. } => {}
+                ast::Statement::ForRange { body, .. } => {
+                    self.preprocess_block(body);
+                }
                 ast::Statement::Function(function) => self.preprocess_function(
                     function.name,
                     &function.args,
@@ -146,6 +149,62 @@ impl<'a> State<'a> {
                         }
                         _ => todo!("hir assignment unimplemented {statement:?}"),
                     }
+                }
+                ast::Statement::ForRange {
+                    index,
+                    lower,
+                    upper,
+                    step,
+                    body,
+                } => {
+                    let lower_binding = self.process_expression(lower);
+                    let upper_binding = self.process_expression(upper);
+                    let step_binding = if let Some(step) = step {
+                        self.process_expression(step)
+                    } else {
+                        let step = self.make_temporary(hir::Type::I64);
+                        self.add_statement(hir::Statement::Literal(step, 1));
+                        step
+                    };
+                    let index_binding = self.make_variable(index, hir::Type::I64);
+                    let condition = self.make_temporary(hir::Type::I64);
+                    let condition_block = self.make_block();
+                    let body_block = self.make_block();
+                    let after_block = self.make_block();
+
+                    self.add_statement(hir::Statement::Assignment(index_binding, lower_binding));
+                    self.add_statement(hir::Statement::JumpAlways(condition_block));
+
+                    self.current_block = condition_block;
+                    self.add_statement(hir::Statement::BinaryOperator(
+                        condition,
+                        BinaryOperator::Less,
+                        index_binding,
+                        upper_binding,
+                    ));
+                    self.add_statement(hir::Statement::JumpConditional {
+                        condition,
+                        true_block: body_block,
+                        false_block: after_block,
+                    });
+
+                    self.current_block = body_block;
+                    if self.process_block(body) == Fallthrough::Reachable {
+                        let index_next_binding = self.make_temporary(hir::Type::I64);
+                        self.add_statement(hir::Statement::BinaryOperator(
+                            index_next_binding,
+                            BinaryOperator::Add,
+                            index_binding,
+                            step_binding,
+                        ));
+                        self.add_statement(hir::Statement::Assignment(
+                            index_binding,
+                            index_next_binding,
+                        ));
+                        self.add_statement(hir::Statement::JumpAlways(condition_block));
+                    }
+
+                    self.current_block = after_block;
                 }
                 ast::Statement::Function { .. } => {}
                 ast::Statement::If {

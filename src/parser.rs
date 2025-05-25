@@ -37,6 +37,7 @@ fn statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
             if_statement(nesting),
             print_statement(),
             while_statement(nesting),
+            for_range_statement(nesting),
             func_statement(nesting),
             return_statement(),
             struct_statement(nesting),
@@ -86,6 +87,23 @@ fn while_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
         preceded(newline, block(nesting + 1)),
     )
         .map(|(condition, body)| Statement::While { condition, body })
+}
+
+fn for_range_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
+    (
+        preceded((tag("for"), sp), identifier),
+        preceded((sp, tag("from"), sp), expression()),
+        preceded((sp, tag("to"), sp), expression()),
+        opt(preceded((sp, tag("by"), sp), expression())),
+        preceded(newline, block(nesting + 1)),
+    )
+        .map(|(index, lower, upper, step, body)| Statement::ForRange {
+            index,
+            lower,
+            upper,
+            step,
+            body,
+        })
 }
 
 fn func_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {

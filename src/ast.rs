@@ -11,6 +11,13 @@ pub enum Statement<'a> {
         left: Expression<'a>,
         right: Expression<'a>,
     },
+    ForRange {
+        index: &'a str,
+        lower: Expression<'a>,
+        upper: Expression<'a>,
+        step: Option<Expression<'a>>,
+        body: Vec<Statement<'a>>,
+    },
     Function(Function<'a>),
     If {
         condition: Expression<'a>,

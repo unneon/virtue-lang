@@ -1,8 +1,6 @@
-n = 1
 r = 1
-while n <= 20
+for n from 1 to 21
     r = n * r
-    n = n + 1
 print "{r}"
 
 # 2432902008176640000
