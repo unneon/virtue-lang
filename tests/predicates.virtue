@@ -1,0 +1,16 @@
+func even(n int) bool
+    return n % 2 == 0
+
+func exact_divide_two_fast(n even int) int
+    return n >> 1
+
+func collatz_step(n int) int
+    if n % 2 == 1
+        return 3 * n + 1
+    return exact_divide_two_fast(n)
+
+a = collatz_step(13)
+b = collatz_step(a)
+print "{a} {b}"
+
+# 40 20

@@ -56,6 +56,12 @@ impl<'a> State<'a> {
                         BinaryOperator::Multiply => Instr::Mul(left, right),
                         BinaryOperator::Divide => Instr::Div(left, right),
                         BinaryOperator::Modulo => Instr::Rem(left, right),
+                        BinaryOperator::BitAnd => Instr::And(left, right),
+                        BinaryOperator::BitOr => Instr::Or(left, right),
+                        // TODO: QBE supports it, but the library I'm using doesn't.
+                        BinaryOperator::BitXor => todo!(),
+                        BinaryOperator::BitShiftLeft => Instr::Shl(left, right),
+                        BinaryOperator::BitShiftRight => Instr::Shr(left, right),
                         BinaryOperator::Less => Instr::Cmp(Long, Cmp::Slt, left, right),
                         BinaryOperator::LessOrEqual => Instr::Cmp(Long, Cmp::Sle, left, right),
                         BinaryOperator::Greater => Instr::Cmp(Long, Cmp::Sgt, left, right),
@@ -238,11 +244,11 @@ pub fn make_il(hir: &hir::Program) -> qbe::Module<'static> {
 }
 
 fn convert_type(type_: &hir::Type) -> qbe::Type<'static> {
-    match type_ {
-        hir::Type::Array(_) => Long,
-        hir::Type::I64 => Long,
-        hir::Type::I32 => Word,
-        hir::Type::String => Long,
-        hir::Type::Struct(_) => Long,
+    match &type_.base {
+        hir::BaseType::Array(_) => Long,
+        hir::BaseType::I64 => Long,
+        hir::BaseType::I32 => Word,
+        hir::BaseType::String => Long,
+        hir::BaseType::Struct(_) => Long,
     }
 }

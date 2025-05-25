@@ -3,7 +3,7 @@ mod subprocess;
 pub use subprocess::compile_ir;
 
 use crate::ast::BinaryOperator;
-use crate::hir::{Binding, FormatSegment, Program, Statement, Type};
+use crate::hir::{BaseType, Binding, FormatSegment, Program, Statement, Type};
 use std::fmt::Write;
 
 struct State<'a> {
@@ -167,6 +167,11 @@ impl State<'_> {
                         BinaryOperator::Multiply => "mul",
                         BinaryOperator::Divide => "sdiv",
                         BinaryOperator::Modulo => "srem",
+                        BinaryOperator::BitAnd => "and",
+                        BinaryOperator::BitOr => "or",
+                        BinaryOperator::BitXor => "xor",
+                        BinaryOperator::BitShiftLeft => "shl",
+                        BinaryOperator::BitShiftRight => "lshr",
                         BinaryOperator::Less => "icmp slt",
                         BinaryOperator::LessOrEqual => "icmp sle",
                         BinaryOperator::Greater => "icmp sgt",
@@ -369,12 +374,12 @@ impl State<'_> {
 }
 
 fn convert_type(type_: &Type) -> String {
-    match type_ {
-        Type::Array(inner) => format!("{}*", convert_type(inner)),
-        Type::I64 => "i64".to_owned(),
-        Type::I32 => "i32".to_owned(),
-        Type::String => "i8*".to_owned(),
-        Type::Struct(id) => format!("%struct_{id}"),
+    match &type_.base {
+        BaseType::Array(inner) => format!("{}*", convert_type(inner)),
+        BaseType::I64 => "i64".to_owned(),
+        BaseType::I32 => "i32".to_owned(),
+        BaseType::String => "i8*".to_owned(),
+        BaseType::Struct(id) => format!("%struct_{id}"),
     }
 }
 

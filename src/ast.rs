@@ -32,7 +32,7 @@ pub enum Statement<'a> {
     },
     Struct {
         name: &'a str,
-        fields: Vec<(&'a str, &'a str)>,
+        fields: Vec<(&'a str, Type<'a>)>,
     },
     While {
         condition: Expression<'a>,
@@ -43,9 +43,14 @@ pub enum Statement<'a> {
 #[derive(Debug)]
 pub struct Function<'a> {
     pub name: &'a str,
-    pub args: Vec<(&'a str, &'a str)>,
-    pub return_type: &'a str,
+    pub args: Vec<(&'a str, Type<'a>)>,
+    pub return_type: Type<'a>,
     pub body: Vec<Statement<'a>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Type<'a> {
+    pub segments: Vec<&'a str>,
 }
 
 #[derive(Clone, Debug)]
@@ -58,7 +63,7 @@ pub enum Expression<'a> {
     Index(Box<(Expression<'a>, Expression<'a>)>),
     InternalBinding(hir::Binding),
     Literal(i64),
-    New(&'a str),
+    New(Type<'a>),
     Field(Box<Expression<'a>>, &'a str),
     StringLiteral(&'a str),
     Variable(&'a str),
@@ -71,6 +76,11 @@ pub enum BinaryOperator {
     Multiply,
     Divide,
     Modulo,
+    BitAnd,
+    BitOr,
+    BitXor,
+    BitShiftLeft,
+    BitShiftRight,
     Less,
     LessOrEqual,
     Greater,

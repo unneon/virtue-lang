@@ -1,4 +1,6 @@
-use crate::ast::{BinaryOperator, Expression, Format, FormatSegment, Function, Module, Statement};
+use crate::ast::{
+    BinaryOperator, Expression, Format, FormatSegment, Function, Module, Statement, Type,
+};
 use nom::IResult;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1};
@@ -113,10 +115,10 @@ fn func_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
             (sp, char('(')),
             separated_list0(
                 preceded(sp, char(',')),
-                (preceded(sp, identifier), preceded(sp, identifier)),
+                (preceded(sp, identifier), preceded(sp, type_)),
             ),
         ),
-        preceded((sp, char(')'), sp), identifier),
+        preceded((sp, char(')')), type_),
         preceded(newline, block(nesting + 1)),
     )
         .map(|(name, args, return_type, body)| {
@@ -138,7 +140,7 @@ fn struct_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
         delimited((tag("struct"), sp), identifier, newline),
         many0(delimited(
             (empty_lines, indentiation(nesting + 1)),
-            (identifier, preceded(sp, identifier)),
+            (identifier, type_),
             newline,
         )),
     )
@@ -162,10 +164,10 @@ fn format_segment_variable<'a>() -> impl Parser<'a, FormatSegment<'a>> {
 }
 
 fn expression<'a>() -> impl Parser<'a, Expression<'a>> {
-    |input| expression4(input)
+    |input| expression5(input)
 }
 
-fn expression4(input: &str) -> IResult<&str, Expression> {
+fn expression5(input: &str) -> IResult<&str, Expression> {
     let less_or_equal = tag("<=").map(|_| BinaryOperator::LessOrEqual);
     let less = tag("<").map(|_| BinaryOperator::Less);
     let greater_or_equal = tag(">=").map(|_| BinaryOperator::GreaterOrEqual);
@@ -180,12 +182,22 @@ fn expression4(input: &str) -> IResult<&str, Expression> {
         equal,
         not_equal,
     ));
-    expression_binary(expression3, op, input)
+    expression_binary_single(expression4, op, input)
+}
+
+fn expression4(input: &str) -> IResult<&str, Expression> {
+    let and = char('&').map(|_| BinaryOperator::BitAnd);
+    let or = char('|').map(|_| BinaryOperator::BitOr);
+    let xor = char('^').map(|_| BinaryOperator::BitXor);
+    let shift_left = tag("<<").map(|_| BinaryOperator::BitShiftLeft);
+    let shift_right = tag(">>").map(|_| BinaryOperator::BitShiftRight);
+    let op = alt((and, or, xor, shift_left, shift_right));
+    expression_binary_single(expression3, op, input)
 }
 
 fn expression3(input: &str) -> IResult<&str, Expression> {
     let modulo = char('%').map(|_| BinaryOperator::Modulo);
-    expression_binary(expression2, modulo, input)
+    expression_binary_single(expression2, modulo, input)
 }
 
 fn expression2(input: &str) -> IResult<&str, Expression> {
@@ -214,6 +226,22 @@ fn expression_binary<'a>(
         |left, (op, right)| Expression::BinaryOperation(op, Box::new((left, right))),
     )
     .parse(input)
+}
+
+fn expression_binary_single<'a>(
+    mut sub_expr: impl Parser<'a, Expression<'a>>,
+    op: impl Parser<'a, BinaryOperator>,
+    input: &'a str,
+) -> IResult<&'a str, Expression<'a>> {
+    let (input, left) = sub_expr.parse(input)?;
+    if let Ok((input, (op, right))) = (preceded(sp, op), sub_expr).parse(input) {
+        Ok((
+            input,
+            Expression::BinaryOperation(op, Box::new((left, right))),
+        ))
+    } else {
+        Ok((input, left))
+    }
 }
 
 fn expression0(input: &str) -> IResult<&str, Expression> {
@@ -319,7 +347,7 @@ fn index_expression(input: &str) -> IResult<&str, Expression> {
         .parse(input)
 }
 fn new_expression(input: &str) -> IResult<&str, Expression> {
-    preceded((sp, tag("new"), sp), identifier)
+    preceded((sp, tag("new"), sp), type_)
         .map(Expression::New)
         .parse(input)
 }
@@ -339,6 +367,12 @@ fn bool_literal(input: &str) -> IResult<&str, Expression> {
 fn variable_reference(input: &str) -> IResult<&str, Expression> {
     preceded(sp, identifier)
         .map(Expression::Variable)
+        .parse(input)
+}
+
+fn type_(input: &str) -> IResult<&str, Type> {
+    many0(preceded(sp, identifier))
+        .map(|segments| Type { segments })
         .parse(input)
 }
 

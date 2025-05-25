@@ -76,7 +76,13 @@ pub struct Struct<'a> {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Type {
+pub struct Type {
+    pub predicates: Vec<usize>,
+    pub base: BaseType,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BaseType {
     Array(Box<Type>),
     I64,
     I32,
@@ -99,26 +105,44 @@ impl FormatString<'_> {
 }
 
 impl Type {
+    pub const I64: Type = Type {
+        predicates: Vec::new(),
+        base: BaseType::I64,
+    };
+    pub const I32: Type = Type {
+        predicates: Vec::new(),
+        base: BaseType::I32,
+    };
+
     fn printf_format(&self) -> &'static str {
-        match self {
-            Type::I64 => "%lld",
-            Type::I32 => "%d",
-            Type::String => "%s",
-            Type::Array(_) | Type::Struct(_) => panic!("print not supported for {self:?}"),
+        match self.base {
+            BaseType::I64 => "%lld",
+            BaseType::I32 => "%d",
+            BaseType::String => "%s",
+            BaseType::Array(_) | BaseType::Struct(_) => panic!("print not supported for {self:?}"),
         }
     }
 
     pub fn unwrap_list(&self) -> &Type {
-        match self {
-            Type::Array(i) => i,
+        match &self.base {
+            BaseType::Array(i) => i,
             _ => panic!("expected array, got {self:?}"),
         }
     }
 
     pub fn unwrap_struct(&self) -> usize {
-        match self {
-            Type::Struct(i) => *i,
+        match &self.base {
+            BaseType::Struct(i) => *i,
             _ => panic!("expected struct, got {self:?}"),
+        }
+    }
+}
+
+impl From<BaseType> for Type {
+    fn from(base: BaseType) -> Type {
+        Type {
+            predicates: Vec::new(),
+            base,
         }
     }
 }

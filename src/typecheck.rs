@@ -24,8 +24,8 @@ impl<'a> State<'a> {
     fn preprocess_function(
         &mut self,
         name: &'a str,
-        ast_args: &[(&'a str, &'a str)],
-        return_type: &'a str,
+        ast_args: &[(&'a str, ast::Type<'a>)],
+        return_type: &ast::Type<'a>,
         body: &'a [ast::Statement<'a>],
     ) {
         let mut hir_args = Vec::new();
@@ -64,7 +64,7 @@ impl<'a> State<'a> {
                 ast::Statement::Function(function) => self.preprocess_function(
                     function.name,
                     &function.args,
-                    function.return_type,
+                    &function.return_type,
                     &function.body,
                 ),
                 ast::Statement::If { true_, false_, .. } => {
@@ -288,7 +288,8 @@ impl<'a> State<'a> {
                     assert_eq!(self.binding_type(*initial), type_);
                 }
                 let length_binding = self.make_temporary(hir::Type::I64);
-                let binding = self.make_temporary(hir::Type::Array(Box::new(type_.clone())));
+                let binding =
+                    self.make_temporary(hir::BaseType::Array(Box::new(type_.clone())).into());
                 self.add_statement(hir::Statement::Literal(
                     length_binding,
                     initials.len() as i64,
@@ -308,7 +309,8 @@ impl<'a> State<'a> {
                 let initial = self.process_expression(initial);
                 let length = self.process_expression(length);
                 let type_ = self.binding_type(initial);
-                let binding = self.make_temporary(hir::Type::Array(Box::new(type_.clone())));
+                let binding =
+                    self.make_temporary(hir::BaseType::Array(Box::new(type_.clone())).into());
                 self.add_statement(hir::Statement::NewArray(binding, type_, length));
                 let i_binding = self.make_variable("__i", hir::Type::I64);
                 self.add_statement(hir::Statement::Literal(i_binding, 0));
@@ -398,14 +400,15 @@ impl<'a> State<'a> {
                 binding
             }
             ast::Expression::New(struct_name) => {
-                let struct_id = self.convert_type(struct_name).unwrap_struct();
-                let binding = self.make_temporary(hir::Type::Struct(struct_id));
+                let struct_type = self.convert_type(struct_name);
+                let struct_id = struct_type.unwrap_struct();
+                let binding = self.make_temporary(struct_type);
                 self.add_statement(hir::Statement::New(binding, struct_id));
                 binding
             }
             ast::Expression::StringLiteral(literal) => {
                 let string_id = self.make_string(literal);
-                let binding = self.make_temporary(hir::Type::String);
+                let binding = self.make_temporary(hir::BaseType::String.into());
                 self.add_statement(hir::Statement::StringConstant(binding, string_id));
                 binding
             }
@@ -458,12 +461,14 @@ impl<'a> State<'a> {
         self.functions[self.current_function].blocks[self.current_block].push(statement);
     }
 
-    fn convert_type(&self, type_: &str) -> hir::Type {
-        match type_ {
-            "int" => hir::Type::I64,
-            "i32" => hir::Type::I32,
-            "string" => hir::Type::String,
-            _ => hir::Type::Struct(self.struct_map[type_]),
+    fn convert_type(&self, type_: &ast::Type) -> hir::Type {
+        match type_.segments.as_slice() {
+            [.., "int"] => hir::Type::I64,
+            [.., "i32"] => hir::Type::I32,
+            [.., "bool"] => hir::Type::I64,
+            [.., "string"] => hir::BaseType::String.into(),
+            [.., struct_name] => hir::BaseType::Struct(self.struct_map[struct_name]).into(),
+            segments => todo!("convert_type {segments:?}"),
         }
     }
 
@@ -498,7 +503,10 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> hir::Program<'a> {
         current_block: 0,
     };
 
-    state.preprocess_function("main", &[], "i32", &ast.statements);
+    let main_type = ast::Type {
+        segments: vec!["i32"],
+    };
+    state.preprocess_function("main", &[], &main_type, &ast.statements);
     state.process_all_functions();
 
     hir::Program {
