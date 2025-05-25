@@ -1,5 +1,6 @@
 use crate::ast::{
     BinaryOperator, Expression, Format, FormatSegment, Function, Module, Statement, Type,
+    UnaryOperator,
 };
 use nom::IResult;
 use nom::branch::alt;
@@ -164,10 +165,10 @@ fn format_segment_variable<'a>() -> impl Parser<'a, FormatSegment<'a>> {
 }
 
 fn expression<'a>() -> impl Parser<'a, Expression<'a>> {
-    |input| expression5(input)
+    |input| expression6(input)
 }
 
-fn expression5(input: &str) -> IResult<&str, Expression> {
+fn expression6(input: &str) -> IResult<&str, Expression> {
     let less_or_equal = tag("<=").map(|_| BinaryOperator::LessOrEqual);
     let less = tag("<").map(|_| BinaryOperator::Less);
     let greater_or_equal = tag(">=").map(|_| BinaryOperator::GreaterOrEqual);
@@ -182,36 +183,36 @@ fn expression5(input: &str) -> IResult<&str, Expression> {
         equal,
         not_equal,
     ));
-    expression_binary_single(expression4, op, input)
+    expression_binary_single(expression5, op, input)
 }
 
-fn expression4(input: &str) -> IResult<&str, Expression> {
+fn expression5(input: &str) -> IResult<&str, Expression> {
     let and = char('&').map(|_| BinaryOperator::BitAnd);
     let or = char('|').map(|_| BinaryOperator::BitOr);
     let xor = char('^').map(|_| BinaryOperator::BitXor);
     let shift_left = tag("<<").map(|_| BinaryOperator::BitShiftLeft);
     let shift_right = tag(">>").map(|_| BinaryOperator::BitShiftRight);
     let op = alt((and, or, xor, shift_left, shift_right));
-    expression_binary_single(expression3, op, input)
+    expression_binary_single(expression4, op, input)
+}
+
+fn expression4(input: &str) -> IResult<&str, Expression> {
+    let modulo = char('%').map(|_| BinaryOperator::Modulo);
+    expression_binary_single(expression3, modulo, input)
 }
 
 fn expression3(input: &str) -> IResult<&str, Expression> {
-    let modulo = char('%').map(|_| BinaryOperator::Modulo);
-    expression_binary_single(expression2, modulo, input)
-}
-
-fn expression2(input: &str) -> IResult<&str, Expression> {
     let add = char('+').map(|_| BinaryOperator::Add);
     let subtract = char('-').map(|_| BinaryOperator::Subtract);
     let op = alt((add, subtract));
-    expression_binary(expression1, op, input)
+    expression_binary(expression2, op, input)
 }
 
-fn expression1(input: &str) -> IResult<&str, Expression> {
+fn expression2(input: &str) -> IResult<&str, Expression> {
     let multiply = char('*').map(|_| BinaryOperator::Multiply);
     let divide = char('/').map(|_| BinaryOperator::Divide);
     let op = alt((multiply, divide));
-    expression_binary(expression0, op, input)
+    expression_binary(expression1, op, input)
 }
 
 fn expression_binary<'a>(
@@ -234,7 +235,7 @@ fn expression_binary_single<'a>(
     input: &'a str,
 ) -> IResult<&'a str, Expression<'a>> {
     let (input, left) = sub_expr.parse(input)?;
-    if let Ok((input, (op, right))) = (preceded(sp, op), sub_expr).parse(input) {
+    if let Ok((input, (op, right))) = (preceded(sp, op), preceded(sp, sub_expr)).parse(input) {
         Ok((
             input,
             Expression::BinaryOperation(op, Box::new((left, right))),
@@ -242,6 +243,19 @@ fn expression_binary_single<'a>(
     } else {
         Ok((input, left))
     }
+}
+
+fn expression1(input: &str) -> IResult<&str, Expression> {
+    let negate = char('-').map(|_| UnaryOperator::Negate);
+    let bitnot = char('~').map(|_| UnaryOperator::BitNot);
+    let not = (tag("not"), sp).map(|_| UnaryOperator::Not);
+    let op = alt((negate, bitnot, not));
+    (opt(op), expression0)
+        .map(|(op, expr)| match op {
+            Some(op) => Expression::UnaryOperation(op, Box::new(expr)),
+            None => expr,
+        })
+        .parse(input)
 }
 
 fn expression0(input: &str) -> IResult<&str, Expression> {

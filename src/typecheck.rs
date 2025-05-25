@@ -412,6 +412,12 @@ impl<'a> State<'a> {
                 self.add_statement(hir::Statement::StringConstant(binding, string_id));
                 binding
             }
+            ast::Expression::UnaryOperation(op, arg) => {
+                let arg = self.process_expression(arg);
+                let binding = self.make_temporary(hir::Type::I64);
+                self.add_statement(hir::Statement::UnaryOperator(binding, *op, arg));
+                binding
+            }
             ast::Expression::Variable(variable) => self.variable_binding(variable),
         }
     }

@@ -1,4 +1,5 @@
 use crate::ast;
+use crate::ast::{BinaryOperator, UnaryOperator};
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -35,7 +36,7 @@ pub enum Statement<'a> {
     Assignment(Binding, Binding),
     AssignmentField(Binding, usize, Binding),
     AssignmentIndex(Binding, Binding, Binding),
-    BinaryOperator(Binding, ast::BinaryOperator, Binding, Binding),
+    BinaryOperator(Binding, BinaryOperator, Binding, Binding),
     Call(Binding, usize, Vec<Binding>),
     Field(Binding, Binding, usize),
     Index(Binding, Binding, Binding),
@@ -51,6 +52,7 @@ pub enum Statement<'a> {
     Print(FormatString<'a>),
     Return(Binding),
     StringConstant(Binding, usize),
+    UnaryOperator(Binding, UnaryOperator, Binding),
 }
 
 #[derive(Clone, Copy, Debug)]

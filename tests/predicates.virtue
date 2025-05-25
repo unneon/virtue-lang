@@ -5,7 +5,7 @@ func exact_divide_two_fast(n even int) int
     return n >> 1
 
 func collatz_step(n int) int
-    if n % 2 == 1
+    if not even(n)
         return 3 * n + 1
     return exact_divide_two_fast(n)
 

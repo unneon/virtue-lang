@@ -2,7 +2,7 @@ mod subprocess;
 
 pub use subprocess::compile_ir;
 
-use crate::ast::BinaryOperator;
+use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::hir::{BaseType, Binding, FormatSegment, Program, Statement, Type};
 use std::fmt::Write;
 
@@ -325,6 +325,20 @@ impl State<'_> {
                     let temp = self.make_temporary();
                     self.write(format!("%temp_{temp} = getelementptr [{string_len} x i8], [{string_len} x i8]* @string_{string_id}, i32 0, i32 0"));
                     self.store(binding, temp);
+                }
+                Statement::UnaryOperator(binding, op, arg) => {
+                    let (instr, helper_arg) = match op {
+                        UnaryOperator::Negate => ("sub", "0"),
+                        UnaryOperator::BitNot => ("xor", "-1"),
+                        UnaryOperator::Not => ("xor", "1"),
+                    };
+                    let arg_temp = self.make_temporary();
+                    let binding_temp = self.make_temporary();
+                    self.load(arg_temp, arg);
+                    self.write(format!(
+                        "%temp_{binding_temp} = {instr} i64 {helper_arg}, %temp_{arg_temp}"
+                    ));
+                    self.store(binding, binding_temp);
                 }
             }
         }

@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 nom = "8.0"
-qbe = "2.5"
+qbe = { git = "https://github.com/unneon/qbe-rs" }
 
 [dev-dependencies]
 libtest-mimic = "0.8"

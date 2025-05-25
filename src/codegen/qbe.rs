@@ -2,7 +2,7 @@ mod subprocess;
 
 pub use subprocess::compile_il;
 
-use crate::ast::BinaryOperator;
+use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::hir;
 use crate::hir::{Binding, FormatSegment, Statement};
 use qbe::Type::{Byte, Long, Word};
@@ -58,8 +58,7 @@ impl<'a> State<'a> {
                         BinaryOperator::Modulo => Instr::Rem(left, right),
                         BinaryOperator::BitAnd => Instr::And(left, right),
                         BinaryOperator::BitOr => Instr::Or(left, right),
-                        // TODO: QBE supports it, but the library I'm using doesn't.
-                        BinaryOperator::BitXor => todo!(),
+                        BinaryOperator::BitXor => Instr::Xor(left, right),
                         BinaryOperator::BitShiftLeft => Instr::Shl(left, right),
                         BinaryOperator::BitShiftRight => Instr::Shr(left, right),
                         BinaryOperator::Less => Instr::Cmp(Long, Cmp::Slt, left, right),
@@ -152,6 +151,16 @@ impl<'a> State<'a> {
                     self.assign(
                         binding,
                         Instr::Copy(Value::Global(format!("string_{string}"))),
+                    );
+                }
+                Statement::UnaryOperator(binding, op, arg) => {
+                    self.assign(
+                        binding,
+                        match op {
+                            UnaryOperator::Negate => Instr::Sub(Value::Const(0), arg.into()),
+                            UnaryOperator::BitNot => Instr::Xor(arg.into(), Value::Const(u64::MAX)),
+                            UnaryOperator::Not => Instr::Xor(arg.into(), Value::Const(1)),
+                        },
                     );
                 }
             }

@@ -66,6 +66,7 @@ pub enum Expression<'a> {
     New(Type<'a>),
     Field(Box<Expression<'a>>, &'a str),
     StringLiteral(&'a str),
+    UnaryOperation(UnaryOperator, Box<Expression<'a>>),
     Variable(&'a str),
 }
 
@@ -87,6 +88,13 @@ pub enum BinaryOperator {
     GreaterOrEqual,
     Equal,
     NotEqual,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum UnaryOperator {
+    Negate,
+    BitNot,
+    Not,
 }
 
 #[derive(Debug)]
