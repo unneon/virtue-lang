@@ -294,7 +294,7 @@ impl<'a> State<'a> {
                     length_binding,
                     initials.len() as i64,
                 ));
-                self.add_statement(hir::Statement::NewArray(binding, type_, length_binding));
+                self.add_statement(hir::Statement::NewArray(binding, length_binding));
                 for (i, initial) in initials.iter().enumerate() {
                     let i_binding = self.make_temporary(hir::Type::I64);
                     self.add_statement(hir::Statement::Literal(i_binding, i as i64));
@@ -311,7 +311,7 @@ impl<'a> State<'a> {
                 let type_ = self.binding_type(initial);
                 let binding =
                     self.make_temporary(hir::BaseType::Array(Box::new(type_.clone())).into());
-                self.add_statement(hir::Statement::NewArray(binding, type_, length));
+                self.add_statement(hir::Statement::NewArray(binding, length));
                 let i_binding = self.make_variable("__i", hir::Type::I64);
                 self.add_statement(hir::Statement::Literal(i_binding, 0));
                 self.process_block(

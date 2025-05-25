@@ -121,7 +121,7 @@ impl<'a> State<'a> {
                     let struct_size = 8 * field_count;
                     self.assign(binding, Instr::Alloc8(struct_size as u64));
                 }
-                Statement::NewArray(binding, _, length) => {
+                Statement::NewArray(binding, length) => {
                     let size = self.make_temporary();
                     self.assign(size.clone(), Instr::Mul(length.into(), Value::Const(8)));
                     self.assign(

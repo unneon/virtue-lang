@@ -48,7 +48,7 @@ pub enum Statement<'a> {
     },
     Literal(Binding, i64),
     New(Binding, usize),
-    NewArray(Binding, Type, Binding),
+    NewArray(Binding, Binding),
     Print(FormatString<'a>),
     Return(Binding),
     StringConstant(Binding, usize),

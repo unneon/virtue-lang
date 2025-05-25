@@ -290,13 +290,14 @@ impl State<'_> {
                     ));
                 }
                 Statement::New(_, _) => {}
-                Statement::NewArray(binding, type_, length) => {
-                    let type_ = convert_type(type_);
+                Statement::NewArray(binding, length) => {
+                    let array_type = &function.bindings[binding.id].type_;
+                    let element_type = convert_type(array_type.unwrap_list());
                     let length_temp = self.make_temporary();
                     let result_temp = self.make_temporary();
                     self.load(length_temp, length);
                     self.write(format!(
-                        "%temp_{result_temp} = alloca {type_}, i64 %temp_{length_temp}"
+                        "%temp_{result_temp} = alloca {element_type}, i64 %temp_{length_temp}"
                     ));
                     self.store(binding, result_temp);
                 }
