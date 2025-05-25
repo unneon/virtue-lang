@@ -30,7 +30,7 @@ const USAGE: &str = r#"virtue [OPTIONS] file.virtue
     -h           prints this help
     -o file      output to file
     -f <format>  generate format among:
-        debug-ast, debug-hir, llvm-ir, qbe-il, executable (default)
+        debug-ast, debug-hir, c, llvm-ir, qbe-il, executable (default)
     -b <backend> generate backend among:
         c, llvm (default), qbe"#;
 
