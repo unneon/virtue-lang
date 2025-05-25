@@ -6,6 +6,7 @@ use std::process::{Command, ExitCode, Stdio};
 use std::sync::Arc;
 
 enum Backend {
+    C,
     Llvm,
     Qbe,
 }
@@ -13,6 +14,7 @@ enum Backend {
 struct Directives {
     stdout: String,
     ignore: bool,
+    ignore_c: bool,
     ignore_llvm: bool,
     ignore_qbe: bool,
 }
@@ -33,17 +35,25 @@ fn find_tests() -> Result<Vec<Trial>, Box<dyn Error>> {
             let source = fs::read_to_string(&entry).unwrap();
             let directives = parse_directives(&source);
             let entry2 = entry.clone();
+            let entry3 = entry.clone();
             let stdout = Arc::new(directives.stdout);
             let stdout2 = stdout.clone();
+            let stdout3 = stdout.clone();
+            tests.push(
+                Trial::test(format!("{name}::c"), move || {
+                    run_test(entry, Backend::C, stdout)
+                })
+                .with_ignored_flag(directives.ignore || directives.ignore_c),
+            );
             tests.push(
                 Trial::test(format!("{name}::llvm"), move || {
-                    run_test(entry, Backend::Llvm, stdout)
+                    run_test(entry2, Backend::Llvm, stdout2)
                 })
                 .with_ignored_flag(directives.ignore || directives.ignore_llvm),
             );
             tests.push(
                 Trial::test(format!("{name}::qbe"), move || {
-                    run_test(entry2, Backend::Qbe, stdout2)
+                    run_test(entry3, Backend::Qbe, stdout3)
                 })
                 .with_ignored_flag(directives.ignore || directives.ignore_qbe),
             );
@@ -61,12 +71,15 @@ fn parse_directives(source: &str) -> Directives {
     let mut directives = Directives {
         stdout: String::new(),
         ignore: false,
+        ignore_c: false,
         ignore_llvm: false,
         ignore_qbe: false,
     };
     for line in lines.into_iter().rev() {
         if line == "# ignore" {
             directives.ignore = true;
+        } else if line == "# ignore-c" {
+            directives.ignore_c = true;
         } else if line == "# ignore-llvm" {
             directives.ignore_llvm = true;
         } else if line == "# ignore-qbe" {
@@ -86,11 +99,23 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
         Err(e) => return Err(format!("\x1B[1mparse error:\x1B[0m\n{e}").into()),
     };
     let intermediate_name = match backend {
+        Backend::C => "C",
         Backend::Llvm => "LLVM IR",
         Backend::Qbe => "QBE IL",
     };
     let output_path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
     let intermediate = match backend {
+        Backend::C => {
+            let hir = virtue::typecheck::typecheck(&ast);
+            let c = virtue::codegen::c::make_c(&hir);
+            if let Err(e) = virtue::codegen::c::compile_c(&c, Some(&output_path)) {
+                return Err(format!(
+                    "\x1B[1m{intermediate_name}:\x1B[0m\n{c}\n\x1B[1mc error:\x1B[0m\n{e}"
+                )
+                .into());
+            }
+            c
+        }
         Backend::Llvm => {
             let hir = virtue::typecheck::typecheck(&ast);
             let ir = virtue::codegen::llvm::make_ir(&hir);

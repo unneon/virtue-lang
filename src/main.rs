@@ -11,6 +11,7 @@ struct Options {
 
 #[derive(Eq, PartialEq)]
 enum Backend {
+    C,
     Llvm,
     Qbe,
 }
@@ -19,6 +20,7 @@ enum Backend {
 enum Format {
     DebugAst,
     DebugHir,
+    C,
     LlvmIr,
     QbeIl,
     Executable,
@@ -30,7 +32,7 @@ const USAGE: &str = r#"virtue [OPTIONS] file.virtue
     -f <format>  generate format among:
         debug-ast, debug-hir, llvm-ir, qbe-il, executable (default)
     -b <backend> generate backend among:
-        llvm (default), qbe"#;
+        c, llvm (default), qbe"#;
 
 fn main() {
     let options = options();
@@ -48,6 +50,14 @@ fn main() {
     }
 
     match options.backend {
+        Backend::C => {
+            let c = virtue::codegen::c::make_c(&hir);
+            if options.format == Format::C {
+                output(c, output_path);
+            }
+
+            virtue::codegen::c::compile_c(&c, output_path).unwrap();
+        }
         Backend::Llvm => {
             let ir = virtue::codegen::llvm::make_ir(&hir);
             if options.format == Format::LlvmIr {
@@ -97,6 +107,8 @@ fn options() -> Options {
                 Format::DebugAst
             } else if arg == "debug-hir" {
                 Format::DebugHir
+            } else if arg == "c" {
+                Format::C
             } else if arg == "llvm-ir" {
                 Format::LlvmIr
             } else if arg == "qbe-il" {
@@ -113,7 +125,9 @@ fn options() -> Options {
             let Some(arg) = args.next() else {
                 error("option -b requires an argument");
             };
-            backend = Some(if arg == "llvm" {
+            backend = Some(if arg == "c" {
+                Backend::C
+            } else if arg == "llvm" {
                 Backend::Llvm
             } else if arg == "qbe" {
                 Backend::Qbe
@@ -138,11 +152,14 @@ fn options() -> Options {
     let format = format.unwrap_or(Format::Executable);
     let backend = match backend {
         Some(backend) => backend,
+        None if format == Format::C => Backend::C,
         None if format == Format::QbeIl => Backend::Qbe,
         None => Backend::Llvm,
     };
 
-    if format == Format::LlvmIr && backend != Backend::Llvm {
+    if format == Format::C && backend != Backend::C {
+        error("format c requires c backend");
+    } else if format == Format::LlvmIr && backend != Backend::Llvm {
         error("format llvm-ir requires llvm backend");
     } else if format == Format::QbeIl && backend != Backend::Qbe {
         error("format qbe-il requires qbe backend");
