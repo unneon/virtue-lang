@@ -3,19 +3,19 @@ mod subprocess;
 pub use subprocess::compile_ir;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
-use crate::hir::{BaseType, Binding, FormatSegment, Program, Statement, Type};
+use crate::vir::{BaseType, Binding, FormatSegment, Program, Statement, Type};
 use std::fmt::Write;
 
 struct State<'a> {
     ir: String,
-    hir: &'a Program<'a>,
+    vir: &'a Program<'a>,
     current_function: usize,
     temp_counter: usize,
 }
 
 impl State<'_> {
     fn prologue_structs(&mut self) {
-        for (struct_id, struct_) in self.hir.structs.iter().enumerate() {
+        for (struct_id, struct_) in self.vir.structs.iter().enumerate() {
             let mut fields = String::new();
             for (field_id, field) in struct_.fields.iter().enumerate() {
                 if field_id > 0 {
@@ -32,7 +32,7 @@ impl State<'_> {
     }
 
     fn prologue_strings(&mut self) {
-        for (string_id, string) in self.hir.strings.iter().enumerate() {
+        for (string_id, string) in self.vir.strings.iter().enumerate() {
             let string_len = string.len() + 1;
             self.write(format!(
                 "@string_{string_id} = internal constant [{string_len} x i8] c\"{string}\\00\""
@@ -41,7 +41,7 @@ impl State<'_> {
     }
 
     fn prologue_format(&mut self) {
-        for (function_id, function) in self.hir.functions.iter().enumerate() {
+        for (function_id, function) in self.vir.functions.iter().enumerate() {
             for (block_id, block) in function.blocks.iter().enumerate() {
                 for (statement_id, statement) in block.iter().enumerate() {
                     if let Statement::Print(fmt) = statement {
@@ -55,7 +55,7 @@ impl State<'_> {
     }
 
     fn all_functions(&mut self) {
-        for function_id in 0..self.hir.functions.len() {
+        for function_id in 0..self.vir.functions.len() {
             self.current_function = function_id;
             self.function();
         }
@@ -70,7 +70,7 @@ impl State<'_> {
     }
 
     fn function_declaration(&mut self) {
-        let function = &self.hir.functions[self.current_function];
+        let function = &self.vir.functions[self.current_function];
         let return_type = convert_type(&function.return_type);
         let name = function.name;
         let args = self.function_args_declaration();
@@ -78,7 +78,7 @@ impl State<'_> {
     }
 
     fn function_args_declaration(&self) -> String {
-        let function = &self.hir.functions[self.current_function];
+        let function = &self.vir.functions[self.current_function];
         let mut decl = String::new();
         for (arg_id, arg) in function.args.iter().enumerate() {
             if arg_id > 0 {
@@ -91,7 +91,7 @@ impl State<'_> {
     }
 
     fn function_stack_allocation(&mut self) {
-        let function = &self.hir.functions[self.current_function];
+        let function = &self.vir.functions[self.current_function];
         for (binding_id, binding) in function.bindings.iter().enumerate() {
             let binding_type = convert_type(&binding.type_);
             self.write(format!("%stack_{binding_id} = alloca {binding_type}"));
@@ -99,7 +99,7 @@ impl State<'_> {
     }
 
     fn function_args_copy(&mut self) {
-        let function = &self.hir.functions[self.current_function];
+        let function = &self.vir.functions[self.current_function];
         for (arg_id, arg) in function.args.iter().enumerate() {
             let arg_type = convert_type(&function.bindings[arg.binding.id].type_);
             self.write(format!(
@@ -109,7 +109,7 @@ impl State<'_> {
     }
 
     fn function_body(&mut self) {
-        let function = &self.hir.functions[self.current_function];
+        let function = &self.vir.functions[self.current_function];
         for block_id in 0..function.blocks.len() {
             self.block(block_id);
         }
@@ -120,7 +120,7 @@ impl State<'_> {
             self.write(format!("block_{block_id}:"));
         }
 
-        let function = &self.hir.functions[self.current_function];
+        let function = &self.vir.functions[self.current_function];
         let block = &function.blocks[block_id];
         for (statement_id, statement) in block.iter().enumerate() {
             self.write(format!("; statement_id={statement_id} {statement:?}"));
@@ -133,7 +133,7 @@ impl State<'_> {
                 Statement::AssignmentField(object_binding, field_id, value_binding) => {
                     let object_binding_id = object_binding.id;
                     let struct_id = function.bindings[object_binding.id].type_.unwrap_struct();
-                    let field_type = convert_type(&self.hir.structs[struct_id].fields[*field_id]);
+                    let field_type = convert_type(&self.vir.structs[struct_id].fields[*field_id]);
                     let value_temp = self.make_temporary();
                     let field_temp = self.make_temporary();
                     self.load(value_temp, value_binding);
@@ -223,7 +223,7 @@ impl State<'_> {
                         write!(&mut args, "{type_} %temp_{temp}").unwrap();
                     }
                     let temp_return = self.make_temporary();
-                    let callee_name = self.hir.functions[*callee_id].name;
+                    let callee_name = self.vir.functions[*callee_id].name;
                     self.write(format!(
                         "%temp_{temp_return} = call i64 ({signature}) @{callee_name}({args})"
                     ));
@@ -232,7 +232,7 @@ impl State<'_> {
                 Statement::Field(result_binding, object_binding, field_id) => {
                     let object_binding_id = object_binding.id;
                     let struct_id = function.bindings[object_binding.id].type_.unwrap_struct();
-                    let field_type = convert_type(&self.hir.structs[struct_id].fields[*field_id]);
+                    let field_type = convert_type(&self.vir.structs[struct_id].fields[*field_id]);
                     let result_temp = self.make_temporary();
                     let field_temp = self.make_temporary();
                     self.write(format!(
@@ -322,7 +322,7 @@ impl State<'_> {
                     return;
                 }
                 Statement::StringConstant(binding, string_id) => {
-                    let string_len = self.hir.strings[*string_id].len() + 1;
+                    let string_len = self.vir.strings[*string_id].len() + 1;
                     let temp = self.make_temporary();
                     self.write(format!("%temp_{temp} = getelementptr [{string_len} x i8], [{string_len} x i8]* @string_{string_id}, i32 0, i32 0"));
                     self.store(binding, temp);
@@ -352,7 +352,7 @@ impl State<'_> {
     fn load(&mut self, dest: usize, source: &Binding) {
         let source_id = source.id;
         let type_ =
-            convert_type(&self.hir.functions[self.current_function].bindings[source.id].type_);
+            convert_type(&self.vir.functions[self.current_function].bindings[source.id].type_);
         self.write(format!(
             "%temp_{dest} = load {type_}, {type_}* %stack_{source_id}"
         ));
@@ -361,7 +361,7 @@ impl State<'_> {
     fn store(&mut self, dest: &Binding, source: usize) {
         let dest_id = dest.id;
         let type_ =
-            convert_type(&self.hir.functions[self.current_function].bindings[dest.id].type_);
+            convert_type(&self.vir.functions[self.current_function].bindings[dest.id].type_);
         self.write(format!(
             "store {type_} %temp_{source}, {type_}* %stack_{dest_id}"
         ));
@@ -398,10 +398,10 @@ fn convert_type(type_: &Type) -> String {
     }
 }
 
-pub fn make_ir(hir: &Program) -> String {
+pub fn make_ir(vir: &Program) -> String {
     let mut state = State {
         ir: String::new(),
-        hir,
+        vir,
         current_function: 0,
         temp_counter: 0,
     };

@@ -106,8 +106,8 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
     let output_path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
     let intermediate = match backend {
         Backend::C => {
-            let hir = virtue::typecheck::typecheck(&ast);
-            let c = virtue::codegen::c::make_c(&hir);
+            let vir = virtue::typecheck::typecheck(&ast);
+            let c = virtue::codegen::c::make_c(&vir);
             if let Err(e) = virtue::codegen::c::compile_c(&c, Some(&output_path)) {
                 return Err(format!(
                     "\x1B[1m{intermediate_name}:\x1B[0m\n{c}\n\x1B[1mc error:\x1B[0m\n{e}"
@@ -117,8 +117,8 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
             c
         }
         Backend::Llvm => {
-            let hir = virtue::typecheck::typecheck(&ast);
-            let ir = virtue::codegen::llvm::make_ir(&hir);
+            let vir = virtue::typecheck::typecheck(&ast);
+            let ir = virtue::codegen::llvm::make_ir(&vir);
             if let Err(e) = virtue::codegen::llvm::compile_ir(&ir, Some(&output_path)) {
                 return Err(format!(
                     "\x1B[1m{intermediate_name}:\x1B[0m\n{ir}\n\x1B[1mllvm error:\x1B[0m\n{e}"
@@ -128,8 +128,8 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
             ir
         }
         Backend::Qbe => {
-            let hir = virtue::typecheck::typecheck(&ast);
-            let il = virtue::codegen::qbe::make_il(&hir);
+            let vir = virtue::typecheck::typecheck(&ast);
+            let il = virtue::codegen::qbe::make_il(&vir);
             if let Err(e) = virtue::codegen::qbe::compile_il(&il, Some(&output_path)) {
                 return Err(format!(
                     "\x1B[1m{intermediate_name}:\x1B[0m\n{il}\n\x1B[1mqbe error:\x1B[0m\n{e}"

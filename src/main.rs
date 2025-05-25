@@ -19,7 +19,7 @@ enum Backend {
 #[derive(Eq, PartialEq)]
 enum Format {
     DebugAst,
-    DebugHir,
+    DebugVir,
     C,
     LlvmIr,
     QbeIl,
@@ -30,7 +30,7 @@ const USAGE: &str = r#"virtue [OPTIONS] file.virtue
     -h           prints this help
     -o file      output to file
     -f <format>  generate format among:
-        debug-ast, debug-hir, c, llvm-ir, qbe-il, executable (default)
+        debug-ast, debug-vir, c, llvm-ir, qbe-il, executable (default)
     -b <backend> generate backend among:
         c, llvm (default), qbe"#;
 
@@ -44,14 +44,14 @@ fn main() {
         output(format_args!("{ast:#?}"), output_path);
     }
 
-    let hir = virtue::typecheck::typecheck(&ast);
-    if options.format == Format::DebugHir {
-        output(format_args!("{hir:#?}"), output_path);
+    let vir = virtue::typecheck::typecheck(&ast);
+    if options.format == Format::DebugVir {
+        output(format_args!("{vir:#?}"), output_path);
     }
 
     match options.backend {
         Backend::C => {
-            let c = virtue::codegen::c::make_c(&hir);
+            let c = virtue::codegen::c::make_c(&vir);
             if options.format == Format::C {
                 output(c, output_path);
             }
@@ -59,7 +59,7 @@ fn main() {
             virtue::codegen::c::compile_c(&c, output_path).unwrap();
         }
         Backend::Llvm => {
-            let ir = virtue::codegen::llvm::make_ir(&hir);
+            let ir = virtue::codegen::llvm::make_ir(&vir);
             if options.format == Format::LlvmIr {
                 output(ir, output_path);
             }
@@ -67,7 +67,7 @@ fn main() {
             virtue::codegen::llvm::compile_ir(&ir, output_path).unwrap();
         }
         Backend::Qbe => {
-            let il = virtue::codegen::qbe::make_il(&hir);
+            let il = virtue::codegen::qbe::make_il(&vir);
             if options.format == Format::QbeIl {
                 output(il, output_path);
             }
@@ -105,8 +105,8 @@ fn options() -> Options {
             };
             format = Some(if arg == "debug-ast" {
                 Format::DebugAst
-            } else if arg == "debug-hir" {
-                Format::DebugHir
+            } else if arg == "debug-vir" {
+                Format::DebugVir
             } else if arg == "c" {
                 Format::C
             } else if arg == "llvm-ir" {

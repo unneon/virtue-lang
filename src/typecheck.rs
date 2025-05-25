@@ -1,13 +1,13 @@
 use crate::ast::BinaryOperator;
-use crate::hir::Binding;
-use crate::{ast, hir};
+use crate::vir::Binding;
+use crate::{ast, vir};
 use std::collections::{HashMap, hash_map};
 
 #[derive(Debug)]
 struct State<'a> {
-    functions: Vec<hir::Function<'a>>,
+    functions: Vec<vir::Function<'a>>,
     function_map: HashMap<&'a str, usize>,
-    structs: Vec<hir::Struct<'a>>,
+    structs: Vec<vir::Struct<'a>>,
     struct_map: HashMap<&'a str, usize>,
     strings: Vec<&'a str>,
     current_function: usize,
@@ -28,21 +28,21 @@ impl<'a> State<'a> {
         return_type: &ast::Type<'a>,
         body: &'a [ast::Statement<'a>],
     ) {
-        let mut hir_args = Vec::new();
+        let mut vir_args = Vec::new();
         let mut bindings = Vec::new();
         let mut binding_map = HashMap::new();
         for (name, type_) in ast_args {
             let binding = Binding { id: bindings.len() };
-            hir_args.push(hir::Arg { binding });
-            bindings.push(hir::BindingData {
+            vir_args.push(vir::Arg { binding });
+            bindings.push(vir::BindingData {
                 type_: self.convert_type(type_),
             });
             binding_map.insert(*name, binding);
         }
-        self.functions.push(hir::Function {
+        self.functions.push(vir::Function {
             exported: name == "main",
             name,
-            args: hir_args,
+            args: vir_args,
             return_type: self.convert_type(return_type),
             bindings,
             binding_map,
@@ -84,7 +84,7 @@ impl<'a> State<'a> {
                         field_map.insert(*name, fields.len() - 1);
                     }
                     let struct_id = self.structs.len();
-                    let struct_ = hir::Struct { fields, field_map };
+                    let struct_ = vir::Struct { fields, field_map };
                     self.structs.push(struct_);
                     self.struct_map.insert(name, struct_id);
                 }
@@ -100,9 +100,9 @@ impl<'a> State<'a> {
             if self.process_block(self.functions[i].ast_block) == Fallthrough::Reachable
                 && self.functions[i].name == "main"
             {
-                let default_return = self.make_temporary(hir::Type::I32);
-                self.add_statement(hir::Statement::Literal(default_return, 0));
-                self.add_statement(hir::Statement::Return(default_return));
+                let default_return = self.make_temporary(vir::Type::I32);
+                self.add_statement(vir::Statement::Literal(default_return, 0));
+                self.add_statement(vir::Statement::Return(default_return));
             }
         }
     }
@@ -118,7 +118,7 @@ impl<'a> State<'a> {
                             let object_binding = self.process_expression(object);
                             let struct_id = self.binding_type(object_binding).unwrap_struct();
                             let field_id = self.structs[struct_id].field_map[field_name];
-                            self.add_statement(hir::Statement::AssignmentField(
+                            self.add_statement(vir::Statement::AssignmentField(
                                 object_binding,
                                 field_id,
                                 right_binding,
@@ -128,26 +128,26 @@ impl<'a> State<'a> {
                             let (array, index) = indexing.as_ref();
                             let array = self.process_expression(array);
                             let index = self.process_expression(index);
-                            self.add_statement(hir::Statement::AssignmentIndex(
+                            self.add_statement(vir::Statement::AssignmentIndex(
                                 array,
                                 index,
                                 right_binding,
                             ));
                         }
                         ast::Expression::InternalBinding(left_binding) => {
-                            self.add_statement(hir::Statement::Assignment(
+                            self.add_statement(vir::Statement::Assignment(
                                 *left_binding,
                                 right_binding,
                             ));
                         }
                         ast::Expression::Variable(variable) => {
                             let left_binding = self.make_variable(variable, right_type);
-                            self.add_statement(hir::Statement::Assignment(
+                            self.add_statement(vir::Statement::Assignment(
                                 left_binding,
                                 right_binding,
                             ));
                         }
-                        _ => todo!("hir assignment unimplemented {statement:?}"),
+                        _ => todo!("vir assignment unimplemented {statement:?}"),
                     }
                 }
                 ast::Statement::ForRange {
@@ -162,27 +162,27 @@ impl<'a> State<'a> {
                     let step_binding = if let Some(step) = step {
                         self.process_expression(step)
                     } else {
-                        let step = self.make_temporary(hir::Type::I64);
-                        self.add_statement(hir::Statement::Literal(step, 1));
+                        let step = self.make_temporary(vir::Type::I64);
+                        self.add_statement(vir::Statement::Literal(step, 1));
                         step
                     };
-                    let index_binding = self.make_variable(index, hir::Type::I64);
-                    let condition = self.make_temporary(hir::Type::I64);
+                    let index_binding = self.make_variable(index, vir::Type::I64);
+                    let condition = self.make_temporary(vir::Type::I64);
                     let condition_block = self.make_block();
                     let body_block = self.make_block();
                     let after_block = self.make_block();
 
-                    self.add_statement(hir::Statement::Assignment(index_binding, lower_binding));
-                    self.add_statement(hir::Statement::JumpAlways(condition_block));
+                    self.add_statement(vir::Statement::Assignment(index_binding, lower_binding));
+                    self.add_statement(vir::Statement::JumpAlways(condition_block));
 
                     self.current_block = condition_block;
-                    self.add_statement(hir::Statement::BinaryOperator(
+                    self.add_statement(vir::Statement::BinaryOperator(
                         condition,
                         BinaryOperator::Less,
                         index_binding,
                         upper_binding,
                     ));
-                    self.add_statement(hir::Statement::JumpConditional {
+                    self.add_statement(vir::Statement::JumpConditional {
                         condition,
                         true_block: body_block,
                         false_block: after_block,
@@ -190,18 +190,18 @@ impl<'a> State<'a> {
 
                     self.current_block = body_block;
                     if self.process_block(body) == Fallthrough::Reachable {
-                        let index_next_binding = self.make_temporary(hir::Type::I64);
-                        self.add_statement(hir::Statement::BinaryOperator(
+                        let index_next_binding = self.make_temporary(vir::Type::I64);
+                        self.add_statement(vir::Statement::BinaryOperator(
                             index_next_binding,
                             BinaryOperator::Add,
                             index_binding,
                             step_binding,
                         ));
-                        self.add_statement(hir::Statement::Assignment(
+                        self.add_statement(vir::Statement::Assignment(
                             index_binding,
                             index_next_binding,
                         ));
-                        self.add_statement(hir::Statement::JumpAlways(condition_block));
+                        self.add_statement(vir::Statement::JumpAlways(condition_block));
                     }
 
                     self.current_block = after_block;
@@ -217,7 +217,7 @@ impl<'a> State<'a> {
                     let after_block = self.make_block();
 
                     let condition = self.process_expression(condition);
-                    self.add_statement(hir::Statement::JumpConditional {
+                    self.add_statement(vir::Statement::JumpConditional {
                         condition,
                         true_block,
                         false_block,
@@ -225,12 +225,12 @@ impl<'a> State<'a> {
 
                     self.current_block = true_block;
                     if self.process_block(true_) == Fallthrough::Reachable {
-                        self.add_statement(hir::Statement::JumpAlways(after_block));
+                        self.add_statement(vir::Statement::JumpAlways(after_block));
                     }
 
                     self.current_block = false_block;
                     if self.process_block(false_) == Fallthrough::Reachable {
-                        self.add_statement(hir::Statement::JumpAlways(after_block));
+                        self.add_statement(vir::Statement::JumpAlways(after_block));
                     }
 
                     self.current_block = after_block;
@@ -241,11 +241,11 @@ impl<'a> State<'a> {
                         .iter()
                         .map(|segment| self.convert_format_segment(segment))
                         .collect();
-                    self.add_statement(hir::Statement::Print(hir::FormatString { segments }));
+                    self.add_statement(vir::Statement::Print(vir::FormatString { segments }));
                 }
                 ast::Statement::Return { value } => {
                     let value = self.process_expression(value);
-                    self.add_statement(hir::Statement::Return(value));
+                    self.add_statement(vir::Statement::Return(value));
                     return Fallthrough::Unreachable;
                 }
                 ast::Statement::Struct { .. } => {}
@@ -254,11 +254,11 @@ impl<'a> State<'a> {
                     let body_block = self.make_block();
                     let after_block = self.make_block();
 
-                    self.add_statement(hir::Statement::JumpAlways(condition_block));
+                    self.add_statement(vir::Statement::JumpAlways(condition_block));
 
                     self.current_block = condition_block;
                     let condition = self.process_expression(condition);
-                    self.add_statement(hir::Statement::JumpConditional {
+                    self.add_statement(vir::Statement::JumpConditional {
                         condition,
                         true_block: body_block,
                         false_block: after_block,
@@ -266,7 +266,7 @@ impl<'a> State<'a> {
 
                     self.current_block = body_block;
                     if self.process_block(body) == Fallthrough::Reachable {
-                        self.add_statement(hir::Statement::JumpAlways(condition_block));
+                        self.add_statement(vir::Statement::JumpAlways(condition_block));
                     }
 
                     self.current_block = after_block;
@@ -287,18 +287,18 @@ impl<'a> State<'a> {
                 for initial in &initials {
                     assert_eq!(self.binding_type(*initial), type_);
                 }
-                let length_binding = self.make_temporary(hir::Type::I64);
+                let length_binding = self.make_temporary(vir::Type::I64);
                 let binding =
-                    self.make_temporary(hir::BaseType::Array(Box::new(type_.clone())).into());
-                self.add_statement(hir::Statement::Literal(
+                    self.make_temporary(vir::BaseType::Array(Box::new(type_.clone())).into());
+                self.add_statement(vir::Statement::Literal(
                     length_binding,
                     initials.len() as i64,
                 ));
-                self.add_statement(hir::Statement::NewArray(binding, length_binding));
+                self.add_statement(vir::Statement::NewArray(binding, length_binding));
                 for (i, initial) in initials.iter().enumerate() {
-                    let i_binding = self.make_temporary(hir::Type::I64);
-                    self.add_statement(hir::Statement::Literal(i_binding, i as i64));
-                    self.add_statement(hir::Statement::AssignmentIndex(
+                    let i_binding = self.make_temporary(vir::Type::I64);
+                    self.add_statement(vir::Statement::Literal(i_binding, i as i64));
+                    self.add_statement(vir::Statement::AssignmentIndex(
                         binding, i_binding, *initial,
                     ));
                 }
@@ -310,10 +310,10 @@ impl<'a> State<'a> {
                 let length = self.process_expression(length);
                 let type_ = self.binding_type(initial);
                 let binding =
-                    self.make_temporary(hir::BaseType::Array(Box::new(type_.clone())).into());
-                self.add_statement(hir::Statement::NewArray(binding, length));
-                let i_binding = self.make_variable("__i", hir::Type::I64);
-                self.add_statement(hir::Statement::Literal(i_binding, 0));
+                    self.make_temporary(vir::BaseType::Array(Box::new(type_.clone())).into());
+                self.add_statement(vir::Statement::NewArray(binding, length));
+                let i_binding = self.make_variable("__i", vir::Type::I64);
+                self.add_statement(vir::Statement::Literal(i_binding, 0));
                 self.process_block(
                     vec![ast::Statement::While {
                         condition: ast::Expression::BinaryOperation(
@@ -351,8 +351,8 @@ impl<'a> State<'a> {
                 let (left, right) = args.as_ref();
                 let left = self.process_expression(left);
                 let right = self.process_expression(right);
-                let binding = self.make_temporary(hir::Type::I64);
-                self.add_statement(hir::Statement::BinaryOperator(binding, *op, left, right));
+                let binding = self.make_temporary(vir::Type::I64);
+                self.add_statement(vir::Statement::BinaryOperator(binding, *op, left, right));
                 binding
             }
             ast::Expression::Call(function_name, args_ast) => {
@@ -369,7 +369,7 @@ impl<'a> State<'a> {
                     assert_eq!(arg_binding_type, *arg_type);
                 }
                 let binding = self.make_temporary(function.return_type.clone());
-                self.add_statement(hir::Statement::Call(binding, function_id, arg_bindings));
+                self.add_statement(vir::Statement::Call(binding, function_id, arg_bindings));
                 binding
             }
             ast::Expression::CallMethod(object_expr, _method_name, _args_ast) => {
@@ -381,8 +381,8 @@ impl<'a> State<'a> {
                 let object_binding = self.process_expression(object_expr);
                 let struct_id = self.binding_type(object_binding).unwrap_struct();
                 let field_id = self.structs[struct_id].field_map[field_name];
-                let binding = self.make_temporary(hir::Type::I64);
-                self.add_statement(hir::Statement::Field(binding, object_binding, field_id));
+                let binding = self.make_temporary(vir::Type::I64);
+                self.add_statement(vir::Statement::Field(binding, object_binding, field_id));
                 binding
             }
             ast::Expression::Index(indexing) => {
@@ -390,39 +390,39 @@ impl<'a> State<'a> {
                 let array = self.process_expression(array);
                 let index = self.process_expression(index);
                 let binding = self.make_temporary(self.binding_type(array).unwrap_list().clone());
-                self.add_statement(hir::Statement::Index(binding, array, index));
+                self.add_statement(vir::Statement::Index(binding, array, index));
                 binding
             }
             ast::Expression::InternalBinding(binding) => *binding,
             ast::Expression::Literal(literal) => {
-                let binding = self.make_temporary(hir::Type::I64);
-                self.add_statement(hir::Statement::Literal(binding, *literal));
+                let binding = self.make_temporary(vir::Type::I64);
+                self.add_statement(vir::Statement::Literal(binding, *literal));
                 binding
             }
             ast::Expression::New(struct_name) => {
                 let struct_type = self.convert_type(struct_name);
                 let struct_id = struct_type.unwrap_struct();
                 let binding = self.make_temporary(struct_type);
-                self.add_statement(hir::Statement::New(binding, struct_id));
+                self.add_statement(vir::Statement::New(binding, struct_id));
                 binding
             }
             ast::Expression::StringLiteral(literal) => {
                 let string_id = self.make_string(literal);
-                let binding = self.make_temporary(hir::BaseType::String.into());
-                self.add_statement(hir::Statement::StringConstant(binding, string_id));
+                let binding = self.make_temporary(vir::BaseType::String.into());
+                self.add_statement(vir::Statement::StringConstant(binding, string_id));
                 binding
             }
             ast::Expression::UnaryOperation(op, arg) => {
                 let arg = self.process_expression(arg);
-                let binding = self.make_temporary(hir::Type::I64);
-                self.add_statement(hir::Statement::UnaryOperator(binding, *op, arg));
+                let binding = self.make_temporary(vir::Type::I64);
+                self.add_statement(vir::Statement::UnaryOperator(binding, *op, arg));
                 binding
             }
             ast::Expression::Variable(variable) => self.variable_binding(variable),
         }
     }
 
-    fn make_variable(&mut self, variable: &'a str, type_: hir::Type) -> Binding {
+    fn make_variable(&mut self, variable: &'a str, type_: vir::Type) -> Binding {
         let f = &mut self.functions[self.current_function];
         let binding_count = f.bindings.len();
         match f.binding_map.entry(variable) {
@@ -434,18 +434,18 @@ impl<'a> State<'a> {
             }
             hash_map::Entry::Vacant(e) => {
                 let binding = Binding { id: binding_count };
-                f.bindings.push(hir::BindingData { type_ });
+                f.bindings.push(vir::BindingData { type_ });
                 *e.insert(binding)
             }
         }
     }
 
-    fn make_temporary(&mut self, type_: hir::Type) -> Binding {
+    fn make_temporary(&mut self, type_: vir::Type) -> Binding {
         let f = &mut self.functions[self.current_function];
         let binding = Binding {
             id: f.bindings.len(),
         };
-        let binding_data = hir::BindingData { type_ };
+        let binding_data = vir::BindingData { type_ };
         f.bindings.push(binding_data);
         binding
     }
@@ -463,26 +463,26 @@ impl<'a> State<'a> {
         block_id
     }
 
-    fn add_statement(&mut self, statement: hir::Statement<'a>) {
+    fn add_statement(&mut self, statement: vir::Statement<'a>) {
         self.functions[self.current_function].blocks[self.current_block].push(statement);
     }
 
-    fn convert_type(&self, type_: &ast::Type) -> hir::Type {
+    fn convert_type(&self, type_: &ast::Type) -> vir::Type {
         match type_.segments.as_slice() {
-            [.., "int"] => hir::Type::I64,
-            [.., "i32"] => hir::Type::I32,
-            [.., "bool"] => hir::Type::I64,
-            [.., "string"] => hir::BaseType::String.into(),
-            [.., struct_name] => hir::BaseType::Struct(self.struct_map[struct_name]).into(),
+            [.., "int"] => vir::Type::I64,
+            [.., "i32"] => vir::Type::I32,
+            [.., "bool"] => vir::Type::I64,
+            [.., "string"] => vir::BaseType::String.into(),
+            [.., struct_name] => vir::BaseType::Struct(self.struct_map[struct_name]).into(),
             segments => todo!("convert_type {segments:?}"),
         }
     }
 
-    fn convert_format_segment(&self, segment: &ast::FormatSegment<'a>) -> hir::FormatSegment<'a> {
+    fn convert_format_segment(&self, segment: &ast::FormatSegment<'a>) -> vir::FormatSegment<'a> {
         match segment {
-            ast::FormatSegment::Text(text) => hir::FormatSegment::Text(text),
+            ast::FormatSegment::Text(text) => vir::FormatSegment::Text(text),
             ast::FormatSegment::Variable(variable) => {
-                hir::FormatSegment::Arg(self.variable_binding(variable))
+                vir::FormatSegment::Arg(self.variable_binding(variable))
             }
         }
     }
@@ -491,14 +491,14 @@ impl<'a> State<'a> {
         self.functions[self.current_function].binding_map[variable]
     }
 
-    fn binding_type(&self, binding: Binding) -> hir::Type {
+    fn binding_type(&self, binding: Binding) -> vir::Type {
         self.functions[self.current_function].bindings[binding.id]
             .type_
             .clone()
     }
 }
 
-pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> hir::Program<'a> {
+pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> vir::Program<'a> {
     let mut state = State {
         functions: Vec::new(),
         function_map: HashMap::new(),
@@ -515,7 +515,7 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> hir::Program<'a> {
     state.preprocess_function("main", &[], &main_type, &ast.statements);
     state.process_all_functions();
 
-    hir::Program {
+    vir::Program {
         functions: state.functions,
         structs: state.structs,
         strings: state.strings,

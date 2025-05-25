@@ -2,7 +2,7 @@ complete -c virtue -o h -d 'Print help'
 complete -c virtue -o o -r -d 'Output to file'
 complete -c virtue -o f -x -d 'Select format to generate' -a "\
     debug-ast\t\"Generate debug AST representation\"\
-    debug-hir\t\"Generate debug HIR representation\"\
+    debug-vir\t\"Generate debug VIR representation\"\
     c\t\"Generate C code\"\
     llvm-ir\t\"Generate LLVM IR\"\
     qbe-il\t\"Generate QBE IL\"\

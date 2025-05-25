@@ -1,4 +1,4 @@
-use crate::hir;
+use crate::vir::Binding;
 
 #[derive(Debug)]
 pub struct Module<'a> {
@@ -61,7 +61,7 @@ pub enum Expression<'a> {
     Call(&'a str, Vec<Expression<'a>>),
     CallMethod(Box<Expression<'a>>, &'a str, Vec<Expression<'a>>),
     Index(Box<(Expression<'a>, Expression<'a>)>),
-    InternalBinding(hir::Binding),
+    InternalBinding(Binding),
     Literal(i64),
     New(Type<'a>),
     Field(Box<Expression<'a>>, &'a str),

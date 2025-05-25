@@ -3,13 +3,12 @@ mod subprocess;
 pub use subprocess::compile_c;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
-use crate::hir;
-use crate::hir::{BaseType, FormatSegment, Program, Statement, Type};
+use crate::vir::{BaseType, FormatSegment, Function, Program, Statement, Type};
 use std::fmt::Write;
 
 struct State<'a> {
     c: String,
-    hir: &'a Program<'a>,
+    vir: &'a Program<'a>,
     current_function: usize,
 }
 
@@ -17,7 +16,7 @@ impl State<'_> {
     fn prologue(&mut self) {
         self.write("#include <stdio.h>");
         self.write("#include <stdlib.h>");
-        for (struct_id, struct_) in self.hir.structs.iter().enumerate() {
+        for (struct_id, struct_) in self.vir.structs.iter().enumerate() {
             self.write(format!("struct struct{struct_id} {{"));
             for (field_id, field_type) in struct_.fields.iter().enumerate() {
                 let field_type = convert_type(field_type);
@@ -25,24 +24,24 @@ impl State<'_> {
             }
             self.write("};");
         }
-        for function in &self.hir.functions {
+        for function in &self.vir.functions {
             let signature = self.function_signature(function);
             self.write(format!("{signature};"));
         }
-        for (string_id, string) in self.hir.strings.iter().enumerate() {
+        for (string_id, string) in self.vir.strings.iter().enumerate() {
             self.write(format!("char str{string_id}[] = \"{string}\";"));
         }
     }
 
     fn all_functions(&mut self) {
-        for function_id in 0..self.hir.functions.len() {
+        for function_id in 0..self.vir.functions.len() {
             self.current_function = function_id;
             self.function();
         }
     }
 
     fn function(&mut self) {
-        let function = &self.hir.functions[self.current_function];
+        let function = &self.vir.functions[self.current_function];
         let function_signature = self.function_signature(function);
         self.write(format!("{function_signature} {{"));
         for (binding, binding_data) in function
@@ -63,7 +62,7 @@ impl State<'_> {
     fn block(&mut self, block_id: usize) {
         self.write(format!("block{block_id}:"));
 
-        let function = &self.hir.functions[self.current_function];
+        let function = &self.vir.functions[self.current_function];
         let block = &function.blocks[block_id];
         for statement in block {
             match statement {
@@ -109,7 +108,7 @@ impl State<'_> {
                 }
                 Statement::Call(result, function, args) => {
                     let result_id = result.id;
-                    let function_name = self.hir.functions[*function].name;
+                    let function_name = self.vir.functions[*function].name;
                     let mut c_args = String::new();
                     for (arg_index, arg) in args.iter().enumerate() {
                         if arg_index > 0 {
@@ -188,7 +187,7 @@ impl State<'_> {
         }
     }
 
-    fn function_signature(&self, function: &hir::Function) -> String {
+    fn function_signature(&self, function: &Function) -> String {
         let function_return_type = convert_type(&function.return_type);
         let function_name = function.name;
         let mut args = String::new();
@@ -218,10 +217,10 @@ fn convert_type(type_: &Type) -> String {
     }
 }
 
-pub fn make_c(hir: &Program) -> String {
+pub fn make_c(vir: &Program) -> String {
     let mut state = State {
         c: String::new(),
-        hir,
+        vir,
         current_function: 0,
     };
 

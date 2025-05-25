@@ -3,16 +3,15 @@ mod subprocess;
 pub use subprocess::compile_il;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
-use crate::hir;
-use crate::hir::{Binding, FormatSegment, Statement};
+use crate::vir::{BaseType, Binding, FormatSegment, Function, Program, Statement, Type};
 use qbe::Type::{Byte, Long, Word};
-use qbe::{Cmp, DataDef, DataItem, Function, Instr, Linkage, Value};
+use qbe::{Cmp, DataDef, DataItem, Instr, Linkage, Value};
 
 struct State<'a> {
-    hir: &'a hir::Program<'a>,
-    hir_func: &'a hir::Function<'a>,
+    vir: &'a Program<'a>,
+    vir_func: &'a Function<'a>,
     il: qbe::Module<'static>,
-    func: Function<'static>,
+    func: qbe::Function<'static>,
     string_counter: usize,
     temp_counter: usize,
 }
@@ -71,7 +70,7 @@ impl<'a> State<'a> {
                     self.assign(result_binding, result);
                 }
                 Statement::Call(return_binding, function_id, args) => {
-                    let function_name = self.hir.functions[*function_id].name;
+                    let function_name = self.vir.functions[*function_id].name;
                     let args = args.iter().map(|arg| (Long, arg.into())).collect();
                     let return_ = Instr::Call(function_name.to_string(), args, None);
                     self.assign(return_binding, return_)
@@ -117,7 +116,7 @@ impl<'a> State<'a> {
                     self.assign(binding, Instr::Copy(Value::Const(*literal as u64)));
                 }
                 Statement::New(binding, struct_id) => {
-                    let field_count = self.hir.structs[*struct_id].fields.len();
+                    let field_count = self.vir.structs[*struct_id].fields.len();
                     let struct_size = 8 * field_count;
                     self.assign(binding, Instr::Alloc8(struct_size as u64));
                 }
@@ -130,7 +129,7 @@ impl<'a> State<'a> {
                     );
                 }
                 Statement::Print(fmt) => {
-                    let fmt_printf = fmt.printf_format(self.hir_func, "\\n");
+                    let fmt_printf = fmt.printf_format(self.vir_func, "\\n");
                     let fmt_string_id = self.string_constant(fmt_printf, None);
 
                     let mut args = vec![(Long, fmt_string_id)];
@@ -203,22 +202,22 @@ impl From<&Binding> for Value {
     }
 }
 
-pub fn make_il(hir: &hir::Program) -> qbe::Module<'static> {
+pub fn make_il(vir: &Program) -> qbe::Module<'static> {
     let mut state = State {
-        hir,
-        hir_func: &hir.functions[0],
+        vir,
+        vir_func: &vir.functions[0],
         il: qbe::Module::new(),
-        func: Function::new(Linkage::public(), "main", Vec::new(), Some(Word)),
+        func: qbe::Function::new(Linkage::public(), "main", Vec::new(), Some(Word)),
         string_counter: 0,
         temp_counter: 0,
     };
 
-    state.string_counter = hir.strings.len();
-    for (string_id, string) in hir.strings.iter().enumerate() {
+    state.string_counter = vir.strings.len();
+    for (string_id, string) in vir.strings.iter().enumerate() {
         state.string_constant(string.to_string(), Some(format!("string_{string_id}")));
     }
 
-    for function in &hir.functions {
+    for function in &vir.functions {
         let linkage = if function.exported {
             Linkage::public()
         } else {
@@ -234,8 +233,8 @@ pub fn make_il(hir: &hir::Program) -> qbe::Module<'static> {
                 )
             })
             .collect();
-        state.hir_func = function;
-        state.func = Function::new(
+        state.vir_func = function;
+        state.func = qbe::Function::new(
             linkage,
             function.name,
             args,
@@ -252,12 +251,12 @@ pub fn make_il(hir: &hir::Program) -> qbe::Module<'static> {
     state.il
 }
 
-fn convert_type(type_: &hir::Type) -> qbe::Type<'static> {
+fn convert_type(type_: &Type) -> qbe::Type<'static> {
     match &type_.base {
-        hir::BaseType::Array(_) => Long,
-        hir::BaseType::I64 => Long,
-        hir::BaseType::I32 => Word,
-        hir::BaseType::String => Long,
-        hir::BaseType::Struct(_) => Long,
+        BaseType::Array(_) => Long,
+        BaseType::I64 => Long,
+        BaseType::I32 => Word,
+        BaseType::String => Long,
+        BaseType::Struct(_) => Long,
     }
 }
