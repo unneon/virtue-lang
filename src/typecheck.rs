@@ -134,12 +134,6 @@ impl<'a> State<'a> {
                                 right_binding,
                             ));
                         }
-                        ast::Expression::InternalBinding(left_binding) => {
-                            self.add_statement(vir::Statement::Assignment(
-                                *left_binding,
-                                right_binding,
-                            ));
-                        }
                         ast::Expression::Variable(variable) => {
                             let left_binding = self.make_variable(variable, right_type);
                             self.add_statement(vir::Statement::Assignment(
@@ -312,39 +306,41 @@ impl<'a> State<'a> {
                 let binding =
                     self.make_temporary(vir::BaseType::Array(Box::new(type_.clone())).into());
                 self.add_statement(vir::Statement::NewArray(binding, length));
-                let i_binding = self.make_variable("__i", vir::Type::I64);
+
+                let init_condition_block = self.make_block();
+                let init_body_block = self.make_block();
+                let init_after_block = self.make_block();
+                let i_binding = self.make_temporary(vir::Type::I64);
+                let i_cmp_binding = self.make_temporary(vir::Type::I64);
+                let i_step_binding = self.make_temporary(vir::Type::I64);
                 self.add_statement(vir::Statement::Literal(i_binding, 0));
-                self.process_block(
-                    vec![ast::Statement::While {
-                        condition: ast::Expression::BinaryOperation(
-                            BinaryOperator::Less,
-                            Box::new((
-                                ast::Expression::InternalBinding(i_binding),
-                                ast::Expression::InternalBinding(length),
-                            )),
-                        ),
-                        body: vec![
-                            ast::Statement::Assignment {
-                                left: ast::Expression::Index(Box::new((
-                                    ast::Expression::InternalBinding(binding),
-                                    ast::Expression::InternalBinding(i_binding),
-                                ))),
-                                right: ast::Expression::InternalBinding(initial),
-                            },
-                            ast::Statement::Assignment {
-                                left: ast::Expression::InternalBinding(i_binding),
-                                right: ast::Expression::BinaryOperation(
-                                    BinaryOperator::Add,
-                                    Box::new((
-                                        ast::Expression::InternalBinding(i_binding),
-                                        ast::Expression::Literal(1),
-                                    )),
-                                ),
-                            },
-                        ],
-                    }]
-                    .leak(),
-                );
+                self.add_statement(vir::Statement::Literal(i_step_binding, 1));
+                self.add_statement(vir::Statement::JumpAlways(init_condition_block));
+
+                self.current_block = init_condition_block;
+                self.add_statement(vir::Statement::BinaryOperator(
+                    i_cmp_binding,
+                    BinaryOperator::Less,
+                    i_binding,
+                    length,
+                ));
+                self.add_statement(vir::Statement::JumpConditional {
+                    condition: i_cmp_binding,
+                    true_block: init_body_block,
+                    false_block: init_after_block,
+                });
+
+                self.current_block = init_body_block;
+                self.add_statement(vir::Statement::AssignmentIndex(binding, i_binding, initial));
+                self.add_statement(vir::Statement::BinaryOperator(
+                    i_binding,
+                    BinaryOperator::Add,
+                    i_binding,
+                    i_step_binding,
+                ));
+                self.add_statement(vir::Statement::JumpAlways(init_condition_block));
+
+                self.current_block = init_after_block;
                 binding
             }
             ast::Expression::BinaryOperation(op, args) => {
@@ -393,7 +389,6 @@ impl<'a> State<'a> {
                 self.add_statement(vir::Statement::Index(binding, array, index));
                 binding
             }
-            ast::Expression::InternalBinding(binding) => *binding,
             ast::Expression::Literal(literal) => {
                 let binding = self.make_temporary(vir::Type::I64);
                 self.add_statement(vir::Statement::Literal(binding, *literal));
