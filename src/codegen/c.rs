@@ -176,6 +176,7 @@ impl State<'_> {
                     let binding_id = binding.id;
                     self.write(format!("    return _{binding_id};"));
                 }
+                Statement::Syscall(_, _) => todo!(),
                 Statement::StringConstant(binding, value) => {
                     let binding_id = binding.id;
                     self.write(format!("    _{binding_id} = str{value};"));

@@ -152,6 +152,7 @@ impl<'a> State<'a> {
                         Instr::Copy(Value::Global(format!("string_{string}"))),
                     );
                 }
+                Statement::Syscall(_, _) => todo!(),
                 Statement::UnaryOperator(binding, op, arg) => {
                     self.assign(
                         binding,

@@ -333,6 +333,24 @@ impl State<'_> {
                     self.write(format!("%temp_{temp} = getelementptr [{string_len} x i8], [{string_len} x i8]* @string_{string_id}, i32 0, i32 0"));
                     self.store(binding, temp);
                 }
+                Statement::Syscall(binding, arg_bindings) => {
+                    let registers = ["{rax}", "{rdi}", "{rsi}", "{rdx}", "{r10}", "{r8}", "{r9}"]
+                        [..arg_bindings.len()]
+                        .join(",");
+                    let mut args = String::new();
+                    for (arg_index, arg_binding) in arg_bindings.iter().enumerate() {
+                        if arg_index > 0 {
+                            args.push_str(", ");
+                        }
+                        let type_ = convert_type(&function.bindings[arg_binding.id].type_);
+                        let temp = self.make_temporary();
+                        self.load(temp, arg_binding);
+                        write!(&mut args, "{type_} %temp_{temp}").unwrap();
+                    }
+                    let result_temp = self.make_temporary();
+                    self.write(format!("%temp_{result_temp} = call i64 asm sideeffect \"syscall\", \"=r,{registers}\" ({args})"));
+                    self.store(binding, result_temp);
+                }
                 Statement::UnaryOperator(binding, op, arg) => {
                     let (instr, helper_arg) = match op {
                         UnaryOperator::Negate => ("sub", "0"),

@@ -52,6 +52,7 @@ pub enum Statement<'a> {
     Print(FormatString<'a>),
     Return(Binding),
     StringConstant(Binding, usize),
+    Syscall(Binding, Vec<Binding>),
     UnaryOperator(Binding, UnaryOperator, Binding),
 }
 

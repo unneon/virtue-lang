@@ -360,6 +360,13 @@ impl<'a> State<'a> {
                     .iter()
                     .map(|arg| self.process_expression(arg))
                     .collect();
+
+                if *function_name == "syscall" {
+                    let binding = self.make_temporary(vir::Type::I64);
+                    self.add_statement(vir::Statement::Syscall(binding, arg_bindings));
+                    return binding;
+                }
+
                 let function_id = self.function_map[function_name];
                 let function = &self.functions[function_id];
                 assert_eq!(arg_bindings.len(), function.args.len());
