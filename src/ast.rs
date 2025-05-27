@@ -9,6 +9,7 @@ pub enum Statement<'a> {
         left: Expression<'a>,
         right: Expression<'a>,
     },
+    Expression(Expression<'a>),
     ForRange {
         index: &'a str,
         lower: Expression<'a>,
@@ -62,7 +63,7 @@ pub enum Expression<'a> {
     Literal(i64),
     New(Type<'a>),
     Field(Box<Expression<'a>>, &'a str),
-    StringLiteral(&'a str),
+    StringLiteral(Vec<&'a str>),
     UnaryOperation(UnaryOperator, Box<Expression<'a>>),
     Variable(&'a str),
 }
@@ -101,6 +102,6 @@ pub struct Format<'a> {
 
 #[derive(Debug)]
 pub enum FormatSegment<'a> {
-    Text(&'a str),
+    Text(Vec<&'a str>),
     Variable(&'a str),
 }

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 pub struct Program<'a> {
     pub functions: Vec<Function<'a>>,
     pub structs: Vec<Struct<'a>>,
-    pub strings: Vec<&'a str>,
+    pub strings: Vec<&'a [&'a str]>,
 }
 
 #[derive(Debug)]
@@ -67,7 +67,7 @@ pub struct FormatString<'a> {
 
 #[derive(Debug)]
 pub enum FormatSegment<'a> {
-    Text(&'a str),
+    Text(&'a [&'a str]),
     Arg(Binding),
 }
 
@@ -93,16 +93,35 @@ pub enum BaseType {
 }
 
 impl FormatString<'_> {
-    pub fn printf_format(&self, function: &Function, suffix: &str) -> String {
+    pub fn printf_format(&self, function: &Function, newline: &str) -> (String, usize) {
         let mut fmt = String::new();
+        let mut fmt_len = 0;
         for segment in &self.segments {
-            fmt.push_str(match segment {
-                FormatSegment::Text(text) => text,
-                FormatSegment::Arg(arg) => function.bindings[arg.id].type_.printf_format(),
-            });
+            match segment {
+                FormatSegment::Text(text) => {
+                    for text in *text {
+                        match *text {
+                            "\n" => {
+                                fmt += newline;
+                                fmt_len += 1;
+                            }
+                            _ => {
+                                fmt += text;
+                                fmt_len += text.len();
+                            }
+                        }
+                    }
+                }
+                FormatSegment::Arg(arg) => {
+                    let specifier = function.bindings[arg.id].type_.printf_format();
+                    fmt.push_str(specifier);
+                    fmt_len += specifier.len();
+                }
+            }
         }
-        fmt.push_str(suffix);
-        fmt
+        fmt.push_str(newline);
+        fmt_len += 1;
+        (fmt, fmt_len)
     }
 }
 

@@ -33,10 +33,16 @@ impl State<'_> {
 
     fn prologue_strings(&mut self) {
         for (string_id, string) in self.vir.strings.iter().enumerate() {
-            let string_len = string.len() + 1;
-            self.write(format!(
-                "@string_{string_id} = internal constant [{string_len} x i8] c\"{string}\\00\""
-            ));
+            let string_len = string.iter().map(|s| s.len()).sum::<usize>() + 1;
+            self.ir +=
+                &format!("    @string_{string_id} = internal constant [{string_len} x i8] c\"");
+            for s in *string {
+                self.ir += match *s {
+                    "\n" => "\\0A",
+                    _ => s,
+                };
+            }
+            self.ir += "\\00\"\n";
         }
     }
 
@@ -45,9 +51,9 @@ impl State<'_> {
             for (block_id, block) in function.blocks.iter().enumerate() {
                 for (statement_id, statement) in block.iter().enumerate() {
                     if let Statement::Print(fmt) = statement {
-                        let fmt = fmt.printf_format(function, "\\0A\\00");
-                        let fmt_len = fmt.len() - 4;
-                        self.write(format!("@fmt_{function_id}_{block_id}_{statement_id} = internal constant [{fmt_len} x i8] c\"{fmt}\""));
+                        let (fmt, fmt_len) = fmt.printf_format(function, "\\0A");
+                        let fmt_len = fmt_len + 1;
+                        self.write(format!("@fmt_{function_id}_{block_id}_{statement_id} = internal constant [{fmt_len} x i8] c\"{fmt}\\00\""));
                     }
                 }
             }

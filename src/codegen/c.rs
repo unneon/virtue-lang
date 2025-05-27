@@ -29,7 +29,14 @@ impl State<'_> {
             self.write(format!("{signature};"));
         }
         for (string_id, string) in self.vir.strings.iter().enumerate() {
-            self.write(format!("char str{string_id}[] = \"{string}\";"));
+            self.c += &format!("char str{string_id}[] = \"");
+            for string in *string {
+                self.c += match *string {
+                    "\n" => "\\n",
+                    _ => string,
+                };
+            }
+            self.c += "\";\n";
         }
     }
 
@@ -155,7 +162,7 @@ impl State<'_> {
                     ));
                 }
                 Statement::Print(fmt) => {
-                    let format_string = fmt.printf_format(function, "");
+                    let format_string = fmt.printf_format(function, "\\n").0;
                     let mut args = String::new();
                     for segment in &fmt.segments {
                         if let FormatSegment::Arg(arg) = segment {
@@ -163,7 +170,7 @@ impl State<'_> {
                             write!(&mut args, ", _{arg_id}").unwrap();
                         }
                     }
-                    self.write(format!("    printf(\"{format_string}\\n\"{args});"));
+                    self.write(format!("    printf(\"{format_string}\"{args});"));
                 }
                 Statement::Return(binding) => {
                     let binding_id = binding.id;

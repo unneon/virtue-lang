@@ -4,12 +4,12 @@ use crate::ast::{
 };
 use nom::IResult;
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take_while, take_while1};
+use nom::bytes::complete::{tag, take_while};
 use nom::character::anychar;
 use nom::character::complete::{char, digit1};
 use nom::combinator::{all_consuming, opt, recognize, verify};
 use nom::error::Error;
-use nom::multi::{count, fold_many0, many0, separated_list0};
+use nom::multi::{count, fold_many0, many0, many1, separated_list0};
 use nom::sequence::{delimited, pair, preceded, terminated};
 
 trait Parser<'a, T> = nom::Parser<&'a str, Output = T, Error = Error<&'a str>>;
@@ -45,6 +45,7 @@ fn statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
             return_statement(),
             struct_statement(nesting),
             assingment_statement(),
+            expression_statement(),
         )),
     )
 }
@@ -55,6 +56,10 @@ fn assingment_statement<'a>() -> impl Parser<'a, Statement<'a>> {
         delimited((sp, char('='), sp), expression(), newline),
     )
         .map(|(left, right)| Statement::Assignment { left, right })
+}
+
+fn expression_statement<'a>() -> impl Parser<'a, Statement<'a>> {
+    terminated(expression(), newline).map(Statement::Expression)
 }
 
 fn if_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
@@ -157,7 +162,12 @@ fn format_segment<'a>() -> impl Parser<'a, FormatSegment<'a>> {
 }
 
 fn format_segment_text<'a>() -> impl Parser<'a, FormatSegment<'a>> {
-    take_while1(|c| c != '"' && c != '{').map(FormatSegment::Text)
+    let normal = verify(
+        take_while(|c| c != '"' && c != '\\' && c != '{'),
+        |s: &str| !s.is_empty(),
+    );
+    let segment = alt((string_escape, normal));
+    many1(segment).map(FormatSegment::Text)
 }
 
 fn format_segment_variable<'a>() -> impl Parser<'a, FormatSegment<'a>> {
@@ -367,9 +377,17 @@ fn new_expression(input: &str) -> IResult<&str, Expression> {
 }
 
 fn string_literal(input: &str) -> IResult<&str, Expression> {
-    delimited(preceded(sp, char('"')), take_while(|c| c != '"'), char('"'))
+    let normal = verify(take_while(|c| c != '"' && c != '\\'), |s: &str| {
+        !s.is_empty()
+    });
+    let segment = alt((string_escape, normal));
+    delimited((sp, char('"')), many0(segment), char('"'))
         .map(Expression::StringLiteral)
         .parse(input)
+}
+
+fn string_escape(input: &str) -> IResult<&str, &str> {
+    tag("\\n").map(|_| "\n").parse(input)
 }
 
 fn bool_literal(input: &str) -> IResult<&str, Expression> {

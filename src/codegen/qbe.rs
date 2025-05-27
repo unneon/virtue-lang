@@ -129,8 +129,8 @@ impl<'a> State<'a> {
                     );
                 }
                 Statement::Print(fmt) => {
-                    let fmt_printf = fmt.printf_format(self.vir_func, "\\n");
-                    let fmt_string_id = self.string_constant(fmt_printf, None);
+                    let fmt_printf = fmt.printf_format(self.vir_func, "\\n").0;
+                    let fmt_string_id = self.string_constant(&[&fmt_printf], None);
 
                     let mut args = vec![(Long, fmt_string_id)];
                     for segment in &fmt.segments {
@@ -176,7 +176,7 @@ impl<'a> State<'a> {
         Value::Temporary(format!("tmp_{temp_id}"))
     }
 
-    fn string_constant(&mut self, text: String, assignment: Option<String>) -> Value {
+    fn string_constant(&mut self, text: &[&str], assignment: Option<String>) -> Value {
         let name = if let Some(assignment) = assignment {
             assignment
         } else {
@@ -184,7 +184,7 @@ impl<'a> State<'a> {
             self.string_counter += 1;
             format!("string_{string_id}")
         };
-
+        let text = text.join("");
         self.il.add_data(DataDef::new(
             Linkage::private(),
             name.clone(),
@@ -214,7 +214,7 @@ pub fn make_il(vir: &Program) -> qbe::Module<'static> {
 
     state.string_counter = vir.strings.len();
     for (string_id, string) in vir.strings.iter().enumerate() {
-        state.string_constant(string.to_string(), Some(format!("string_{string_id}")));
+        state.string_constant(string, Some(format!("string_{string_id}")));
     }
 
     for function in &vir.functions {

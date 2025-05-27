@@ -9,7 +9,7 @@ struct State<'a> {
     function_map: HashMap<&'a str, usize>,
     structs: Vec<vir::Struct<'a>>,
     struct_map: HashMap<&'a str, usize>,
-    strings: Vec<&'a str>,
+    strings: Vec<&'a [&'a str]>,
     current_function: usize,
     current_block: usize,
 }
@@ -58,6 +58,7 @@ impl<'a> State<'a> {
         for statement in statements {
             match statement {
                 ast::Statement::Assignment { .. } => {}
+                ast::Statement::Expression(_) => {}
                 ast::Statement::ForRange { body, .. } => {
                     self.preprocess_block(body);
                 }
@@ -143,6 +144,9 @@ impl<'a> State<'a> {
                         }
                         _ => todo!("vir assignment unimplemented {statement:?}"),
                     }
+                }
+                ast::Statement::Expression(expression) => {
+                    self.process_expression(expression);
                 }
                 ast::Statement::ForRange {
                     index,
@@ -270,7 +274,7 @@ impl<'a> State<'a> {
         Fallthrough::Reachable
     }
 
-    fn process_expression(&mut self, expression: &ast::Expression<'a>) -> Binding {
+    fn process_expression(&mut self, expression: &'a ast::Expression<'a>) -> Binding {
         match expression {
             ast::Expression::ArrayLiteral(initials) => {
                 let initials: Vec<_> = initials
@@ -445,7 +449,7 @@ impl<'a> State<'a> {
         binding
     }
 
-    fn make_string(&mut self, text: &'a str) -> usize {
+    fn make_string(&mut self, text: &'a [&'a str]) -> usize {
         let string_id = self.strings.len();
         self.strings.push(text);
         string_id
@@ -473,7 +477,10 @@ impl<'a> State<'a> {
         }
     }
 
-    fn convert_format_segment(&self, segment: &ast::FormatSegment<'a>) -> vir::FormatSegment<'a> {
+    fn convert_format_segment(
+        &self,
+        segment: &'a ast::FormatSegment<'a>,
+    ) -> vir::FormatSegment<'a> {
         match segment {
             ast::FormatSegment::Text(text) => vir::FormatSegment::Text(text),
             ast::FormatSegment::Variable(variable) => {

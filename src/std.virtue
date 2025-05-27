@@ -1,0 +1,18 @@
+func print_str(s string)
+    syscall(1, 1, s.pointer, s.length)
+
+func print_int(n i64)
+    is_negative = n < 0
+    if is_negative
+        n = -n
+    s = new string
+    s.length = 20
+    i = 0
+    while n > 0
+        s[s.length - i - 1] = '0' + n % 10
+        i += 1
+        n /= 10
+    if is_negative
+        s[s.length - i - 1] = '-'
+        i -= 1
+    print_str(s.slice(s.length - i, s.length))
