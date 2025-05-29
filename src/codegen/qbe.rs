@@ -139,24 +139,42 @@ impl<'a> State<'a> {
                     );
                 }
                 Statement::Print(fmt) => {
-                    let fmt_printf = fmt.printf_format(self.vir_func, "\\n").0;
-                    let fmt_string_id = self.string_constant(&[&fmt_printf], None);
-
-                    let mut args = vec![(Long, fmt_string_id)];
                     for segment in &fmt.segments {
-                        if let FormatSegment::Arg(arg) = segment {
-                            if self.vir_func.bindings[arg.id].type_.base == BaseType::Struct(0) {
-                                let pointer = self.make_temporary();
-                                self.assign(pointer.clone(), Instr::Load(Long, arg.into()));
-                                args.push((Long, pointer));
-                            } else {
-                                args.push((Long, arg.into()));
+                        match segment {
+                            FormatSegment::Text(text) => self.func.add_instr(Instr::Call(
+                                "virtue_print_raw".to_owned(),
+                                vec![
+                                    (Long, Value::Global(format!("string_{text}"))),
+                                    (Long, Value::Const(self.vir.string_len(*text) as u64)),
+                                ],
+                                None,
+                            )),
+                            FormatSegment::Arg(arg) => {
+                                let type_ = &self.vir_func.bindings[arg.id].type_;
+                                self.func.add_instr(match type_.base {
+                                    BaseType::I64 => Instr::Call(
+                                        "virtue_print_int".to_owned(),
+                                        vec![(Long, arg.into())],
+                                        None,
+                                    ),
+                                    BaseType::Struct(0) => Instr::Call(
+                                        "virtue_print_str".to_owned(),
+                                        vec![(Long, arg.into())],
+                                        None,
+                                    ),
+                                    _ => todo!(),
+                                });
                             }
                         }
                     }
-
-                    self.func
-                        .add_instr(Instr::Call("printf".into(), args, None));
+                    self.func.add_instr(Instr::Call(
+                        "virtue_print_raw".to_owned(),
+                        vec![
+                            (Long, Value::Global("newline".to_owned())),
+                            (Long, Value::Const(1)),
+                        ],
+                        None,
+                    ));
                 }
                 Statement::Return(value) => {
                     self.func.add_instr(Instr::Ret(Some(value.into())));
@@ -166,7 +184,7 @@ impl<'a> State<'a> {
                     self.assign(binding, Instr::Alloc8(16));
                     let pointer_field = binding;
                     let length_field = self.make_temporary();
-                    let length: usize = self.vir.strings[*string].iter().map(|s| s.len()).sum();
+                    let length = self.vir.string_len(*string);
                     self.assign(
                         length_field.clone(),
                         Instr::Add(pointer_field.into(), Value::Const(8)),
@@ -231,7 +249,7 @@ impl<'a> State<'a> {
             Linkage::private(),
             name.clone(),
             None,
-            vec![(Byte, DataItem::Str(text)), (Byte, DataItem::Const(0))],
+            vec![(Byte, DataItem::Str(text))],
         ));
 
         Value::Global(name)
@@ -258,6 +276,7 @@ pub fn make_il(vir: &Program) -> qbe::Module<'static> {
     for (string_id, string) in vir.strings.iter().enumerate() {
         state.string_constant(string, Some(format!("string_{string_id}")));
     }
+    state.string_constant(&["\\n"], Some("newline".to_owned()));
 
     for function in &vir.functions {
         let linkage = if function.exported {

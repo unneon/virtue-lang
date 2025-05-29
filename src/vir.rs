@@ -18,7 +18,7 @@ pub struct Function<'a> {
     pub return_type: Type,
     pub bindings: Vec<BindingData>,
     pub binding_map: HashMap<&'a str, Binding>,
-    pub blocks: Vec<Vec<Statement<'a>>>,
+    pub blocks: Vec<Vec<Statement>>,
     pub ast_block: &'a [ast::Statement<'a>],
 }
 
@@ -33,7 +33,7 @@ pub struct BindingData {
 }
 
 #[derive(Debug)]
-pub enum Statement<'a> {
+pub enum Statement {
     Alloc(Binding, usize),
     Assignment(Binding, Binding),
     AssignmentField(Binding, usize, Binding),
@@ -51,7 +51,7 @@ pub enum Statement<'a> {
     Literal(Binding, i64),
     New(Binding, usize),
     NewArray(Binding, Binding),
-    Print(FormatString<'a>),
+    Print(FormatString),
     Return(Binding),
     StringConstant(Binding, usize),
     Syscall(Binding, Vec<Binding>),
@@ -64,13 +64,13 @@ pub struct Binding {
 }
 
 #[derive(Debug)]
-pub struct FormatString<'a> {
-    pub segments: Vec<FormatSegment<'a>>,
+pub struct FormatString {
+    pub segments: Vec<FormatSegment>,
 }
 
 #[derive(Debug)]
-pub enum FormatSegment<'a> {
-    Text(&'a [&'a str]),
+pub enum FormatSegment {
+    Text(usize),
     Arg(Binding),
 }
 
@@ -96,36 +96,9 @@ pub enum BaseType {
     Struct(usize),
 }
 
-impl FormatString<'_> {
-    pub fn printf_format(&self, function: &Function, newline: &str) -> (String, usize) {
-        let mut fmt = String::new();
-        let mut fmt_len = 0;
-        for segment in &self.segments {
-            match segment {
-                FormatSegment::Text(text) => {
-                    for text in *text {
-                        match *text {
-                            "\n" => {
-                                fmt += newline;
-                                fmt_len += 1;
-                            }
-                            _ => {
-                                fmt += text;
-                                fmt_len += text.len();
-                            }
-                        }
-                    }
-                }
-                FormatSegment::Arg(arg) => {
-                    let specifier = function.bindings[arg.id].type_.printf_format();
-                    fmt.push_str(specifier);
-                    fmt_len += specifier.len();
-                }
-            }
-        }
-        fmt.push_str(newline);
-        fmt_len += 1;
-        (fmt, fmt_len)
+impl Program<'_> {
+    pub fn string_len(&self, id: usize) -> usize {
+        self.strings[id].iter().map(|s| s.len()).sum()
     }
 }
 
@@ -138,17 +111,6 @@ impl Type {
         predicates: Vec::new(),
         base: BaseType::I32,
     };
-
-    fn printf_format(&self) -> &'static str {
-        match self.base {
-            BaseType::I64 => "%lld",
-            BaseType::I32 => "%d",
-            BaseType::I8 => todo!(),
-            BaseType::PointerI8 => "%s",
-            BaseType::Struct(0) => "%s",
-            BaseType::Array(_) | BaseType::Struct(_) => panic!("print not supported for {self:?}"),
-        }
-    }
 
     pub fn unwrap_list(&self) -> &Type {
         match &self.base {

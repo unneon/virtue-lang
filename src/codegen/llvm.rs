@@ -49,8 +49,8 @@ impl State<'_> {
                     if let Statement::Print(fmt) = statement {
                         for (segment_id, segment) in fmt.segments.iter().enumerate() {
                             if let FormatSegment::Text(text) = segment {
-                                let length: usize = text.iter().map(|s| s.len()).sum();
-                                let literal = escape_string(text);
+                                let length = self.vir.string_len(*text);
+                                let literal = escape_string(self.vir.strings[*text]);
                                 self.write(format!("@fmt_{function_id}_{block_id}_{statement_id}_{segment_id} = internal constant [{length} x i8] c\"{literal}\""));
                             }
                         }
@@ -357,7 +357,7 @@ impl State<'_> {
                     for (segment_id, segment) in fmt.segments.iter().enumerate() {
                         match segment {
                             FormatSegment::Text(text) => {
-                                let length: usize = text.iter().map(|s| s.len()).sum();
+                                let length = self.vir.string_len(*text);
                                 self.write(format!("call i64 (i8*, i64) @virtue_print_raw(i8* @fmt_{function_id}_{block_id}_{statement_id}_{segment_id}, i64 {length})"));
                             }
                             FormatSegment::Arg(arg) => {
@@ -398,7 +398,7 @@ impl State<'_> {
                     let pointer_temp = self.make_temporary();
                     let pointer_field_temp = self.make_temporary();
                     let length_field_temp = self.make_temporary();
-                    let length: usize = self.vir.strings[*string_id].iter().map(|s| s.len()).sum();
+                    let length = self.vir.string_len(*string_id);
                     self.write(format!("%temp_{pointer_temp} = getelementptr [{length} x i8], [{length} x i8]* @string_{string_id}, i32 0, i32 0"));
                     self.write(format!("%temp_{pointer_field_temp} = getelementptr %struct_0, ptr %stack_{binding_id}, i32 0, i32 0"));
                     self.write(format!("%temp_{length_field_temp} = getelementptr %struct_0, ptr %stack_{binding_id}, i32 0, i32 1"));

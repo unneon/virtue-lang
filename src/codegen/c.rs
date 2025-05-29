@@ -14,7 +14,7 @@ struct State<'a> {
 
 impl State<'_> {
     fn prologue(&mut self) {
-        self.write("#include <stdio.h>");
+        self.write("#include <stdint.h>");
         self.write("#include <stdlib.h>");
         for (struct_id, struct_) in self.vir.structs.iter().enumerate() {
             self.write(format!("struct struct{struct_id} {{"));
@@ -28,6 +28,7 @@ impl State<'_> {
             let signature = self.function_signature(function);
             self.write(format!("{signature};"));
         }
+        self.write("char newline[] = \"\\n\";");
         for (string_id, string) in self.vir.strings.iter().enumerate() {
             self.c += &format!("char str{string_id}[] = \"");
             for string in *string {
@@ -169,19 +170,27 @@ impl State<'_> {
                     ));
                 }
                 Statement::Print(fmt) => {
-                    let format_string = fmt.printf_format(function, "\\n").0;
-                    let mut args = String::new();
                     for segment in &fmt.segments {
-                        if let FormatSegment::Arg(arg) = segment {
-                            let arg_id = arg.id;
-                            if function.bindings[arg_id].type_.base == BaseType::Struct(0) {
-                                write!(&mut args, ", _{arg_id}._0").unwrap();
-                            } else {
-                                write!(&mut args, ", _{arg_id}").unwrap();
+                        match segment {
+                            FormatSegment::Text(text) => {
+                                let length = self.vir.string_len(*text);
+                                self.write(format!("    virtue_print_raw(str{text}, {length});"));
+                            }
+                            FormatSegment::Arg(arg) => {
+                                let arg_id = arg.id;
+                                match function.bindings[arg.id].type_.base {
+                                    BaseType::I64 => {
+                                        self.write(format!("    virtue_print_int(_{arg_id});"))
+                                    }
+                                    BaseType::Struct(0) => {
+                                        self.write(format!("    virtue_print_str(_{arg_id});"))
+                                    }
+                                    _ => todo!(),
+                                }
                             }
                         }
                     }
-                    self.write(format!("    printf(\"{format_string}\"{args});"));
+                    self.write("    virtue_print_raw(newline, 1);");
                 }
                 Statement::Return(binding) => {
                     let binding_id = binding.id;
@@ -205,7 +214,7 @@ impl State<'_> {
                 }
                 Statement::StringConstant(binding, value) => {
                     let binding_id = binding.id;
-                    let length: usize = self.vir.strings[*value].iter().map(|s| s.len()).sum();
+                    let length = self.vir.string_len(*value);
                     self.write(format!("    _{binding_id}._0 = str{value};"));
                     self.write(format!("    _{binding_id}._1 = {length};"));
                 }

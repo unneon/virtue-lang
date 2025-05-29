@@ -521,7 +521,7 @@ impl<'a> State<'a> {
         block_id
     }
 
-    fn add_statement(&mut self, statement: vir::Statement<'a>) {
+    fn add_statement(&mut self, statement: vir::Statement) {
         self.functions[self.current_function].blocks[self.current_block].push(statement);
     }
 
@@ -540,9 +540,9 @@ impl<'a> State<'a> {
     fn convert_format_segment(
         &mut self,
         segment: &'a ast::FormatSegment<'a>,
-    ) -> vir::FormatSegment<'a> {
+    ) -> vir::FormatSegment {
         match segment {
-            ast::FormatSegment::Text(text) => vir::FormatSegment::Text(text),
+            ast::FormatSegment::Text(text) => vir::FormatSegment::Text(self.make_string(text)),
             ast::FormatSegment::Variable(variable) => {
                 vir::FormatSegment::Arg(self.variable_binding(variable))
             }
