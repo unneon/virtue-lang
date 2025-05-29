@@ -187,7 +187,22 @@ impl State<'_> {
                     let binding_id = binding.id;
                     self.write(format!("    return _{binding_id};"));
                 }
-                Statement::Syscall(_, _) => {}
+                Statement::Syscall(result_binding, arg_bindings) => {
+                    let result_id = result_binding.id;
+                    let registers = ['a', 'D', 'S', 'd'];
+                    assert!(arg_bindings.len() <= registers.len());
+                    let mut args = String::new();
+                    for (arg_index, (arg_binding, register)) in
+                        arg_bindings.iter().zip(registers).enumerate()
+                    {
+                        if arg_index > 0 {
+                            args.push_str(", ");
+                        }
+                        let arg_binding_id = arg_binding.id;
+                        write!(&mut args, "\"{register}\" (_{arg_binding_id})").unwrap();
+                    }
+                    self.write(format!("    asm volatile (\"syscall\" : \"=a\" (_{result_id}) : {args} : \"rcx\", \"r11\", \"memory\");"));
+                }
                 Statement::StringConstant(binding, value) => {
                     let binding_id = binding.id;
                     let length: usize = self.vir.strings[*value].iter().map(|s| s.len()).sum();
