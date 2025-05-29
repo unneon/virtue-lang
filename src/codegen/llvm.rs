@@ -27,11 +27,8 @@ impl State<'_> {
         }
     }
 
-    fn prologue_extern(&mut self) {
-        self.write("declare i32 @printf(i8*, ...)");
-    }
-
     fn prologue_strings(&mut self) {
+        self.write("@newline = internal constant [1 x i8] c\"\\0A\"");
         for (string_id, string) in self.vir.strings.iter().enumerate() {
             let string_len = string.iter().map(|s| s.len()).sum::<usize>() + 1;
             self.ir += &format!("@string_{string_id} = internal constant [{string_len} x i8] c\"");
@@ -50,9 +47,13 @@ impl State<'_> {
             for (block_id, block) in function.blocks.iter().enumerate() {
                 for (statement_id, statement) in block.iter().enumerate() {
                     if let Statement::Print(fmt) = statement {
-                        let (fmt, fmt_len) = fmt.printf_format(function, "\\0A");
-                        let fmt_len = fmt_len + 1;
-                        self.write(format!("@fmt_{function_id}_{block_id}_{statement_id} = internal constant [{fmt_len} x i8] c\"{fmt}\\00\""));
+                        for (segment_id, segment) in fmt.segments.iter().enumerate() {
+                            if let FormatSegment::Text(text) = segment {
+                                let length: usize = text.iter().map(|s| s.len()).sum();
+                                let literal = escape_string(text);
+                                self.write(format!("@fmt_{function_id}_{block_id}_{statement_id}_{segment_id} = internal constant [{length} x i8] c\"{literal}\""));
+                            }
+                        }
                     }
                 }
             }
@@ -77,7 +78,11 @@ impl State<'_> {
     fn function_declaration(&mut self) {
         let function = &self.vir.functions[self.current_function];
         let return_type = convert_type(&function.return_type);
-        let name = function.name;
+        let name = if function.is_main {
+            "_start"
+        } else {
+            function.name
+        };
         let args = self.function_args_declaration();
         self.write(format!("define {return_type} @{name}({args}) {{"));
     }
@@ -349,22 +354,43 @@ impl State<'_> {
                 }
                 Statement::Print(fmt) => {
                     let function_id = self.current_function;
-                    let mut args = String::new();
-                    for segment in &fmt.segments {
-                        if let FormatSegment::Arg(arg) = segment {
-                            let type_ = convert_type(&function.bindings[arg.id].type_);
-                            let temp = self.make_temporary();
-                            self.load(temp, arg);
-                            write!(&mut args, ", {type_} %temp_{temp}").unwrap();
+                    for (segment_id, segment) in fmt.segments.iter().enumerate() {
+                        match segment {
+                            FormatSegment::Text(text) => {
+                                let length: usize = text.iter().map(|s| s.len()).sum();
+                                self.write(format!("call i64 (i8*, i64) @virtue_print_raw(i8* @fmt_{function_id}_{block_id}_{statement_id}_{segment_id}, i64 {length})"));
+                            }
+                            FormatSegment::Arg(arg) => {
+                                let type_ = &function.bindings[arg.id].type_;
+                                if type_.base == BaseType::Struct(0) {
+                                    let string_temp = self.make_temporary();
+                                    self.load(string_temp, arg);
+                                    self.write(format!("call i64 (%struct_0) @virtue_print_str(%struct_0 %temp_{string_temp})"));
+                                } else if type_.base == BaseType::I64 {
+                                    let int_temp = self.make_temporary();
+                                    self.load(int_temp, arg);
+                                    self.write(format!(
+                                        "call i64 (i64) @virtue_print_int(i64 %temp_{int_temp})"
+                                    ));
+                                } else {
+                                    dbg!(type_);
+                                    todo!()
+                                }
+                            }
                         }
                     }
-                    self.write(format!("call i32 (i8*, ...) @printf(i8* @fmt_{function_id}_{block_id}_{statement_id}{args})"));
+                    self.write("call i64 (i8*, i64) @virtue_print_raw(i8* @newline, i64 1)");
                 }
                 Statement::Return(binding) => {
                     let type_ = convert_type(&function.return_type);
                     let temp = self.make_temporary();
                     self.load(temp, binding);
-                    self.write(format!("ret {type_} %temp_{temp}"));
+                    if !function.is_main {
+                        self.write(format!("ret {type_} %temp_{temp}"));
+                    } else {
+                        self.write(format!("call void asm sideeffect \"syscall\", \"{{rax}},{{rdi}}\" (i64 60, {type_} %temp_{temp})"));
+                        self.write("unreachable");
+                    }
                     return;
                 }
                 Statement::StringConstant(binding, string_id) => {
@@ -473,6 +499,17 @@ fn convert_type(type_: &Type) -> String {
     }
 }
 
+fn escape_string(parts: &[&str]) -> String {
+    let mut escaped = String::new();
+    for part in parts {
+        escaped.push_str(match *part {
+            "\n" => "\\0A",
+            _ => part,
+        });
+    }
+    escaped
+}
+
 pub fn make_ir(vir: &Program) -> String {
     let mut state = State {
         ir: String::new(),
@@ -482,7 +519,6 @@ pub fn make_ir(vir: &Program) -> String {
     };
 
     state.prologue_structs();
-    state.prologue_extern();
     state.prologue_strings();
     state.prologue_format();
     state.all_functions();

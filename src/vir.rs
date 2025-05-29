@@ -12,6 +12,7 @@ pub struct Program<'a> {
 #[derive(Debug)]
 pub struct Function<'a> {
     pub exported: bool,
+    pub is_main: bool,
     pub name: &'a str,
     pub args: Vec<Arg>,
     pub return_type: Type,
@@ -144,6 +145,7 @@ impl Type {
             BaseType::I32 => "%d",
             BaseType::I8 => todo!(),
             BaseType::PointerI8 => "%s",
+            BaseType::Struct(0) => "%s",
             BaseType::Array(_) | BaseType::Struct(_) => panic!("print not supported for {self:?}"),
         }
     }

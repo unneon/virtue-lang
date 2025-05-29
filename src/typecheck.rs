@@ -46,6 +46,7 @@ impl<'a> State<'a> {
         }
         self.functions.push(vir::Function {
             exported: name == "main",
+            is_main: name == "main",
             name,
             args: vir_args,
             return_type: self.convert_type(return_type),
@@ -527,14 +528,7 @@ impl<'a> State<'a> {
         match segment {
             ast::FormatSegment::Text(text) => vir::FormatSegment::Text(text),
             ast::FormatSegment::Variable(variable) => {
-                let binding = self.variable_binding(variable);
-                if self.binding_type(binding).base == vir::BaseType::Struct(0) {
-                    let field_binding = self.make_temporary(vir::BaseType::PointerI8.into());
-                    self.add_statement(vir::Statement::Field(field_binding, binding, 0));
-                    vir::FormatSegment::Arg(field_binding)
-                } else {
-                    vir::FormatSegment::Arg(binding)
-                }
+                vir::FormatSegment::Arg(self.variable_binding(variable))
             }
         }
     }

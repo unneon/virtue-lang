@@ -145,7 +145,13 @@ impl<'a> State<'a> {
                     let mut args = vec![(Long, fmt_string_id)];
                     for segment in &fmt.segments {
                         if let FormatSegment::Arg(arg) = segment {
-                            args.push((Long, arg.into()));
+                            if self.vir_func.bindings[arg.id].type_.base == BaseType::Struct(0) {
+                                let pointer = self.make_temporary();
+                                self.assign(pointer.clone(), Instr::Load(Long, arg.into()));
+                                args.push((Long, pointer));
+                            } else {
+                                args.push((Long, arg.into()));
+                            }
                         }
                     }
 
@@ -176,7 +182,7 @@ impl<'a> State<'a> {
                         Value::Const(length as u64),
                     ));
                 }
-                Statement::Syscall(_, _) => todo!(),
+                Statement::Syscall(_, _) => {}
                 Statement::UnaryOperator(binding, op, arg) => {
                     self.assign(
                         binding,

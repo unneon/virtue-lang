@@ -3,26 +3,32 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 pub fn compile_ir(ir: &str, output_path: Option<&Path>) -> Result<(), String> {
-    let mut command = Command::new("clang");
-    if let Some(output_path) = output_path {
-        command.arg("-o").arg(output_path);
-    }
-    let mut child = command
-        .args(["-x", "ir", "-"])
+    let object_path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
+
+    let mut llc_child = Command::new("llc")
+        .args(["--filetype", "obj", "-", "-o"])
+        .arg(&object_path)
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
 
-    let mut stdin = child.stdin.take().unwrap();
-    stdin.write_all(ir.as_bytes()).unwrap();
-    stdin.flush().unwrap();
-    drop(stdin);
+    let mut llc_stdin = llc_child.stdin.take().unwrap();
+    llc_stdin.write_all(ir.as_bytes()).unwrap();
+    drop(llc_stdin);
 
-    let output = child.wait_with_output().unwrap();
-
-    if !output.status.success() {
-        return Err(String::from_utf8(output.stderr).unwrap());
+    let llc_output = llc_child.wait_with_output().unwrap();
+    if !llc_output.status.success() {
+        return Err(String::from_utf8(llc_output.stderr).unwrap());
     }
+
+    let mut lld_command = Command::new("ld.lld");
+    lld_command.arg(&object_path);
+    if let Some(output_path) = output_path {
+        lld_command.arg("-o").arg(output_path);
+    }
+    let lld_output = lld_command.output().unwrap();
+    assert!(lld_output.status.success());
+
     Ok(())
 }

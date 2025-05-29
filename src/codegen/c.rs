@@ -174,7 +174,11 @@ impl State<'_> {
                     for segment in &fmt.segments {
                         if let FormatSegment::Arg(arg) = segment {
                             let arg_id = arg.id;
-                            write!(&mut args, ", _{arg_id}").unwrap();
+                            if function.bindings[arg_id].type_.base == BaseType::Struct(0) {
+                                write!(&mut args, ", _{arg_id}._0").unwrap();
+                            } else {
+                                write!(&mut args, ", _{arg_id}").unwrap();
+                            }
                         }
                     }
                     self.write(format!("    printf(\"{format_string}\"{args});"));
@@ -183,7 +187,7 @@ impl State<'_> {
                     let binding_id = binding.id;
                     self.write(format!("    return _{binding_id};"));
                 }
-                Statement::Syscall(_, _) => todo!(),
+                Statement::Syscall(_, _) => {}
                 Statement::StringConstant(binding, value) => {
                     let binding_id = binding.id;
                     let length: usize = self.vir.strings[*value].iter().map(|s| s.len()).sum();
