@@ -151,7 +151,7 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
         .into());
     }
     assert!(output.status.success());
-    let actual_stdout = String::from_utf8(output.stdout).unwrap();
+    let actual_stdout = String::from_utf8_lossy(&output.stdout);
     if actual_stdout != *expected_stdout {
         return Err(format!("\x1B[1m{intermediate_name}:\x1B[0m\n{intermediate}\n\x1B[1;31mactual stdout:\x1B[0m\n{actual_stdout}\n\x1B[1;32mexpected stdout:\x1B[0m\n{expected_stdout}").into());
     }

@@ -175,10 +175,10 @@ fn format_segment_variable<'a>() -> impl Parser<'a, FormatSegment<'a>> {
 }
 
 fn expression<'a>() -> impl Parser<'a, Expression<'a>> {
-    |input| expression6(input)
+    |input| expression5(input)
 }
 
-fn expression6(input: &str) -> IResult<&str, Expression> {
+fn expression5(input: &str) -> IResult<&str, Expression> {
     let less_or_equal = tag("<=").map(|_| BinaryOperator::LessOrEqual);
     let less = tag("<").map(|_| BinaryOperator::Less);
     let greater_or_equal = tag(">=").map(|_| BinaryOperator::GreaterOrEqual);
@@ -193,22 +193,17 @@ fn expression6(input: &str) -> IResult<&str, Expression> {
         equal,
         not_equal,
     ));
-    expression_binary_single(expression5, op, input)
+    expression_binary_single(expression4, op, input)
 }
 
-fn expression5(input: &str) -> IResult<&str, Expression> {
+fn expression4(input: &str) -> IResult<&str, Expression> {
     let and = char('&').map(|_| BinaryOperator::BitAnd);
     let or = char('|').map(|_| BinaryOperator::BitOr);
     let xor = char('^').map(|_| BinaryOperator::BitXor);
     let shift_left = tag("<<").map(|_| BinaryOperator::BitShiftLeft);
     let shift_right = tag(">>").map(|_| BinaryOperator::BitShiftRight);
     let op = alt((and, or, xor, shift_left, shift_right));
-    expression_binary_single(expression4, op, input)
-}
-
-fn expression4(input: &str) -> IResult<&str, Expression> {
-    let modulo = char('%').map(|_| BinaryOperator::Modulo);
-    expression_binary_single(expression3, modulo, input)
+    expression_binary_single(expression3, op, input)
 }
 
 fn expression3(input: &str) -> IResult<&str, Expression> {
@@ -221,7 +216,8 @@ fn expression3(input: &str) -> IResult<&str, Expression> {
 fn expression2(input: &str) -> IResult<&str, Expression> {
     let multiply = char('*').map(|_| BinaryOperator::Multiply);
     let divide = char('/').map(|_| BinaryOperator::Divide);
-    let op = alt((multiply, divide));
+    let modulo = char('%').map(|_| BinaryOperator::Modulo);
+    let op = alt((multiply, divide, modulo));
     expression_binary(expression1, op, input)
 }
 
@@ -295,7 +291,7 @@ fn identifier(input: &str) -> IResult<&str, &str> {
 }
 
 fn integer_literal(input: &str) -> IResult<&str, Expression> {
-    let (input, literal) = preceded(sp, recognize(pair(opt(char('-')), digit1))).parse(input)?;
+    let (input, literal) = preceded(sp, digit1).parse(input)?;
     let literal = literal.parse().unwrap();
     let expression = Expression::Literal(literal);
     Ok((input, expression))

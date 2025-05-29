@@ -20,6 +20,9 @@ impl<'a> State<'a> {
     fn block(&mut self, statements: &'a [Statement]) {
         for statement in statements {
             match statement {
+                Statement::Alloc(binding, count) => {
+                    self.assign(binding, Instr::Alloc4(*count as u32));
+                }
                 Statement::Assignment(left, right) => {
                     self.assign(left, Instr::Copy(right.into()));
                 }
@@ -33,18 +36,25 @@ impl<'a> State<'a> {
                         .add_instr(Instr::Store(Long, field_binding, value.into()));
                 }
                 Statement::AssignmentIndex(array_binding, index_binding, right_binding) => {
+                    let element_type = self.vir_func.bindings[array_binding.id].type_.dereference();
                     let offset_binding = self.make_temporary();
                     let left_binding = self.make_temporary();
                     self.assign(
                         offset_binding.clone(),
-                        Instr::Mul(index_binding.into(), Value::Const(8)),
+                        Instr::Mul(
+                            index_binding.into(),
+                            Value::Const(element_type.byte_size() as u64),
+                        ),
                     );
                     self.assign(
                         left_binding.clone(),
                         Instr::Add(array_binding.into(), offset_binding),
                     );
-                    self.func
-                        .add_instr(Instr::Store(Long, left_binding, right_binding.into()));
+                    self.func.add_instr(Instr::Store(
+                        convert_type(&element_type),
+                        left_binding,
+                        right_binding.into(),
+                    ));
                 }
                 Statement::BinaryOperator(result_binding, op, left, right) => {
                     let left = left.into();
@@ -271,6 +281,7 @@ fn convert_type(type_: &Type) -> qbe::Type<'static> {
         BaseType::Array(_) => Long,
         BaseType::I64 => Long,
         BaseType::I32 => Word,
+        BaseType::I8 => Byte,
         BaseType::PointerI8 => Long,
         BaseType::Struct(_) => Long,
     }

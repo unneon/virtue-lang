@@ -130,6 +130,12 @@ impl State<'_> {
         for (statement_id, statement) in block.iter().enumerate() {
             self.write(format!("; statement_id={statement_id} {statement:?}"));
             match statement {
+                Statement::Alloc(binding, count) => {
+                    let type_ = convert_type(&function.bindings[binding.id].type_.dereference());
+                    let temp = self.make_temporary();
+                    self.write(format!("%temp_{temp} = alloca {type_}, i64 {count}"));
+                    self.store(binding, temp);
+                }
                 Statement::Assignment(left, right) => {
                     let temp = self.make_temporary();
                     self.load(temp, right);
@@ -151,6 +157,8 @@ impl State<'_> {
                 }
                 Statement::AssignmentIndex(array_binding, index_binding, value_binding) => {
                     let value_type = convert_type(&function.bindings[value_binding.id].type_);
+                    let element_type =
+                        convert_type(&function.bindings[array_binding.id].type_.dereference());
                     let value_temp = self.make_temporary();
                     let array_temp = self.make_temporary();
                     let index_temp = self.make_temporary();
@@ -159,13 +167,26 @@ impl State<'_> {
                     self.load(array_temp, array_binding);
                     self.load(index_temp, index_binding);
                     self.write(format!(
-                        "%temp_{field_temp} = getelementptr {value_type}, ptr %temp_{array_temp}, i64 %temp_{index_temp}"
+                        "%temp_{field_temp} = getelementptr {element_type}, ptr %temp_{array_temp}, i64 %temp_{index_temp}"
                     ));
-                    self.write(format!(
-                        "store {value_type} %temp_{value_temp}, {value_type}* %temp_{field_temp}"
-                    ));
+                    if value_type == element_type {
+                        self.write(format!(
+                            "store {value_type} %temp_{value_temp}, {element_type}* %temp_{field_temp}"
+                        ));
+                    } else if value_type == "i64" && element_type == "i8" {
+                        let trunc_temp = self.make_temporary();
+                        self.write(format!(
+                            "%temp_{trunc_temp} = trunc i64 %temp_{value_temp} to i8"
+                        ));
+                        self.write(format!(
+                            "store i8 %temp_{trunc_temp}, i8* %temp_{field_temp}"
+                        ));
+                    } else {
+                        todo!()
+                    }
                 }
                 Statement::BinaryOperator(binding, op, left, right) => {
+                    let left_type = convert_type(&function.bindings[left.id].type_);
                     let instr = match op {
                         BinaryOperator::Add => "add",
                         BinaryOperator::Subtract => "sub",
@@ -198,9 +219,29 @@ impl State<'_> {
                     let temp_result = self.make_temporary();
                     self.load(temp_left, left);
                     self.load(temp_right, right);
-                    self.write(format!(
-                        "%temp_{temp_result} = {instr} i64 %temp_{temp_left}, %temp_{temp_right}"
-                    ));
+                    if left_type == "i8*" && instr == "add" {
+                        let element_type =
+                            convert_type(&function.bindings[left.id].type_.dereference());
+                        let right_type = convert_type(&function.bindings[right.id].type_);
+                        self.write(format!(
+                            "%temp_{temp_result} = getelementptr {element_type}, ptr %temp_{temp_left}, {right_type} %temp_{temp_right}"
+                        ));
+                    } else if left_type == "i8*" && instr == "sub" {
+                        let element_type =
+                            convert_type(&function.bindings[left.id].type_.dereference());
+                        let temp_minus_right = self.make_temporary();
+                        let right_type = convert_type(&function.bindings[right.id].type_);
+                        self.write(format!(
+                            "%temp_{temp_minus_right} = sub {right_type} 0, %temp_{temp_right}"
+                        ));
+                        self.write(format!(
+                                "%temp_{temp_result} = getelementptr {element_type}, ptr %temp_{temp_left}, {right_type} %temp_{temp_minus_right}"
+                            ));
+                    } else {
+                        self.write(format!(
+                            "%temp_{temp_result} = {instr} {left_type} %temp_{temp_left}, %temp_{temp_right}"
+                        ));
+                    }
                     if returns_bool {
                         let temp_zext = self.make_temporary();
                         self.write(format!(
@@ -426,6 +467,7 @@ fn convert_type(type_: &Type) -> String {
         BaseType::Array(inner) => format!("{}*", convert_type(inner)),
         BaseType::I64 => "i64".to_owned(),
         BaseType::I32 => "i32".to_owned(),
+        BaseType::I8 => "i8".to_owned(),
         BaseType::PointerI8 => "i8*".to_owned(),
         BaseType::Struct(id) => format!("%struct_{id}"),
     }

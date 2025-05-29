@@ -1,0 +1,8 @@
+s = new string
+s.pointer = alloc(2, i8)
+s.length = 1
+s[0] = 88
+s[1] = 0
+print "{s}"
+
+# X

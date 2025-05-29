@@ -134,11 +134,27 @@ impl<'a> State<'a> {
                             let (array, index) = indexing.as_ref();
                             let array = self.process_expression(array);
                             let index = self.process_expression(index);
-                            self.add_statement(vir::Statement::AssignmentIndex(
-                                array,
-                                index,
-                                right_binding,
-                            ));
+                            if self.binding_type(array).base == vir::BaseType::Struct(0) {
+                                let string = array;
+                                let string_pointer =
+                                    self.make_temporary(vir::BaseType::PointerI8.into());
+                                self.add_statement(vir::Statement::Field(
+                                    string_pointer,
+                                    string,
+                                    0,
+                                ));
+                                self.add_statement(vir::Statement::AssignmentIndex(
+                                    string_pointer,
+                                    index,
+                                    right_binding,
+                                ));
+                            } else {
+                                self.add_statement(vir::Statement::AssignmentIndex(
+                                    array,
+                                    index,
+                                    right_binding,
+                                ));
+                            }
                         }
                         ast::Expression::Variable(variable) => {
                             let left_binding = self.make_variable(variable, right_type);
@@ -356,11 +372,25 @@ impl<'a> State<'a> {
                 let (left, right) = args.as_ref();
                 let left = self.process_expression(left);
                 let right = self.process_expression(right);
-                let binding = self.make_temporary(vir::Type::I64);
+                let binding = self.make_temporary(self.binding_type(left));
                 self.add_statement(vir::Statement::BinaryOperator(binding, *op, left, right));
                 binding
             }
             ast::Expression::Call(function_name, args_ast) => {
+                if *function_name == "alloc" {
+                    let count = match &args_ast[0] {
+                        ast::Expression::Literal(count) => *count,
+                        _ => todo!(),
+                    };
+                    let type_ = match &args_ast[1] {
+                        ast::Expression::Variable("i8") => vir::BaseType::PointerI8.into(),
+                        _ => todo!(),
+                    };
+                    let binding = self.make_temporary(type_);
+                    self.add_statement(vir::Statement::Alloc(binding, count as usize));
+                    return binding;
+                }
+
                 let arg_bindings: Vec<_> = args_ast
                     .iter()
                     .map(|arg| self.process_expression(arg))

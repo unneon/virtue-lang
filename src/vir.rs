@@ -33,6 +33,7 @@ pub struct BindingData {
 
 #[derive(Debug)]
 pub enum Statement<'a> {
+    Alloc(Binding, usize),
     Assignment(Binding, Binding),
     AssignmentField(Binding, usize, Binding),
     AssignmentIndex(Binding, Binding, Binding),
@@ -89,6 +90,7 @@ pub enum BaseType {
     Array(Box<Type>),
     I64,
     I32,
+    I8,
     PointerI8,
     Struct(usize),
 }
@@ -140,6 +142,7 @@ impl Type {
         match self.base {
             BaseType::I64 => "%lld",
             BaseType::I32 => "%d",
+            BaseType::I8 => todo!(),
             BaseType::PointerI8 => "%s",
             BaseType::Array(_) | BaseType::Struct(_) => panic!("print not supported for {self:?}"),
         }
@@ -156,6 +159,26 @@ impl Type {
         match &self.base {
             BaseType::Struct(i) => *i,
             _ => panic!("expected struct, got {self:?}"),
+        }
+    }
+
+    pub fn dereference(&self) -> Type {
+        match &self.base {
+            BaseType::PointerI8 => BaseType::I8.into(),
+            BaseType::Array(element_type) => element_type.as_ref().clone(),
+            _ => panic!("expected pointer, got {self:?}"),
+        }
+    }
+
+    pub fn byte_size(&self) -> usize {
+        match &self.base {
+            BaseType::Array(_) => 8,
+            BaseType::I64 => 8,
+            BaseType::I32 => 4,
+            BaseType::I8 => 1,
+            BaseType::PointerI8 => 8,
+            // TODO: QBE and LLVM work differently here.
+            BaseType::Struct(_) => 8,
         }
     }
 }

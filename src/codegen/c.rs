@@ -73,6 +73,13 @@ impl State<'_> {
         let block = &function.blocks[block_id];
         for statement in block {
             match statement {
+                Statement::Alloc(binding, count) => {
+                    let binding_id = binding.id;
+                    let type_ = convert_type(&function.bindings[binding.id].type_.dereference());
+                    self.write(format!(
+                        "    _{binding_id} = malloc({count} * sizeof({type_}));"
+                    ));
+                }
                 Statement::Assignment(left, right) => {
                     let left_id = left.id;
                     let right_id = right.id;
@@ -219,6 +226,7 @@ impl State<'_> {
 
 fn convert_type(type_: &Type) -> String {
     match &type_.base {
+        BaseType::I8 => "int8_t".to_owned(),
         BaseType::I32 => "int32_t".to_owned(),
         BaseType::I64 => "int64_t".to_owned(),
         BaseType::PointerI8 => "int8_t*".to_owned(),
