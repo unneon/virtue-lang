@@ -1,6 +1,6 @@
 use crate::ast::{
-    BinaryOperator, Expression, Format, FormatSegment, Function, Module, Statement, Type,
-    UnaryOperator,
+    BinaryOperator, Expression, Format, FormatSegment, Function, IncrementDecrementOperator,
+    Module, Statement, Type, UnaryOperator,
 };
 use nom::IResult;
 use nom::branch::alt;
@@ -44,10 +44,18 @@ fn statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
             func_statement(nesting),
             return_statement(),
             struct_statement(nesting),
+            increment_decrement_statement(),
             assingment_statement(),
             expression_statement(),
         )),
     )
+}
+
+fn increment_decrement_statement<'a>() -> impl Parser<'a, Statement<'a>> {
+    let increment = tag("++").map(|_| IncrementDecrementOperator::Increment);
+    let decrement = tag("--").map(|_| IncrementDecrementOperator::Decrement);
+    (expression(), preceded(sp, alt((increment, decrement))))
+        .map(|(value, op)| Statement::IncrementDecrement { value, op })
 }
 
 fn assingment_statement<'a>() -> impl Parser<'a, Statement<'a>> {

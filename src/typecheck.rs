@@ -1,4 +1,4 @@
-use crate::ast::BinaryOperator;
+use crate::ast::{BinaryOperator, IncrementDecrementOperator};
 use crate::parser::parse;
 use crate::vir::Binding;
 use crate::{ast, vir};
@@ -78,6 +78,7 @@ impl<'a> State<'a> {
                     self.preprocess_block(true_);
                     self.preprocess_block(false_);
                 }
+                ast::Statement::IncrementDecrement { .. } => {}
                 ast::Statement::Print { .. } => {}
                 ast::Statement::Return { .. } => {}
                 ast::Statement::Struct {
@@ -118,54 +119,8 @@ impl<'a> State<'a> {
         for statement in statements {
             match statement {
                 ast::Statement::Assignment { left, right } => {
-                    let right_binding = self.process_expression(right);
-                    let right_type = self.binding_type(right_binding);
-                    match left {
-                        ast::Expression::Field(object, field_name) => {
-                            let object_binding = self.process_expression(object);
-                            let struct_id = self.binding_type(object_binding).unwrap_struct();
-                            let field_id = self.structs[struct_id].field_map[field_name];
-                            self.add_statement(vir::Statement::AssignmentField(
-                                object_binding,
-                                field_id,
-                                right_binding,
-                            ));
-                        }
-                        ast::Expression::Index(indexing) => {
-                            let (array, index) = indexing.as_ref();
-                            let array = self.process_expression(array);
-                            let index = self.process_expression(index);
-                            if self.binding_type(array).base == vir::BaseType::Struct(0) {
-                                let string = array;
-                                let string_pointer =
-                                    self.make_temporary(vir::BaseType::PointerI8.into());
-                                self.add_statement(vir::Statement::Field(
-                                    string_pointer,
-                                    string,
-                                    0,
-                                ));
-                                self.add_statement(vir::Statement::AssignmentIndex(
-                                    string_pointer,
-                                    index,
-                                    right_binding,
-                                ));
-                            } else {
-                                self.add_statement(vir::Statement::AssignmentIndex(
-                                    array,
-                                    index,
-                                    right_binding,
-                                ));
-                            }
-                        }
-                        ast::Expression::Variable(variable) => {
-                            let left_binding = self.make_variable(variable, right_type);
-                            self.add_statement(vir::Statement::Assignment(
-                                left_binding,
-                                right_binding,
-                            ));
-                        }
-                        _ => todo!("vir assignment unimplemented {statement:?}"),
-                    }
+                    let right = self.process_expression(right);
+                    self.process_assignment(left, right);
                 }
                 ast::Statement::Expression(expression) => {
                     self.process_expression(expression);
@@ -254,6 +209,19 @@ impl<'a> State<'a> {
                     }
 
                     self.current_block = after_block;
+                }
+                ast::Statement::IncrementDecrement { value, op } => {
+                    let before = self.process_expression(value);
+                    let type_ = self.binding_type(before);
+                    let one = self.make_temporary(type_.clone());
+                    let after = self.make_temporary(type_);
+                    let op = match op {
+                        IncrementDecrementOperator::Increment => BinaryOperator::Add,
+                        IncrementDecrementOperator::Decrement => BinaryOperator::Subtract,
+                    };
+                    self.add_statement(vir::Statement::Literal(one, 1));
+                    self.add_statement(vir::Statement::BinaryOperator(after, op, before, one));
+                    self.process_assignment(value, after);
                 }
                 ast::Statement::Print { fmt } => {
                     let segments = fmt
@@ -461,6 +429,40 @@ impl<'a> State<'a> {
                 binding
             }
             ast::Expression::Variable(variable) => self.variable_binding(variable),
+        }
+    }
+
+    fn process_assignment(&mut self, dest: &'a ast::Expression<'a>, src: Binding) {
+        let src_type = self.binding_type(src);
+        match dest {
+            ast::Expression::Field(object, field_name) => {
+                let object_binding = self.process_expression(object);
+                let struct_id = self.binding_type(object_binding).unwrap_struct();
+                let field_id = self.structs[struct_id].field_map[field_name];
+                self.add_statement(vir::Statement::AssignmentField(
+                    object_binding,
+                    field_id,
+                    src,
+                ));
+            }
+            ast::Expression::Index(indexing) => {
+                let (array, index) = indexing.as_ref();
+                let array = self.process_expression(array);
+                let index = self.process_expression(index);
+                if self.binding_type(array).base == vir::BaseType::Struct(0) {
+                    let string = array;
+                    let string_pointer = self.make_temporary(vir::BaseType::PointerI8.into());
+                    self.add_statement(vir::Statement::Field(string_pointer, string, 0));
+                    self.add_statement(vir::Statement::AssignmentIndex(string_pointer, index, src));
+                } else {
+                    self.add_statement(vir::Statement::AssignmentIndex(array, index, src));
+                }
+            }
+            ast::Expression::Variable(variable) => {
+                let left_binding = self.make_variable(variable, src_type);
+                self.add_statement(vir::Statement::Assignment(left_binding, src));
+            }
+            _ => todo!("vir assignment unimplemented {src:?}"),
         }
     }
 

@@ -23,6 +23,10 @@ pub enum Statement<'a> {
         true_: Vec<Statement<'a>>,
         false_: Vec<Statement<'a>>,
     },
+    IncrementDecrement {
+        value: Expression<'a>,
+        op: IncrementDecrementOperator,
+    },
     Print {
         fmt: Format<'a>,
     },
@@ -93,6 +97,12 @@ pub enum UnaryOperator {
     Negate,
     BitNot,
     Not,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum IncrementDecrementOperator {
+    Increment,
+    Decrement,
 }
 
 #[derive(Debug)]

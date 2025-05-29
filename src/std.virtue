@@ -21,13 +21,13 @@ func virtue_print_int(n int) int
     i = 0
     while n > 0
         s[s.length - i - 1] = 48 + n % 10
-        i = i + 1
+        i++
         n = n / 10
     if i == 0
         s[s.length - i - 1] = 48
-        i = i + 1
+        i++
     if is_negative
         s[s.length - i - 1] = 45
-        i = i + 1
+        i++
     syscall(1, 1, s.pointer + s.length - i, i)
     return 0
