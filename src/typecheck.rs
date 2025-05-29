@@ -64,6 +64,7 @@ impl<'a> State<'a> {
         for statement in statements {
             match statement {
                 ast::Statement::Assignment { .. } => {}
+                ast::Statement::AssignmentBinary { .. } => {}
                 ast::Statement::Expression(_) => {}
                 ast::Statement::ForRange { body, .. } => {
                     self.preprocess_block(body);
@@ -121,6 +122,19 @@ impl<'a> State<'a> {
                 ast::Statement::Assignment { left, right } => {
                     let right = self.process_expression(right);
                     self.process_assignment(left, right);
+                }
+                ast::Statement::AssignmentBinary { op, left, right } => {
+                    let left_binding = self.process_expression(left);
+                    let left_type = self.binding_type(left_binding);
+                    let right_binding = self.process_expression(right);
+                    let temp = self.make_temporary(left_type);
+                    self.add_statement(vir::Statement::BinaryOperator(
+                        temp,
+                        *op,
+                        left_binding,
+                        right_binding,
+                    ));
+                    self.process_assignment(left, temp);
                 }
                 ast::Statement::Expression(expression) => {
                     self.process_expression(expression);

@@ -45,6 +45,7 @@ fn statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
             return_statement(),
             struct_statement(nesting),
             increment_decrement_statement(),
+            assignment_binary_statement(),
             assingment_statement(),
             expression_statement(),
         )),
@@ -56,6 +57,33 @@ fn increment_decrement_statement<'a>() -> impl Parser<'a, Statement<'a>> {
     let decrement = tag("--").map(|_| IncrementDecrementOperator::Decrement);
     (expression(), preceded(sp, alt((increment, decrement))))
         .map(|(value, op)| Statement::IncrementDecrement { value, op })
+}
+
+fn assignment_binary_statement<'a>() -> impl Parser<'a, Statement<'a>> {
+    let add = tag("+=").map(|_| BinaryOperator::Add);
+    let subtract = tag("-=").map(|_| BinaryOperator::Subtract);
+    let multiply = tag("*=").map(|_| BinaryOperator::Multiply);
+    let divide = tag("/=").map(|_| BinaryOperator::Divide);
+    let modulo = tag("%=").map(|_| BinaryOperator::Modulo);
+    let and = tag("&=").map(|_| BinaryOperator::BitAnd);
+    let or = tag("|=").map(|_| BinaryOperator::BitOr);
+    let xor = tag("^=").map(|_| BinaryOperator::BitXor);
+    let shift_left = tag("<<=").map(|_| BinaryOperator::BitShiftLeft);
+    let shift_right = tag(">>=").map(|_| BinaryOperator::BitShiftRight);
+    let op = alt((
+        add,
+        subtract,
+        multiply,
+        divide,
+        modulo,
+        and,
+        or,
+        xor,
+        shift_left,
+        shift_right,
+    ));
+    (expression(), preceded(sp, op), expression())
+        .map(|(left, op, right)| Statement::AssignmentBinary { op, left, right })
 }
 
 fn assingment_statement<'a>() -> impl Parser<'a, Statement<'a>> {

@@ -2,7 +2,7 @@ for n from 1 to 501
     sum = 0
     for divisor from 1 to n
         if n % divisor == 0
-            sum = sum + divisor
+            sum += divisor
     if sum == n
         print "{n}"
 

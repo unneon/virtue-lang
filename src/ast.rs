@@ -9,6 +9,11 @@ pub enum Statement<'a> {
         left: Expression<'a>,
         right: Expression<'a>,
     },
+    AssignmentBinary {
+        op: BinaryOperator,
+        left: Expression<'a>,
+        right: Expression<'a>,
+    },
     Expression(Expression<'a>),
     ForRange {
         index: &'a str,

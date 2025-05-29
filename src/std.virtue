@@ -22,7 +22,7 @@ func virtue_print_int(n int) int
     while n > 0
         s[s.length - i - 1] = 48 + n % 10
         i++
-        n = n / 10
+        n /= 10
     if i == 0
         s[s.length - i - 1] = 48
         i++
