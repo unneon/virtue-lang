@@ -177,7 +177,16 @@ impl<'a> State<'a> {
                     ));
                 }
                 Statement::Return(value) => {
-                    self.func.add_instr(Instr::Ret(Some(value.into())));
+                    if !self.vir_func.is_main {
+                        self.func.add_instr(Instr::Ret(Some(value.into())));
+                    } else {
+                        self.func.add_instr(Instr::Call(
+                            "syscall2".to_owned(),
+                            vec![(Long, Value::Const(60)), (Long, value.into())],
+                            None,
+                        ));
+                        self.func.add_instr(Instr::Hlt);
+                    }
                     return;
                 }
                 Statement::StringConstant(binding, string) => {
@@ -201,6 +210,7 @@ impl<'a> State<'a> {
                     ));
                 }
                 Statement::Syscall(binding, arg_bindings) => {
+                    let count = arg_bindings.len();
                     let args = arg_bindings
                         .iter()
                         .map(|arg| {
@@ -210,7 +220,7 @@ impl<'a> State<'a> {
                             )
                         })
                         .collect();
-                    self.assign(binding, Instr::Call("syscall".into(), args, None));
+                    self.assign(binding, Instr::Call(format!("syscall{count}"), args, None));
                 }
                 Statement::UnaryOperator(binding, op, arg) => {
                     self.assign(
@@ -244,7 +254,7 @@ impl<'a> State<'a> {
             self.string_counter += 1;
             format!("string_{string_id}")
         };
-        let text = text.join("");
+        let text = escape_string(text);
         self.il.add_data(DataDef::new(
             Linkage::private(),
             name.clone(),
@@ -284,6 +294,11 @@ pub fn make_il(vir: &Program) -> qbe::Module<'static> {
         } else {
             Linkage::private()
         };
+        let name = if function.is_main {
+            "_start"
+        } else {
+            function.name
+        };
         let args = function
             .args
             .iter()
@@ -297,7 +312,7 @@ pub fn make_il(vir: &Program) -> qbe::Module<'static> {
         state.vir_func = function;
         state.func = qbe::Function::new(
             linkage,
-            function.name,
+            name,
             args,
             Some(convert_type(&function.return_type)),
         );
@@ -321,4 +336,15 @@ fn convert_type(type_: &Type) -> qbe::Type<'static> {
         BaseType::PointerI8 => Long,
         BaseType::Struct(_) => Long,
     }
+}
+
+fn escape_string(text: &[&str]) -> String {
+    let mut escaped = String::new();
+    for segment in text {
+        escaped.push_str(match *segment {
+            "\n" => "\\n",
+            _ => segment,
+        });
+    }
+    escaped
 }

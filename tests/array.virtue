@@ -7,4 +7,5 @@ x1 = xs[1]
 x2 = xs[2]
 print "{x0} {x1} {x2}"
 
+# ignore-qbe
 # 42 666 1234
