@@ -1,5 +1,4 @@
 hello = "Hello Linux!\n"
 syscall(1, 1, hello.pointer, hello.length)
 
-# ignore-qbe
 # Hello Linux!

@@ -182,7 +182,18 @@ impl<'a> State<'a> {
                         Value::Const(length as u64),
                     ));
                 }
-                Statement::Syscall(_, _) => {}
+                Statement::Syscall(binding, arg_bindings) => {
+                    let args = arg_bindings
+                        .iter()
+                        .map(|arg| {
+                            (
+                                convert_type(&self.vir_func.bindings[arg.id].type_),
+                                arg.into(),
+                            )
+                        })
+                        .collect();
+                    self.assign(binding, Instr::Call("syscall".into(), args, None));
+                }
                 Statement::UnaryOperator(binding, op, arg) => {
                     self.assign(
                         binding,
