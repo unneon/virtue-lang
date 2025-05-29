@@ -1,0 +1,7 @@
+func get_string_length(s string) int
+    return s.length
+
+x = get_string_length("Hello, world!")
+print "{x}"
+
+# 13

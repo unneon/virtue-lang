@@ -179,7 +179,9 @@ impl State<'_> {
                 Statement::Syscall(_, _) => todo!(),
                 Statement::StringConstant(binding, value) => {
                     let binding_id = binding.id;
-                    self.write(format!("    _{binding_id} = str{value};"));
+                    let length: usize = self.vir.strings[*value].iter().map(|s| s.len()).sum();
+                    self.write(format!("    _{binding_id}._0 = str{value};"));
+                    self.write(format!("    _{binding_id}._1 = {length};"));
                 }
                 Statement::UnaryOperator(result, op, arg) => {
                     let result_id = result.id;
@@ -217,9 +219,9 @@ impl State<'_> {
 
 fn convert_type(type_: &Type) -> String {
     match &type_.base {
-        BaseType::I32 => "int".to_owned(),
-        BaseType::I64 => "long long".to_owned(),
-        BaseType::String => "char*".to_owned(),
+        BaseType::I32 => "int32_t".to_owned(),
+        BaseType::I64 => "int64_t".to_owned(),
+        BaseType::PointerI8 => "int8_t*".to_owned(),
         BaseType::Array(element_type) => format!("{}*", convert_type(element_type)),
         BaseType::Struct(name) => format!("struct struct{name}"),
     }

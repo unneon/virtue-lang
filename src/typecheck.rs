@@ -1,7 +1,9 @@
 use crate::ast::BinaryOperator;
+use crate::parser::parse;
 use crate::vir::Binding;
 use crate::{ast, vir};
 use std::collections::{HashMap, hash_map};
+use std::sync::LazyLock;
 
 #[derive(Debug)]
 struct State<'a> {
@@ -19,6 +21,9 @@ enum Fallthrough {
     Unreachable,
     Reachable,
 }
+
+static STD_AST: LazyLock<ast::Module> =
+    LazyLock::new(|| parse(include_str!("std.virtue")).unwrap());
 
 impl<'a> State<'a> {
     fn preprocess_function(
@@ -388,7 +393,7 @@ impl<'a> State<'a> {
                 let object_binding = self.process_expression(object_expr);
                 let struct_id = self.binding_type(object_binding).unwrap_struct();
                 let field_id = self.structs[struct_id].field_map[field_name];
-                let binding = self.make_temporary(vir::Type::I64);
+                let binding = self.make_temporary(self.structs[struct_id].fields[field_id].clone());
                 self.add_statement(vir::Statement::Field(binding, object_binding, field_id));
                 binding
             }
@@ -414,7 +419,7 @@ impl<'a> State<'a> {
             }
             ast::Expression::StringLiteral(literal) => {
                 let string_id = self.make_string(literal);
-                let binding = self.make_temporary(vir::BaseType::String.into());
+                let binding = self.make_temporary(self.struct_by_name("string"));
                 self.add_statement(vir::Statement::StringConstant(binding, string_id));
                 binding
             }
@@ -476,22 +481,30 @@ impl<'a> State<'a> {
     fn convert_type(&self, type_: &ast::Type) -> vir::Type {
         match type_.segments.as_slice() {
             [.., "int"] => vir::Type::I64,
+            [.., "i64"] => vir::Type::I64,
             [.., "i32"] => vir::Type::I32,
             [.., "bool"] => vir::Type::I64,
-            [.., "string"] => vir::BaseType::String.into(),
+            [.., "pointer_i8"] => vir::BaseType::PointerI8.into(),
             [.., struct_name] => vir::BaseType::Struct(self.struct_map[struct_name]).into(),
             segments => todo!("convert_type {segments:?}"),
         }
     }
 
     fn convert_format_segment(
-        &self,
+        &mut self,
         segment: &'a ast::FormatSegment<'a>,
     ) -> vir::FormatSegment<'a> {
         match segment {
             ast::FormatSegment::Text(text) => vir::FormatSegment::Text(text),
             ast::FormatSegment::Variable(variable) => {
-                vir::FormatSegment::Arg(self.variable_binding(variable))
+                let binding = self.variable_binding(variable);
+                if self.binding_type(binding).base == vir::BaseType::Struct(0) {
+                    let field_binding = self.make_temporary(vir::BaseType::PointerI8.into());
+                    self.add_statement(vir::Statement::Field(field_binding, binding, 0));
+                    vir::FormatSegment::Arg(field_binding)
+                } else {
+                    vir::FormatSegment::Arg(binding)
+                }
             }
         }
     }
@@ -505,6 +518,10 @@ impl<'a> State<'a> {
             .type_
             .clone()
     }
+
+    fn struct_by_name(&self, name: &str) -> vir::Type {
+        vir::BaseType::Struct(self.struct_map[name]).into()
+    }
 }
 
 pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> vir::Program<'a> {
@@ -517,10 +534,11 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> vir::Program<'a> {
         current_function: 0,
         current_block: 0,
     };
-
     let main_type = ast::Type {
         segments: vec!["i32"],
     };
+
+    state.preprocess_block(&STD_AST.statements);
     state.preprocess_function("main", &[], &main_type, &ast.statements);
     state.process_all_functions();
 

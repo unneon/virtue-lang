@@ -34,8 +34,7 @@ impl State<'_> {
     fn prologue_strings(&mut self) {
         for (string_id, string) in self.vir.strings.iter().enumerate() {
             let string_len = string.iter().map(|s| s.len()).sum::<usize>() + 1;
-            self.ir +=
-                &format!("    @string_{string_id} = internal constant [{string_len} x i8] c\"");
+            self.ir += &format!("@string_{string_id} = internal constant [{string_len} x i8] c\"");
             for s in *string {
                 self.ir += match *s {
                     "\n" => "\\0A",
@@ -328,10 +327,20 @@ impl State<'_> {
                     return;
                 }
                 Statement::StringConstant(binding, string_id) => {
-                    let string_len = self.vir.strings[*string_id].len() + 1;
-                    let temp = self.make_temporary();
-                    self.write(format!("%temp_{temp} = getelementptr [{string_len} x i8], [{string_len} x i8]* @string_{string_id}, i32 0, i32 0"));
-                    self.store(binding, temp);
+                    let binding_id = binding.id;
+                    let pointer_temp = self.make_temporary();
+                    let pointer_field_temp = self.make_temporary();
+                    let length_field_temp = self.make_temporary();
+                    let length: usize = self.vir.strings[*string_id].iter().map(|s| s.len()).sum();
+                    self.write(format!("%temp_{pointer_temp} = getelementptr [{length} x i8], [{length} x i8]* @string_{string_id}, i32 0, i32 0"));
+                    self.write(format!("%temp_{pointer_field_temp} = getelementptr %struct_0, ptr %stack_{binding_id}, i32 0, i32 0"));
+                    self.write(format!("%temp_{length_field_temp} = getelementptr %struct_0, ptr %stack_{binding_id}, i32 0, i32 1"));
+                    self.write(format!(
+                        "store i8* %temp_{pointer_temp}, i8** %temp_{pointer_field_temp}"
+                    ));
+                    self.write(format!(
+                        "store i64 {length}, i64* %temp_{length_field_temp}"
+                    ));
                 }
                 Statement::Syscall(binding, arg_bindings) => {
                     let registers = ["{rax}", "{rdi}", "{rsi}", "{rdx}", "{r10}", "{r8}", "{r9}"]
@@ -417,7 +426,7 @@ fn convert_type(type_: &Type) -> String {
         BaseType::Array(inner) => format!("{}*", convert_type(inner)),
         BaseType::I64 => "i64".to_owned(),
         BaseType::I32 => "i32".to_owned(),
-        BaseType::String => "i8*".to_owned(),
+        BaseType::PointerI8 => "i8*".to_owned(),
         BaseType::Struct(id) => format!("%struct_{id}"),
     }
 }

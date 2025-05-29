@@ -89,7 +89,7 @@ pub enum BaseType {
     Array(Box<Type>),
     I64,
     I32,
-    String,
+    PointerI8,
     Struct(usize),
 }
 
@@ -140,7 +140,7 @@ impl Type {
         match self.base {
             BaseType::I64 => "%lld",
             BaseType::I32 => "%d",
-            BaseType::String => "%s",
+            BaseType::PointerI8 => "%s",
             BaseType::Array(_) | BaseType::Struct(_) => panic!("print not supported for {self:?}"),
         }
     }

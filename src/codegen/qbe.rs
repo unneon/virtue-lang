@@ -147,10 +147,24 @@ impl<'a> State<'a> {
                     return;
                 }
                 Statement::StringConstant(binding, string) => {
+                    self.assign(binding, Instr::Alloc8(16));
+                    let pointer_field = binding;
+                    let length_field = self.make_temporary();
+                    let length: usize = self.vir.strings[*string].iter().map(|s| s.len()).sum();
                     self.assign(
-                        binding,
-                        Instr::Copy(Value::Global(format!("string_{string}"))),
+                        length_field.clone(),
+                        Instr::Add(pointer_field.into(), Value::Const(8)),
                     );
+                    self.func.add_instr(Instr::Store(
+                        Long,
+                        pointer_field.into(),
+                        Value::Global(format!("string_{string}")),
+                    ));
+                    self.func.add_instr(Instr::Store(
+                        Long,
+                        length_field,
+                        Value::Const(length as u64),
+                    ));
                 }
                 Statement::Syscall(_, _) => todo!(),
                 Statement::UnaryOperator(binding, op, arg) => {
@@ -257,7 +271,7 @@ fn convert_type(type_: &Type) -> qbe::Type<'static> {
         BaseType::Array(_) => Long,
         BaseType::I64 => Long,
         BaseType::I32 => Word,
-        BaseType::String => Long,
+        BaseType::PointerI8 => Long,
         BaseType::Struct(_) => Long,
     }
 }
