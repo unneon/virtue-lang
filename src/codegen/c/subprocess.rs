@@ -8,7 +8,7 @@ pub fn compile_c(c: &str, output_path: Option<&Path>) -> Result<(), String> {
         command.arg("-o").arg(output_path);
     }
     let mut child = command
-        .args(["-x", "c", "-"])
+        .args(["-nostdlib", "-static", "-x", "c", "-"])
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

@@ -3,19 +3,25 @@ mod subprocess;
 pub use subprocess::compile_c;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
-use crate::vir::{BaseType, FormatSegment, Function, Program, Statement, Type};
+use crate::vir::{BaseType, Binding, FormatSegment, Function, Program, Statement, Type};
 use std::fmt::Write;
 
 struct State<'a> {
     c: String,
     vir: &'a Program<'a>,
     current_function: usize,
+    temporary_counter: usize,
+    extended_register_counter: usize,
+}
+
+enum Value {
+    Binding(Binding),
+    Const(i64),
+    Temporary(usize),
 }
 
 impl State<'_> {
     fn prologue(&mut self) {
-        self.write("#include <stdint.h>");
-        self.write("#include <stdlib.h>");
         for (struct_id, struct_) in self.vir.structs.iter().enumerate() {
             self.write(format!("struct struct{struct_id} {{"));
             for (field_id, field_type) in struct_.fields.iter().enumerate() {
@@ -44,6 +50,8 @@ impl State<'_> {
     fn all_functions(&mut self) {
         for function_id in 0..self.vir.functions.len() {
             self.current_function = function_id;
+            self.temporary_counter = 0;
+            self.extended_register_counter = 0;
             self.function();
         }
     }
@@ -75,11 +83,19 @@ impl State<'_> {
         for statement in block {
             match statement {
                 Statement::Alloc(binding, count) => {
-                    let binding_id = binding.id;
-                    let type_ = convert_type(&function.bindings[binding.id].type_.dereference());
-                    self.write(format!(
-                        "    _{binding_id} = malloc({count} * sizeof({type_}));"
-                    ));
+                    let element_type = function.bindings[binding.id].type_.dereference();
+                    self.syscall(
+                        Some(binding),
+                        &[
+                            Value::Const(9),
+                            Value::Const(0),
+                            Value::Const((count * element_type.byte_size()) as i64),
+                            Value::Const(0x3),
+                            Value::Const(0x22),
+                            Value::Const(-1),
+                            Value::Const(0),
+                        ],
+                    );
                 }
                 Statement::Assignment(left, right) => {
                     let left_id = left.id;
@@ -165,9 +181,23 @@ impl State<'_> {
                 Statement::NewArray(array, length) => {
                     let array_id = array.id;
                     let length_id = length.id;
+                    let size_temp = self.temporary_counter;
+                    self.temporary_counter += 1;
                     self.write(format!(
-                        "    _{array_id} = malloc(_{length_id} * sizeof(*_{array_id}));"
+                        "    long long tmp{size_temp} = _{length_id} * sizeof(*_{array_id});"
                     ));
+                    self.syscall(
+                        Some(array),
+                        &[
+                            Value::Const(9),
+                            Value::Const(0),
+                            Value::Temporary(size_temp),
+                            Value::Const(0x3),
+                            Value::Const(0x22),
+                            Value::Const(-1),
+                            Value::Const(0),
+                        ],
+                    );
                 }
                 Statement::Print(fmt) => {
                     for segment in &fmt.segments {
@@ -193,24 +223,16 @@ impl State<'_> {
                     self.write("    virtue_print_raw(newline, 1);");
                 }
                 Statement::Return(binding) => {
-                    let binding_id = binding.id;
-                    self.write(format!("    return _{binding_id};"));
+                    if !function.is_main {
+                        let binding_id = binding.id;
+                        self.write(format!("    return _{binding_id};"));
+                    } else {
+                        self.syscall(None, &[Value::Const(60), Value::Binding(*binding)]);
+                    }
                 }
                 Statement::Syscall(result_binding, arg_bindings) => {
-                    let result_id = result_binding.id;
-                    let registers = ['a', 'D', 'S', 'd'];
-                    assert!(arg_bindings.len() <= registers.len());
-                    let mut args = String::new();
-                    for (arg_index, (arg_binding, register)) in
-                        arg_bindings.iter().zip(registers).enumerate()
-                    {
-                        if arg_index > 0 {
-                            args.push_str(", ");
-                        }
-                        let arg_binding_id = arg_binding.id;
-                        write!(&mut args, "\"{register}\" (_{arg_binding_id})").unwrap();
-                    }
-                    self.write(format!("    asm volatile (\"syscall\" : \"=a\" (_{result_id}) : {args} : \"rcx\", \"r11\", \"memory\");"));
+                    let args: Vec<_> = arg_bindings.iter().copied().map(Value::Binding).collect();
+                    self.syscall(Some(result_binding), &args);
                 }
                 Statement::StringConstant(binding, value) => {
                     let binding_id = binding.id;
@@ -234,7 +256,11 @@ impl State<'_> {
 
     fn function_signature(&self, function: &Function) -> String {
         let function_return_type = convert_type(&function.return_type);
-        let function_name = function.name;
+        let function_name = if function.is_main {
+            "_start"
+        } else {
+            function.name
+        };
         let mut args = String::new();
         for arg_index in 0..function.args.len() {
             if arg_index > 0 {
@@ -246,6 +272,41 @@ impl State<'_> {
         format!("{function_return_type} {function_name}({args})")
     }
 
+    fn syscall(&mut self, return_binding: Option<&Binding>, arg_bindings: &[Value]) {
+        let return_ = if let Some(return_binding) = return_binding {
+            let return_id = return_binding.id;
+            &format!("\"=a\" (_{return_id})")
+        } else {
+            ""
+        };
+        let registers = ["a", "D", "S", "d", "r10", "r8", "r9"];
+        assert!(arg_bindings.len() <= registers.len());
+        let mut args = String::new();
+        for (arg_index, (arg, register)) in arg_bindings.iter().zip(registers).enumerate() {
+            if arg_index > 0 {
+                args.push_str(", ");
+            }
+            let arg = match arg {
+                Value::Binding(binding) => format!("_{}", binding.id),
+                Value::Const(value) => value.to_string(),
+                Value::Temporary(temporary) => format!("tmp{temporary}"),
+            };
+            if arg_index < 4 {
+                write!(&mut args, "\"{register}\" ({arg})").unwrap();
+            } else {
+                let er = self.extended_register_counter;
+                self.extended_register_counter += 1;
+                self.write(format!(
+                    "    register long long r{er} __asm__(\"{register}\") = {arg};"
+                ));
+                write!(&mut args, "\"r\" (r{er})").unwrap();
+            }
+        }
+        self.write(format!(
+            "    asm volatile (\"syscall\" : {return_} : {args} : \"rcx\", \"r11\", \"memory\");"
+        ));
+    }
+
     fn write(&mut self, content: impl AsRef<str>) {
         self.c.push_str(content.as_ref());
         self.c.push('\n');
@@ -254,10 +315,10 @@ impl State<'_> {
 
 fn convert_type(type_: &Type) -> String {
     match &type_.base {
-        BaseType::I8 => "int8_t".to_owned(),
-        BaseType::I32 => "int32_t".to_owned(),
-        BaseType::I64 => "int64_t".to_owned(),
-        BaseType::PointerI8 => "int8_t*".to_owned(),
+        BaseType::I8 => "signed char".to_owned(),
+        BaseType::I32 => "int".to_owned(),
+        BaseType::I64 => "long long".to_owned(),
+        BaseType::PointerI8 => "signed char*".to_owned(),
         BaseType::Array(element_type) => format!("{}*", convert_type(element_type)),
         BaseType::Struct(name) => format!("struct struct{name}"),
     }
@@ -268,6 +329,8 @@ pub fn make_c(vir: &Program) -> String {
         c: String::new(),
         vir,
         current_function: 0,
+        temporary_counter: 0,
+        extended_register_counter: 0,
     };
 
     state.prologue();
