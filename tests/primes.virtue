@@ -6,7 +6,6 @@ for i from 2 to n + 1
         for j from 2 * i to n + 1 by i
             is_prime[j] = false
 
-# ignore-qbe
 # 2
 # 3
 # 5

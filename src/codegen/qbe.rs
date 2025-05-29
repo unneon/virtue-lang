@@ -135,7 +135,19 @@ impl<'a> State<'a> {
                     self.assign(size.clone(), Instr::Mul(length.into(), Value::Const(8)));
                     self.assign(
                         binding,
-                        Instr::Call("malloc".into(), vec![(Long, size)], None),
+                        Instr::Call(
+                            "syscall".to_owned(),
+                            vec![
+                                (Long, Value::Const(9)),
+                                (Long, Value::Const(0)),
+                                (Long, size),
+                                (Long, Value::Const(0x3)),
+                                (Long, Value::Const(0x22)),
+                                (Long, Value::Const(u64::MAX)),
+                                (Long, Value::Const(0)),
+                            ],
+                            None,
+                        ),
                     );
                 }
                 Statement::Print(fmt) => {
@@ -181,7 +193,7 @@ impl<'a> State<'a> {
                         self.func.add_instr(Instr::Ret(Some(value.into())));
                     } else {
                         self.func.add_instr(Instr::Call(
-                            "syscall2".to_owned(),
+                            "syscall".to_owned(),
                             vec![(Long, Value::Const(60)), (Long, value.into())],
                             None,
                         ));
@@ -210,7 +222,6 @@ impl<'a> State<'a> {
                     ));
                 }
                 Statement::Syscall(binding, arg_bindings) => {
-                    let count = arg_bindings.len();
                     let args = arg_bindings
                         .iter()
                         .map(|arg| {
@@ -220,7 +231,7 @@ impl<'a> State<'a> {
                             )
                         })
                         .collect();
-                    self.assign(binding, Instr::Call(format!("syscall{count}"), args, None));
+                    self.assign(binding, Instr::Call("syscall".to_owned(), args, None));
                 }
                 Statement::UnaryOperator(binding, op, arg) => {
                     self.assign(
