@@ -28,7 +28,6 @@ impl State<'_> {
     }
 
     fn prologue_strings(&mut self) {
-        self.write("@newline = internal constant [1 x i8] c\"\\0A\"");
         for (string_id, string) in self.vir.strings.iter().enumerate() {
             let string_len = string.iter().map(|s| s.len()).sum::<usize>() + 1;
             self.ir += &format!("@string_{string_id} = internal constant [{string_len} x i8] c\"");
@@ -379,7 +378,6 @@ impl State<'_> {
                             }
                         }
                     }
-                    self.write("call i64 (i8*, i64) @virtue_print_raw(i8* @newline, i64 1)");
                 }
                 Statement::Return(binding) => {
                     let type_ = convert_type(&function.return_type);

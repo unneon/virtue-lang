@@ -34,7 +34,6 @@ impl State<'_> {
             let signature = self.function_signature(function);
             self.write(format!("{signature};"));
         }
-        self.write("char newline[] = \"\\n\";");
         for (string_id, string) in self.vir.strings.iter().enumerate() {
             self.c += &format!("char str{string_id}[] = \"");
             for string in *string {
@@ -220,7 +219,6 @@ impl State<'_> {
                             }
                         }
                     }
-                    self.write("    virtue_print_raw(newline, 1);");
                 }
                 Statement::Return(binding) => {
                     if !function.is_main {

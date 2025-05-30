@@ -179,14 +179,6 @@ impl<'a> State<'a> {
                             }
                         }
                     }
-                    self.func.add_instr(Instr::Call(
-                        "virtue_print_raw".to_owned(),
-                        vec![
-                            (Long, Value::Global("newline".to_owned())),
-                            (Long, Value::Const(1)),
-                        ],
-                        None,
-                    ));
                 }
                 Statement::Return(value) => {
                     if !self.vir_func.is_main {
@@ -297,7 +289,6 @@ pub fn make_il(vir: &Program) -> qbe::Module<'static> {
     for (string_id, string) in vir.strings.iter().enumerate() {
         state.string_constant(string, Some(format!("string_{string_id}")));
     }
-    state.string_constant(&["\\n"], Some("newline".to_owned()));
 
     for function in &vir.functions {
         let linkage = if function.exported {

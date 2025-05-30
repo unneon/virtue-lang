@@ -22,6 +22,8 @@ enum Fallthrough {
     Reachable,
 }
 
+const NEWLINE_STRING: usize = 0;
+
 static STD_AST: LazyLock<ast::Module> =
     LazyLock::new(|| parse(include_str!("std.virtue")).unwrap());
 
@@ -242,6 +244,7 @@ impl<'a> State<'a> {
                         .segments
                         .iter()
                         .map(|segment| self.convert_format_segment(segment))
+                        .chain(std::iter::once(vir::FormatSegment::Text(NEWLINE_STRING)))
                         .collect();
                     self.add_statement(vir::Statement::Print(vir::FormatString { segments }));
                 }
@@ -570,7 +573,7 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> vir::Program<'a> {
         function_map: HashMap::new(),
         structs: Vec::new(),
         struct_map: HashMap::new(),
-        strings: Vec::new(),
+        strings: vec![&["\n"]],
         current_function: 0,
         current_block: 0,
     };
