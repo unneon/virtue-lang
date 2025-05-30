@@ -11,6 +11,14 @@ qbe = { git = "https://github.com/unneon/qbe-rs" }
 [dev-dependencies]
 libtest-mimic = "0.8"
 
+[lib]
+test = false
+doctest = false
+
+[[bin]]
+name = "virtue"
+test = false
+
 [[test]]
 name = "test"
 path = "tests/run.rs"
