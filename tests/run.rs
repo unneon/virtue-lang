@@ -4,6 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::Arc;
+use virtue::util::tempfile;
 
 enum Backend {
     C,
@@ -103,7 +104,7 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
         Backend::Llvm => "LLVM IR",
         Backend::Qbe => "QBE IL",
     };
-    let output_path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
+    let (_output_file, output_path) = tempfile();
     let intermediate = match backend {
         Backend::C => {
             let vir = virtue::typecheck::typecheck(&ast);

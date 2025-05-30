@@ -4,9 +4,9 @@ version = "0.0.0"
 edition = "2024"
 
 [dependencies]
+memfd = "0.6"
 nom = "8.0"
 qbe = { git = "https://github.com/unneon/qbe-rs" }
-tempfile = { version = "3.20", default-features = false }
 
 [dev-dependencies]
 libtest-mimic = "0.8"

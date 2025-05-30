@@ -1,9 +1,10 @@
+use crate::util::tempfile;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 pub fn compile_ir(ir: &str, output_path: Option<&Path>) -> Result<(), String> {
-    let object_path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
+    let (_object_file, object_path) = tempfile();
     llc(ir, &object_path)?;
     ld(&object_path, output_path)?;
     Ok(())
