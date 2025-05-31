@@ -76,6 +76,7 @@ pub enum FormatSegment {
 
 #[derive(Debug)]
 pub struct Struct<'a> {
+    pub name: &'a str,
     pub fields: Vec<Type>,
     pub field_map: HashMap<&'a str, usize>,
 }

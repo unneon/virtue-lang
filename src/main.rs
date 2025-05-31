@@ -1,19 +1,13 @@
 use std::fmt::Display;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use virtue::codegen::Backend;
 
 struct Options {
     source_path: PathBuf,
     output_path: Option<PathBuf>,
     format: Format,
     backend: Backend,
-}
-
-#[derive(Eq, PartialEq)]
-enum Backend {
-    C,
-    Llvm,
-    Qbe,
 }
 
 #[derive(Eq, PartialEq)]
@@ -44,7 +38,7 @@ fn main() {
         output(format_args!("{ast:#?}"), output_path);
     }
 
-    let vir = virtue::typecheck::typecheck(&ast);
+    let vir = virtue::typecheck::typecheck(&ast).unwrap();
     if options.format == Format::DebugVir {
         output(format_args!("{vir:#?}"), output_path);
     }

@@ -1,23 +1,31 @@
+#![feature(string_into_chars)]
+
 use libtest_mimic::{Arguments, Failed, Trial};
+use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
-use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::Arc;
+use virtue::codegen::{ALL_BACKENDS, Backend};
 use virtue::util::tempfile;
 
-enum Backend {
-    C,
-    Llvm,
-    Qbe,
+struct TestFile {
+    kind: TestKind,
+    name: String,
+    source: String,
+    directives: Directives,
+}
+
+#[derive(Clone)]
+enum TestKind {
+    Pass,
+    Fail,
 }
 
 struct Directives {
-    stdout: String,
+    output: String,
     ignore: bool,
-    ignore_c: bool,
-    ignore_llvm: bool,
-    ignore_qbe: bool,
+    ignore_backend: HashSet<Backend>,
 }
 
 fn main() -> Result<ExitCode, Box<dyn Error>> {
@@ -28,39 +36,53 @@ fn main() -> Result<ExitCode, Box<dyn Error>> {
 
 fn find_tests() -> Result<Vec<Trial>, Box<dyn Error>> {
     let mut tests = Vec::new();
-    for entry in fs::read_dir("tests").unwrap() {
-        let entry = entry.unwrap().path();
-        if entry.extension().unwrap() == "virtue" {
-            let stem = entry.file_stem().unwrap().to_str().unwrap();
-            let name = stem.replace('-', "_");
-            let source = fs::read_to_string(&entry).unwrap();
-            let directives = parse_directives(&source);
-            let entry2 = entry.clone();
-            let entry3 = entry.clone();
-            let stdout = Arc::new(directives.stdout);
-            let stdout2 = stdout.clone();
-            let stdout3 = stdout.clone();
-            tests.push(
-                Trial::test(format!("{name}::c"), move || {
-                    run_test(entry, Backend::C, stdout)
-                })
-                .with_ignored_flag(directives.ignore || directives.ignore_c),
-            );
-            tests.push(
-                Trial::test(format!("{name}::llvm"), move || {
-                    run_test(entry2, Backend::Llvm, stdout2)
-                })
-                .with_ignored_flag(directives.ignore || directives.ignore_llvm),
-            );
-            tests.push(
-                Trial::test(format!("{name}::qbe"), move || {
-                    run_test(entry3, Backend::Qbe, stdout3)
-                })
-                .with_ignored_flag(directives.ignore || directives.ignore_qbe),
-            );
+    for file in walk_test_files() {
+        match file.kind {
+            TestKind::Pass => {
+                let file = Arc::new(file);
+                for backend in ALL_BACKENDS {
+                    let name = &file.name;
+                    let name = format!("pass::{name}::c");
+                    let file = Arc::clone(&file);
+                    let ignore =
+                        file.directives.ignore || file.directives.ignore_backend.contains(&backend);
+                    let runner = move || run_pass(file, Backend::C);
+                    let trial = Trial::test(name, runner).with_ignored_flag(ignore);
+                    tests.push(trial);
+                }
+            }
+            TestKind::Fail => {
+                let name = &file.name;
+                let name = format!("fail::{name}");
+                let runner = move || run_fail(file);
+                let trial = Trial::test(name, runner);
+                tests.push(trial);
+            }
         }
     }
     Ok(tests)
+}
+
+fn walk_test_files() -> impl Iterator<Item = TestFile> {
+    let pass = fs::read_dir("tests/pass")
+        .unwrap()
+        .zip(std::iter::repeat(TestKind::Pass));
+    let fail = fs::read_dir("tests/fail")
+        .unwrap()
+        .zip(std::iter::repeat(TestKind::Fail));
+    pass.chain(fail).map(|(entry, kind)| {
+        let path = entry.unwrap().path();
+        let stem = path.file_stem().unwrap().to_str().unwrap();
+        let name = stem.replace('-', "_");
+        let source = fs::read_to_string(&path).unwrap();
+        let directives = parse_directives(&source);
+        TestFile {
+            kind,
+            name,
+            source,
+            directives,
+        }
+    })
 }
 
 fn parse_directives(source: &str) -> Directives {
@@ -70,35 +92,33 @@ fn parse_directives(source: &str) -> Directives {
         .take_while(|line| line.starts_with("#"))
         .collect();
     let mut directives = Directives {
-        stdout: String::new(),
+        output: String::new(),
         ignore: false,
-        ignore_c: false,
-        ignore_llvm: false,
-        ignore_qbe: false,
+        ignore_backend: HashSet::new(),
     };
     for line in lines.into_iter().rev() {
         if line == "# ignore" {
             directives.ignore = true;
         } else if line == "# ignore-c" {
-            directives.ignore_c = true;
+            directives.ignore_backend.insert(Backend::C);
         } else if line == "# ignore-llvm" {
-            directives.ignore_llvm = true;
+            directives.ignore_backend.insert(Backend::Llvm);
         } else if line == "# ignore-qbe" {
-            directives.ignore_qbe = true;
+            directives.ignore_backend.insert(Backend::Qbe);
         } else {
-            directives.stdout += line.strip_prefix("# ").unwrap();
-            directives.stdout.push('\n');
+            directives.output += line.strip_prefix("# ").unwrap();
+            directives.output.push('\n');
         }
     }
     directives
 }
 
-fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Result<(), Failed> {
-    let source = fs::read_to_string(&path).unwrap();
-    let ast = match virtue::parser::parse(&source) {
+fn run_pass(test: Arc<TestFile>, backend: Backend) -> Result<(), Failed> {
+    let ast = match virtue::parser::parse(&test.source) {
         Ok(ast) => ast,
         Err(e) => return Err(format!("\x1B[1mparse error:\x1B[0m\n{e}").into()),
     };
+    let vir = virtue::typecheck::typecheck(&ast).unwrap();
     let intermediate_name = match backend {
         Backend::C => "C",
         Backend::Llvm => "LLVM IR",
@@ -107,7 +127,6 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
     let output_file = tempfile();
     let intermediate = match backend {
         Backend::C => {
-            let vir = virtue::typecheck::typecheck(&ast);
             let c = virtue::codegen::c::make_c(&vir);
             if let Err(e) = virtue::codegen::c::compile_c(&c, Some(output_file.path())) {
                 return Err(format!(
@@ -118,7 +137,6 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
             c
         }
         Backend::Llvm => {
-            let vir = virtue::typecheck::typecheck(&ast);
             let ir = virtue::codegen::llvm::make_ir(&vir);
             if let Err(e) = virtue::codegen::llvm::compile_ir(&ir, Some(output_file.path())) {
                 return Err(format!(
@@ -129,7 +147,6 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
             ir
         }
         Backend::Qbe => {
-            let vir = virtue::typecheck::typecheck(&ast);
             let il = virtue::codegen::qbe::make_il(&vir);
             if let Err(e) = virtue::codegen::qbe::compile_il(&il, Some(output_file.path())) {
                 return Err(format!(
@@ -153,8 +170,31 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
     }
     assert!(output.status.success());
     let actual_stdout = String::from_utf8_lossy(&output.stdout);
+    let expected_stdout = &test.directives.output;
     if actual_stdout != *expected_stdout {
         return Err(format!("\x1B[1m{intermediate_name}:\x1B[0m\n{intermediate}\n\x1B[1;31mactual stdout:\x1B[0m\n{actual_stdout}\n\x1B[1;32mexpected stdout:\x1B[0m\n{expected_stdout}").into());
     }
     Ok(())
+}
+
+fn run_fail(test: TestFile) -> Result<(), Failed> {
+    let ast = match virtue::parser::parse(&test.source) {
+        Ok(ast) => ast,
+        Err(_) => todo!(),
+    };
+    let vir = match virtue::typecheck::typecheck(&ast) {
+        Ok(vir) => vir,
+        Err(errors) => {
+            let actual_stderr: String = errors
+                .iter()
+                .flat_map(|error| format!("{}\n", error.message).into_chars())
+                .collect();
+            let expected_stderr = &test.directives.output;
+            if actual_stderr != *expected_stderr {
+                return Err(format!("\x1B[1;31mactual stderr:\x1B[0m\n{actual_stderr}\n\x1B[1;32mexpected stderr:\x1B[0m\n{expected_stderr}").into());
+            }
+            return Ok(());
+        }
+    };
+    Err(format!("\x1B[1mVIR:\x1B[0m\n{vir:?}").into())
 }

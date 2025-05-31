@@ -1,4 +1,5 @@
 use crate::ast::{BinaryOperator, IncrementDecrementOperator};
+use crate::error::Error;
 use crate::parser::parse;
 use crate::vir::Binding;
 use crate::{ast, vir};
@@ -12,6 +13,7 @@ struct State<'a> {
     structs: Vec<vir::Struct<'a>>,
     struct_map: HashMap<&'a str, usize>,
     strings: Vec<&'a [&'a str]>,
+    errors: Vec<Error>,
     current_function: usize,
     current_block: usize,
 }
@@ -95,7 +97,11 @@ impl<'a> State<'a> {
                         field_map.insert(*name, fields.len() - 1);
                     }
                     let struct_id = self.structs.len();
-                    let struct_ = vir::Struct { fields, field_map };
+                    let struct_ = vir::Struct {
+                        name,
+                        fields,
+                        field_map,
+                    };
                     self.structs.push(struct_);
                     self.struct_map.insert(name, struct_id);
                 }
@@ -362,8 +368,8 @@ impl<'a> State<'a> {
                 self.add_statement(vir::Statement::BinaryOperator(binding, *op, left, right));
                 binding
             }
-            ast::Expression::Call(function_name, args_ast) => {
-                if *function_name == "alloc" {
+            ast::Expression::Call(callee_name, args_ast) => {
+                if *callee_name == "alloc" {
                     let count = match &args_ast[0] {
                         ast::Expression::Literal(count) => *count,
                         _ => todo!(),
@@ -382,22 +388,25 @@ impl<'a> State<'a> {
                     .map(|arg| self.process_expression(arg))
                     .collect();
 
-                if *function_name == "syscall" {
+                if *callee_name == "syscall" {
                     let binding = self.make_temporary(vir::Type::I64);
                     self.add_statement(vir::Statement::Syscall(binding, arg_bindings));
                     return binding;
                 }
 
-                let function_id = self.function_map[function_name];
-                let function = &self.functions[function_id];
-                assert_eq!(arg_bindings.len(), function.args.len());
-                for (arg, arg_binding) in function.args.iter().zip(&arg_bindings) {
-                    let arg_type = &function.bindings[arg.binding.id].type_;
-                    let arg_binding_type = self.binding_type(*arg_binding);
-                    assert_eq!(arg_binding_type, *arg_type);
+                let callee_id = self.function_map[callee_name];
+                let callee = &self.functions[callee_id];
+                let callee_return_type = callee.return_type.clone();
+                assert_eq!(arg_bindings.len(), callee.args.len());
+                for (arg_index, caller_arg_binding) in arg_bindings.iter().enumerate() {
+                    let caller_arg_type = self.binding_type(*caller_arg_binding);
+                    let callee = &self.functions[callee_id];
+                    let callee_arg = callee.args[arg_index].binding;
+                    let callee_arg_type = callee.bindings[callee_arg.id].type_.clone();
+                    self.check_type_compatible(&callee_arg_type, &caller_arg_type);
                 }
-                let binding = self.make_temporary(function.return_type.clone());
-                self.add_statement(vir::Statement::Call(binding, function_id, arg_bindings));
+                let binding = self.make_temporary(callee_return_type);
+                self.add_statement(vir::Statement::Call(binding, callee_id, arg_bindings));
                 binding
             }
             ast::Expression::CallMethod(object_expr, _method_name, _args_ast) => {
@@ -528,6 +537,16 @@ impl<'a> State<'a> {
         self.functions[self.current_function].blocks[self.current_block].push(statement);
     }
 
+    fn check_type_compatible(&mut self, dst: &vir::Type, src: &vir::Type) {
+        if dst != src {
+            let dst = self.format_type(dst);
+            let src = self.format_type(src);
+            self.errors.push(Error {
+                message: format!("expected type {dst}, found {src}"),
+            });
+        }
+    }
+
     fn convert_type(&self, type_: &ast::Type) -> vir::Type {
         match type_.segments.as_slice() {
             [.., "int"] => vir::Type::I64,
@@ -565,15 +584,31 @@ impl<'a> State<'a> {
     fn struct_by_name(&self, name: &str) -> vir::Type {
         vir::BaseType::Struct(self.struct_map[name]).into()
     }
+
+    fn format_type(&self, type_: &vir::Type) -> String {
+        assert!(type_.predicates.is_empty());
+        match &type_.base {
+            vir::BaseType::Array(inner) => {
+                let inner = self.format_type(inner);
+                format!("list {inner}")
+            }
+            vir::BaseType::I64 => "int".to_owned(),
+            vir::BaseType::I32 => "i32".to_owned(),
+            vir::BaseType::I8 => "i8".to_owned(),
+            vir::BaseType::PointerI8 => "pointer_i8".to_owned(),
+            vir::BaseType::Struct(struct_id) => self.structs[*struct_id].name.to_owned(),
+        }
+    }
 }
 
-pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> vir::Program<'a> {
+pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> Result<vir::Program<'a>, Vec<Error>> {
     let mut state = State {
         functions: Vec::new(),
         function_map: HashMap::new(),
         structs: Vec::new(),
         struct_map: HashMap::new(),
         strings: vec![&["\n"]],
+        errors: Vec::new(),
         current_function: 0,
         current_block: 0,
     };
@@ -585,9 +620,13 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> vir::Program<'a> {
     state.preprocess_function("main", &[], &main_type, &ast.statements);
     state.process_all_functions();
 
-    vir::Program {
-        functions: state.functions,
-        structs: state.structs,
-        strings: state.strings,
+    if state.errors.is_empty() {
+        Ok(vir::Program {
+            functions: state.functions,
+            structs: state.structs,
+            strings: state.strings,
+        })
+    } else {
+        Err(state.errors)
     }
 }

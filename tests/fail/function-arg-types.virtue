@@ -1,0 +1,11 @@
+func f(a int, b string) int
+    return 0
+
+f(0, 0)
+f("a", "a")
+f("a", 0)
+
+# expected type string, found int
+# expected type int, found string
+# expected type int, found string
+# expected type string, found int
