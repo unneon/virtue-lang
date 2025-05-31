@@ -42,7 +42,12 @@ fn find_tests() -> Result<Vec<Trial>, Box<dyn Error>> {
                 let file = Arc::new(file);
                 for backend in ALL_BACKENDS {
                     let name = &file.name;
-                    let name = format!("pass::{name}::c");
+                    let backend_name = match backend {
+                        Backend::C => "c",
+                        Backend::Llvm => "llvm",
+                        Backend::Qbe => "qbe",
+                    };
+                    let name = format!("pass::{name}::{backend_name}");
                     let file = Arc::clone(&file);
                     let ignore =
                         file.directives.ignore || file.directives.ignore_backend.contains(&backend);
