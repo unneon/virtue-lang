@@ -104,12 +104,12 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
         Backend::Llvm => "LLVM IR",
         Backend::Qbe => "QBE IL",
     };
-    let (_output_file, output_path) = tempfile();
+    let output_file = tempfile();
     let intermediate = match backend {
         Backend::C => {
             let vir = virtue::typecheck::typecheck(&ast);
             let c = virtue::codegen::c::make_c(&vir);
-            if let Err(e) = virtue::codegen::c::compile_c(&c, Some(&output_path)) {
+            if let Err(e) = virtue::codegen::c::compile_c(&c, Some(output_file.path())) {
                 return Err(format!(
                     "\x1B[1m{intermediate_name}:\x1B[0m\n{c}\n\x1B[1mc error:\x1B[0m\n{e}"
                 )
@@ -120,7 +120,7 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
         Backend::Llvm => {
             let vir = virtue::typecheck::typecheck(&ast);
             let ir = virtue::codegen::llvm::make_ir(&vir);
-            if let Err(e) = virtue::codegen::llvm::compile_ir(&ir, Some(&output_path)) {
+            if let Err(e) = virtue::codegen::llvm::compile_ir(&ir, Some(output_file.path())) {
                 return Err(format!(
                     "\x1B[1m{intermediate_name}:\x1B[0m\n{ir}\n\x1B[1mllvm error:\x1B[0m\n{e}"
                 )
@@ -131,7 +131,7 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
         Backend::Qbe => {
             let vir = virtue::typecheck::typecheck(&ast);
             let il = virtue::codegen::qbe::make_il(&vir);
-            if let Err(e) = virtue::codegen::qbe::compile_il(&il, Some(&output_path)) {
+            if let Err(e) = virtue::codegen::qbe::compile_il(&il, Some(output_file.path())) {
                 return Err(format!(
                     "\x1B[1m{intermediate_name}:\x1B[0m\n{il}\n\x1B[1mqbe error:\x1B[0m\n{e}"
                 )
@@ -140,7 +140,7 @@ fn run_test(path: PathBuf, backend: Backend, expected_stdout: Arc<String>) -> Re
             il.to_string()
         }
     };
-    let child = Command::new(&output_path)
+    let child = Command::new(output_file.path())
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();

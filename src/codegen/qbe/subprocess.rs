@@ -4,10 +4,10 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 pub fn compile_il(module: &qbe::Module, output_path: Option<&Path>) -> Result<(), String> {
-    let (_object_file, object_path) = tempfile();
+    let object_file = tempfile();
     let assembly = qbe(module)?;
-    as_(&assembly, &object_path)?;
-    ld(&object_path, output_path)?;
+    as_(&assembly, object_file.path())?;
+    ld(object_file.path(), output_path)?;
     Ok(())
 }
 

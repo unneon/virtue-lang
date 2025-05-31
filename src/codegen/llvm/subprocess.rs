@@ -4,9 +4,9 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 pub fn compile_ir(ir: &str, output_path: Option<&Path>) -> Result<(), String> {
-    let (_object_file, object_path) = tempfile();
-    llc(ir, &object_path)?;
-    ld(&object_path, output_path)?;
+    let object_file = tempfile();
+    llc(ir, object_file.path())?;
+    ld(object_file.path(), output_path)?;
     Ok(())
 }
 
