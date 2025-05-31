@@ -65,19 +65,19 @@ fn assignment_binary_statement<'a>() -> impl Parser<'a, Statement<'a>> {
     let multiply = tag("*=").map(|_| BinaryOperator::Multiply);
     let divide = tag("/=").map(|_| BinaryOperator::Divide);
     let modulo = tag("%=").map(|_| BinaryOperator::Modulo);
-    let and = tag("&=").map(|_| BinaryOperator::BitAnd);
-    let or = tag("|=").map(|_| BinaryOperator::BitOr);
-    let xor = tag("^=").map(|_| BinaryOperator::BitXor);
-    let shift_left = tag("<<=").map(|_| BinaryOperator::BitShiftLeft);
-    let shift_right = tag(">>=").map(|_| BinaryOperator::BitShiftRight);
+    let bit_and = tag("&=").map(|_| BinaryOperator::BitAnd);
+    let bit_or = tag("|=").map(|_| BinaryOperator::BitOr);
+    let xor = tag("^=").map(|_| BinaryOperator::Xor);
+    let shift_left = tag("<<=").map(|_| BinaryOperator::ShiftLeft);
+    let shift_right = tag(">>=").map(|_| BinaryOperator::ShiftRight);
     let op = alt((
         add,
         subtract,
         multiply,
         divide,
         modulo,
-        and,
-        or,
+        bit_and,
+        bit_or,
         xor,
         shift_left,
         shift_right,
@@ -211,7 +211,14 @@ fn format_segment_variable<'a>() -> impl Parser<'a, FormatSegment<'a>> {
 }
 
 fn expression<'a>() -> impl Parser<'a, Expression<'a>> {
-    |input| expression5(input)
+    |input| expression6(input)
+}
+
+fn expression6(input: &str) -> IResult<&str, Expression> {
+    let logic_and = tag("and").map(|_| BinaryOperator::LogicAnd);
+    let logic_or = tag("or").map(|_| BinaryOperator::LogicOr);
+    let op = alt((logic_and, logic_or));
+    expression_binary_single(expression5, op, input)
 }
 
 fn expression5(input: &str) -> IResult<&str, Expression> {
@@ -235,9 +242,9 @@ fn expression5(input: &str) -> IResult<&str, Expression> {
 fn expression4(input: &str) -> IResult<&str, Expression> {
     let and = char('&').map(|_| BinaryOperator::BitAnd);
     let or = char('|').map(|_| BinaryOperator::BitOr);
-    let xor = char('^').map(|_| BinaryOperator::BitXor);
-    let shift_left = tag("<<").map(|_| BinaryOperator::BitShiftLeft);
-    let shift_right = tag(">>").map(|_| BinaryOperator::BitShiftRight);
+    let xor = char('^').map(|_| BinaryOperator::Xor);
+    let shift_left = tag("<<").map(|_| BinaryOperator::ShiftLeft);
+    let shift_right = tag(">>").map(|_| BinaryOperator::ShiftRight);
     let op = alt((and, or, xor, shift_left, shift_right));
     expression_binary_single(expression3, op, input)
 }
@@ -290,7 +297,7 @@ fn expression_binary_single<'a>(
 fn expression1(input: &str) -> IResult<&str, Expression> {
     let negate = char('-').map(|_| UnaryOperator::Negate);
     let bitnot = char('~').map(|_| UnaryOperator::BitNot);
-    let not = (tag("not"), sp).map(|_| UnaryOperator::Not);
+    let not = (tag("not"), sp).map(|_| UnaryOperator::LogicNot);
     let op = alt((negate, bitnot, not));
     (opt(op), expression0)
         .map(|(op, expr)| match op {

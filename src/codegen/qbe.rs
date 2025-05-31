@@ -67,15 +67,17 @@ impl<'a> State<'a> {
                         BinaryOperator::Modulo => Instr::Rem(left, right),
                         BinaryOperator::BitAnd => Instr::And(left, right),
                         BinaryOperator::BitOr => Instr::Or(left, right),
-                        BinaryOperator::BitXor => Instr::Xor(left, right),
-                        BinaryOperator::BitShiftLeft => Instr::Shl(left, right),
-                        BinaryOperator::BitShiftRight => Instr::Shr(left, right),
+                        BinaryOperator::Xor => Instr::Xor(left, right),
+                        BinaryOperator::ShiftLeft => Instr::Shl(left, right),
+                        BinaryOperator::ShiftRight => Instr::Shr(left, right),
                         BinaryOperator::Less => Instr::Cmp(Long, Cmp::Slt, left, right),
                         BinaryOperator::LessOrEqual => Instr::Cmp(Long, Cmp::Sle, left, right),
                         BinaryOperator::Greater => Instr::Cmp(Long, Cmp::Sgt, left, right),
                         BinaryOperator::GreaterOrEqual => Instr::Cmp(Long, Cmp::Sge, left, right),
                         BinaryOperator::Equal => Instr::Cmp(Long, Cmp::Eq, left, right),
                         BinaryOperator::NotEqual => Instr::Cmp(Long, Cmp::Ne, left, right),
+                        BinaryOperator::LogicAnd => Instr::And(left, right),
+                        BinaryOperator::LogicOr => Instr::Or(left, right),
                     };
                     self.assign(result_binding, result);
                 }
@@ -231,7 +233,7 @@ impl<'a> State<'a> {
                         match op {
                             UnaryOperator::Negate => Instr::Sub(Value::Const(0), arg.into()),
                             UnaryOperator::BitNot => Instr::Xor(arg.into(), Value::Const(u64::MAX)),
-                            UnaryOperator::Not => Instr::Xor(arg.into(), Value::Const(1)),
+                            UnaryOperator::LogicNot => Instr::Xor(arg.into(), Value::Const(1)),
                         },
                     );
                 }

@@ -199,15 +199,17 @@ impl State<'_> {
                         BinaryOperator::Modulo => "srem",
                         BinaryOperator::BitAnd => "and",
                         BinaryOperator::BitOr => "or",
-                        BinaryOperator::BitXor => "xor",
-                        BinaryOperator::BitShiftLeft => "shl",
-                        BinaryOperator::BitShiftRight => "lshr",
+                        BinaryOperator::Xor => "xor",
+                        BinaryOperator::ShiftLeft => "shl",
+                        BinaryOperator::ShiftRight => "lshr",
                         BinaryOperator::Less => "icmp slt",
                         BinaryOperator::LessOrEqual => "icmp sle",
                         BinaryOperator::Greater => "icmp sgt",
                         BinaryOperator::GreaterOrEqual => "icmp sge",
                         BinaryOperator::Equal => "icmp eq",
                         BinaryOperator::NotEqual => "icmp ne",
+                        BinaryOperator::LogicAnd => "and",
+                        BinaryOperator::LogicOr => "or",
                     };
                     let returns_bool = matches!(
                         op,
@@ -429,7 +431,7 @@ impl State<'_> {
                     let (instr, helper_arg) = match op {
                         UnaryOperator::Negate => ("sub", "0"),
                         UnaryOperator::BitNot => ("xor", "-1"),
-                        UnaryOperator::Not => ("xor", "1"),
+                        UnaryOperator::LogicNot => ("xor", "1"),
                     };
                     let arg_temp = self.make_temporary();
                     let binding_temp = self.make_temporary();

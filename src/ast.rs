@@ -86,22 +86,24 @@ pub enum BinaryOperator {
     Modulo,
     BitAnd,
     BitOr,
-    BitXor,
-    BitShiftLeft,
-    BitShiftRight,
+    Xor,
+    ShiftLeft,
+    ShiftRight,
     Less,
     LessOrEqual,
     Greater,
     GreaterOrEqual,
     Equal,
     NotEqual,
+    LogicAnd,
+    LogicOr,
 }
 
 #[derive(Debug, Copy, Clone)]
 pub enum UnaryOperator {
     Negate,
     BitNot,
-    Not,
+    LogicNot,
 }
 
 #[derive(Debug, Copy, Clone)]

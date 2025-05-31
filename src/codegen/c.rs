@@ -124,15 +124,17 @@ impl State<'_> {
                         BinaryOperator::Modulo => "%",
                         BinaryOperator::BitAnd => "&",
                         BinaryOperator::BitOr => "|",
-                        BinaryOperator::BitXor => "^",
-                        BinaryOperator::BitShiftLeft => "<<",
-                        BinaryOperator::BitShiftRight => ">>",
+                        BinaryOperator::Xor => "^",
+                        BinaryOperator::ShiftLeft => "<<",
+                        BinaryOperator::ShiftRight => ">>",
                         BinaryOperator::Less => "<",
                         BinaryOperator::LessOrEqual => "<=",
                         BinaryOperator::Greater => ">",
                         BinaryOperator::GreaterOrEqual => ">=",
                         BinaryOperator::Equal => "==",
                         BinaryOperator::NotEqual => "!=",
+                        BinaryOperator::LogicAnd => "&&",
+                        BinaryOperator::LogicOr => "||",
                     };
                     self.write(format!("    _{result_id} = _{left_id} {op} _{right_id};"));
                 }
@@ -244,7 +246,7 @@ impl State<'_> {
                     let op = match op {
                         UnaryOperator::Negate => "-",
                         UnaryOperator::BitNot => "~",
-                        UnaryOperator::Not => "!",
+                        UnaryOperator::LogicNot => "!",
                     };
                     self.write(format!("    _{result_id} = {op}_{arg_id};"));
                 }

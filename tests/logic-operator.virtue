@@ -1,0 +1,22 @@
+if false and false
+    print "false and false"
+if false and true
+    print "false and true"
+if true and false
+    print "true and false"
+if true and true
+    print "true and true"
+
+if false or false
+    print "false or false"
+if false or true
+    print "false or true"
+if true or false
+    print "true or false"
+if true or true
+    print "true or true"
+
+# true and true
+# false or true
+# true or false
+# true or true
