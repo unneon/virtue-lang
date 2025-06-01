@@ -178,7 +178,7 @@ impl<'a> State<'a> {
                     self.current_block = condition_block;
                     self.add_statement(vir::Statement::BinaryOperator(
                         condition,
-                        BinaryOperator::Less,
+                        BinaryOperator::LessOrEqual,
                         index_binding,
                         upper_binding,
                     ));

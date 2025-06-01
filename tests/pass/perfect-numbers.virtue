@@ -1,6 +1,6 @@
-for n from 1 to 501
+for n from 1 to 500
     sum = 0
-    for divisor from 1 to n
+    for divisor from 1 to n - 1
         if n % divisor == 0
             sum += divisor
     if sum == n
