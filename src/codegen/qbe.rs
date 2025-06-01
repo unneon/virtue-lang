@@ -339,6 +339,7 @@ fn convert_type(type_: &Type) -> qbe::Type<'static> {
         BaseType::I8 => Byte,
         BaseType::PointerI8 => Long,
         BaseType::Struct(_) => Long,
+        BaseType::Void => unreachable!(),
     }
 }
 

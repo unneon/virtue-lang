@@ -1,6 +1,5 @@
-func f(a string, b string, c string) int
+func f(a string, b string, c string)
     print "{c} {b} {a}"
-    return 0
 
 f("123", "45", "6")
 

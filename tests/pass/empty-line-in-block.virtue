@@ -1,9 +1,7 @@
-func f() int
+func f()
     print "a"
 
     print "b"
-
-    return 0
 
 print "c"
 

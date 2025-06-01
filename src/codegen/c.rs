@@ -65,6 +65,9 @@ impl State<'_> {
             .enumerate()
             .skip(function.args.len())
         {
+            if binding_data.type_.base == BaseType::Void {
+                continue;
+            }
             let binding_type = convert_type(&binding_data.type_);
             self.write(format!("    {binding_type} _{binding};"));
         }
@@ -97,6 +100,9 @@ impl State<'_> {
                     );
                 }
                 Statement::Assignment(left, right) => {
+                    if function.bindings[left.id].type_.base == BaseType::Void {
+                        continue;
+                    }
                     let left_id = left.id;
                     let right_id = right.id;
                     self.write(format!("    _{left_id} = _{right_id};"));
@@ -140,6 +146,12 @@ impl State<'_> {
                 }
                 Statement::Call(result, function, args) => {
                     let result_id = result.id;
+                    let result_assignment =
+                        if self.vir.functions[*function].return_type.base != BaseType::Void {
+                            format!("_{result_id} = ")
+                        } else {
+                            String::new()
+                        };
                     let function_name = self.vir.functions[*function].name;
                     let mut c_args = String::new();
                     for (arg_index, arg) in args.iter().enumerate() {
@@ -149,7 +161,7 @@ impl State<'_> {
                         let arg_id = arg.id;
                         c_args.push_str(&format!("_{arg_id}"));
                     }
-                    self.write(format!("    _{result_id} = {function_name}({c_args});"));
+                    self.write(format!("    {result_assignment}{function_name}({c_args});"));
                 }
                 Statement::Field(result, object, field) => {
                     let result_id = result.id;
@@ -321,6 +333,7 @@ fn convert_type(type_: &Type) -> String {
         BaseType::PointerI8 => "signed char*".to_owned(),
         BaseType::Array(element_type) => format!("{}*", convert_type(element_type)),
         BaseType::Struct(name) => format!("struct struct{name}"),
+        BaseType::Void => "void".to_owned(),
     }
 }
 

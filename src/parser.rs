@@ -160,7 +160,7 @@ fn func_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
                 (preceded(sp, identifier), preceded(sp, type_)),
             ),
         ),
-        preceded((sp, char(')')), type_),
+        preceded((sp, char(')')), opt(type_)),
         preceded(newline, block(nesting + 1)),
     )
         .map(|(name, args, return_type, body)| {
@@ -442,7 +442,7 @@ fn variable_reference(input: &str) -> IResult<&str, Expression> {
 }
 
 fn type_(input: &str) -> IResult<&str, Type> {
-    many0(preceded(sp, identifier))
+    many1(preceded(sp, identifier))
         .map(|segments| Type { segments })
         .parse(input)
 }

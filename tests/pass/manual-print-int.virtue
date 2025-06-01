@@ -1,4 +1,4 @@
-func print_int(n int) int
+func print_int(n int)
     is_negative = n < 0
     if is_negative
         n = -n
@@ -20,7 +20,6 @@ func print_int(n int) int
     s.pointer = s.pointer + s.length - i
     s.length = i
     print "{s}"
-    return 0
 
 print_int(9223372036854775807)
 print_int(1234)

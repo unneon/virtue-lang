@@ -52,7 +52,7 @@ pub enum Statement<'a> {
 pub struct Function<'a> {
     pub name: &'a str,
     pub args: Vec<(&'a str, Type<'a>)>,
-    pub return_type: Type<'a>,
+    pub return_type: Option<Type<'a>>,
     pub body: Vec<Statement<'a>>,
 }
 

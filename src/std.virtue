@@ -2,15 +2,13 @@ struct string
     pointer pointer_i8
     length i64
 
-func virtue_print_raw(pointer pointer_i8, length int) int
+func virtue_print_raw(pointer pointer_i8, length int)
     syscall(1, 1, pointer, length)
-    return 0
 
-func virtue_print_str(s string) int
+func virtue_print_str(s string)
     syscall(1, 1, s.pointer, s.length)
-    return 0
 
-func virtue_print_int(n int) int
+func virtue_print_int(n int)
     is_negative = n < 0
     if is_negative
         n = -n
@@ -30,4 +28,3 @@ func virtue_print_int(n int) int
         s[s.length - i - 1] = 45
         i++
     syscall(1, 1, s.pointer + s.length - i, i)
-    return 0

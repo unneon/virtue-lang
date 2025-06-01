@@ -1,5 +1,4 @@
-func f(a int, b string) int
-    return 0
+func f(a int, b string)
 
 f(0, 0)
 f("a", "a")

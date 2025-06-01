@@ -95,6 +95,7 @@ pub enum BaseType {
     I8,
     PointerI8,
     Struct(usize),
+    Void,
 }
 
 impl Program<'_> {
@@ -144,6 +145,7 @@ impl Type {
             BaseType::PointerI8 => 8,
             // TODO: QBE and LLVM work differently here.
             BaseType::Struct(_) => 8,
+            BaseType::Void => 0,
         }
     }
 }

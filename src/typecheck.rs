@@ -34,7 +34,7 @@ impl<'a> State<'a> {
         &mut self,
         name: &'a str,
         ast_args: &[(&'a str, ast::Type<'a>)],
-        return_type: &ast::Type<'a>,
+        return_type: Option<&ast::Type<'a>>,
         body: &'a [ast::Statement<'a>],
     ) {
         let mut vir_args = Vec::new();
@@ -53,7 +53,10 @@ impl<'a> State<'a> {
             is_main: name == "main",
             name,
             args: vir_args,
-            return_type: self.convert_type(return_type),
+            return_type: match return_type {
+                Some(return_type) => self.convert_type(return_type),
+                None => vir::BaseType::Void.into(),
+            },
             bindings,
             binding_map,
             blocks: Vec::new(),
@@ -76,7 +79,7 @@ impl<'a> State<'a> {
                 ast::Statement::Function(function) => self.preprocess_function(
                     function.name,
                     &function.args,
-                    &function.return_type,
+                    function.return_type.as_ref(),
                     &function.body,
                 ),
                 ast::Statement::If { true_, false_, .. } => {
@@ -597,6 +600,7 @@ impl<'a> State<'a> {
             vir::BaseType::I8 => "i8".to_owned(),
             vir::BaseType::PointerI8 => "pointer_i8".to_owned(),
             vir::BaseType::Struct(struct_id) => self.structs[*struct_id].name.to_owned(),
+            vir::BaseType::Void => "void".to_owned(),
         }
     }
 }
@@ -617,7 +621,7 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> Result<vir::Program<'a>, Vec<E
     };
 
     state.preprocess_block(&STD_AST.statements);
-    state.preprocess_function("main", &[], &main_type, &ast.statements);
+    state.preprocess_function("main", &[], Some(&main_type), &ast.statements);
     state.process_all_functions();
 
     if state.errors.is_empty() {
