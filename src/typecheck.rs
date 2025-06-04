@@ -1,5 +1,5 @@
 use crate::ast::{BinaryOperator, IncrementDecrementOperator, UnaryOperator};
-use crate::error::{Error, Span, SpanExt, Spanned};
+use crate::error::{Error, Span};
 use crate::parser::parse;
 use crate::vir::Binding;
 use crate::{ast, vir};
@@ -138,10 +138,7 @@ impl<'a> State<'a> {
                     let right = self.process_expression(right);
                     if let Some(type_) = type_ {
                         let type_ = self.convert_type(type_);
-                        self.check_type_compatible(
-                            &type_,
-                            (&self.binding_type(right)).with_span(right_span),
-                        );
+                        self.check_type_compatible(&type_, &self.binding_type(right), right_span);
                     }
                     self.process_assignment(left, right);
                 }
@@ -231,7 +228,8 @@ impl<'a> State<'a> {
                     let condition_binding = self.process_expression(condition);
                     self.check_type_compatible(
                         &vir::BaseType::Bool.into(),
-                        (&self.binding_type(condition_binding)).with_span(condition_span),
+                        &self.binding_type(condition_binding),
+                        condition_span,
                     );
                     self.add_statement(vir::Statement::JumpConditional {
                         condition: condition_binding,
@@ -278,7 +276,7 @@ impl<'a> State<'a> {
                     let value_binding = self.process_expression(value);
                     let value_type = self.binding_type(value_binding);
                     let return_type = self.functions[self.current_function].return_type.clone();
-                    self.check_type_compatible(&return_type, (&value_type).with_span(value_span));
+                    self.check_type_compatible(&return_type, &value_type, value_span);
                     self.add_statement(vir::Statement::Return(Some(value_binding)));
                     return Fallthrough::Unreachable;
                 }
@@ -324,7 +322,8 @@ impl<'a> State<'a> {
                     {
                         self.check_type_compatible(
                             &type_,
-                            (&self.binding_type(*initial_binding)).with_span(initial_expr.span),
+                            &self.binding_type(*initial_binding),
+                            initial_expr.span,
                         );
                     }
                     type_
@@ -450,12 +449,14 @@ impl<'a> State<'a> {
                 if callee.args.len() == arg_bindings.len() {
                     for (arg_index, caller_arg_binding) in arg_bindings.iter().enumerate() {
                         let caller_arg_type = self.binding_type(*caller_arg_binding);
-                        let caller_arg_type =
-                            (&caller_arg_type).with_span(args_ast[arg_index].span);
                         let callee = &self.functions[callee_id];
                         let callee_arg = callee.args[arg_index].binding;
                         let callee_arg_type = callee.bindings[callee_arg.id].type_.clone();
-                        self.check_type_compatible(&callee_arg_type, caller_arg_type);
+                        self.check_type_compatible(
+                            &callee_arg_type,
+                            &caller_arg_type,
+                            args_ast[arg_index].span,
+                        );
                     }
                 }
                 let binding = self.make_temporary(callee_return_type);
@@ -595,14 +596,14 @@ impl<'a> State<'a> {
         self.functions[self.current_function].blocks[self.current_block].push(statement);
     }
 
-    fn check_type_compatible(&mut self, dst: &vir::Type, src: Spanned<&vir::Type>) {
-        if dst != *src {
+    fn check_type_compatible(&mut self, dst: &vir::Type, src: &vir::Type, span: Span) {
+        if dst != src {
             let dst_fmt = self.format_type(dst);
-            let src_fmt = self.format_type(*src);
+            let src_fmt = self.format_type(src);
             self.errors.push(Error {
                 message: "type error",
                 note: format!("expected {dst_fmt}, found {src_fmt}"),
-                note_span: src.span,
+                note_span: span,
             });
         }
     }
