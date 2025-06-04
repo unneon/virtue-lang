@@ -45,12 +45,22 @@ fn statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
             func_statement(nesting),
             return_statement(),
             struct_statement(nesting),
+            variable_declaration_statement(),
             increment_decrement_statement(),
             assignment_binary_statement(),
             assingment_statement(),
             expression_statement(),
         )),
     )
+}
+
+fn variable_declaration_statement<'a>() -> impl Parser<'a, Statement<'a>> {
+    (
+        spanned(identifier.map(Expression::Variable)),
+        preceded(sp, opt(type_)),
+        delimited((sp, char('='), sp), expression(), newline),
+    )
+        .map(|(left, type_, right)| Statement::Assignment { left, type_, right })
 }
 
 fn increment_decrement_statement<'a>() -> impl Parser<'a, Statement<'a>> {
@@ -92,7 +102,11 @@ fn assingment_statement<'a>() -> impl Parser<'a, Statement<'a>> {
         expression(),
         delimited((sp, char('='), sp), expression(), newline),
     )
-        .map(|(left, right)| Statement::Assignment { left, right })
+        .map(|(left, right)| Statement::Assignment {
+            left,
+            type_: None,
+            right,
+        })
 }
 
 fn expression_statement<'a>() -> impl Parser<'a, Statement<'a>> {
@@ -489,6 +503,10 @@ fn newline(input: &str) -> IResult<&str, ()> {
 
 fn sp(input: &str) -> IResult<&str, ()> {
     take_while(|c| c == ' ').map(|_| ()).parse(input)
+}
+
+fn spanned<'a, T>(parser: impl Parser<'a, T>) -> impl Parser<'a, Spanned<T>> {
+    (position, parser, position).map(|(start, value, end)| value.with_span(Span { start, end }))
 }
 
 fn position(input: &str) -> IResult<&str, usize> {

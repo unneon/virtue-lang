@@ -9,6 +9,7 @@ pub struct Module<'a> {
 pub enum Statement<'a> {
     Assignment {
         left: Spanned<Expression<'a>>,
+        type_: Option<Type<'a>>,
         right: Spanned<Expression<'a>>,
     },
     AssignmentBinary {

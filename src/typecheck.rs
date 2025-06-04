@@ -130,8 +130,16 @@ impl<'a> State<'a> {
     fn process_block(&mut self, statements: &'a [ast::Statement<'a>]) -> Fallthrough {
         for statement in statements {
             match statement {
-                ast::Statement::Assignment { left, right } => {
+                ast::Statement::Assignment { left, type_, right } => {
+                    let right_span = right.span;
                     let right = self.process_expression(right);
+                    if let Some(type_) = type_ {
+                        let type_ = self.convert_type(type_);
+                        self.check_type_compatible(
+                            &type_,
+                            (&self.binding_type(right)).with_span(right_span),
+                        );
+                    }
                     self.process_assignment(left, right);
                 }
                 ast::Statement::AssignmentBinary { op, left, right } => {

@@ -1,0 +1,15 @@
+a int = "Hello, world!"
+b string = 42
+
+# error: type error
+#  --> test.virtue:1:9
+#    |
+#  1 | a int = "Hello, world!"
+#    |         ^^^^^^^^^^^^^^^ expected int, found string
+#
+# error: type error
+#  --> test.virtue:2:12
+#    |
+#  2 | b string = 42
+#    |            ^^ expected string, found int
+#
