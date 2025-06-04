@@ -1,0 +1,17 @@
+func f(a int, b int)
+
+f(0)
+f(0, 0, 0)
+
+# error: wrong number of arguments
+#  --> test.virtue:3:3
+#    |
+#  3 | f(0)
+#    |   ^ expected 2, found 1
+#
+# error: wrong number of arguments
+#  --> test.virtue:4:3
+#    |
+#  4 | f(0, 0, 0)
+#    |   ^^^^^^^ expected 2, found 3
+#

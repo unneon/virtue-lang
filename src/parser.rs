@@ -419,7 +419,10 @@ fn function_call(input: &str) -> IResult<&str, Expression> {
         preceded(sp, identifier),
         delimited(
             (sp, char('(')),
-            separated_list0(preceded(sp, char(',')), preceded(sp, expression())),
+            spanned(separated_list0(
+                preceded(sp, char(',')),
+                preceded(sp, expression()),
+            )),
             (sp, char(')')),
         ),
     )

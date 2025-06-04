@@ -1,5 +1,5 @@
 use crate::ast::{BinaryOperator, IncrementDecrementOperator, UnaryOperator};
-use crate::error::{Error, SpanExt, Spanned};
+use crate::error::{Error, Span, SpanExt, Spanned};
 use crate::parser::parse;
 use crate::vir::Binding;
 use crate::{ast, vir};
@@ -444,15 +444,19 @@ impl<'a> State<'a> {
 
                 let callee_id = self.function_map[callee_name];
                 let callee = &self.functions[callee_id];
+                self.check_argument_count(callee.args.len(), arg_bindings.len(), args_ast.span);
+                let callee = &self.functions[callee_id];
                 let callee_return_type = callee.return_type.clone();
-                assert_eq!(arg_bindings.len(), callee.args.len());
-                for (arg_index, caller_arg_binding) in arg_bindings.iter().enumerate() {
-                    let caller_arg_type = self.binding_type(*caller_arg_binding);
-                    let caller_arg_type = (&caller_arg_type).with_span(args_ast[arg_index].span);
-                    let callee = &self.functions[callee_id];
-                    let callee_arg = callee.args[arg_index].binding;
-                    let callee_arg_type = callee.bindings[callee_arg.id].type_.clone();
-                    self.check_type_compatible(&callee_arg_type, caller_arg_type);
+                if callee.args.len() == arg_bindings.len() {
+                    for (arg_index, caller_arg_binding) in arg_bindings.iter().enumerate() {
+                        let caller_arg_type = self.binding_type(*caller_arg_binding);
+                        let caller_arg_type =
+                            (&caller_arg_type).with_span(args_ast[arg_index].span);
+                        let callee = &self.functions[callee_id];
+                        let callee_arg = callee.args[arg_index].binding;
+                        let callee_arg_type = callee.bindings[callee_arg.id].type_.clone();
+                        self.check_type_compatible(&callee_arg_type, caller_arg_type);
+                    }
                 }
                 let binding = self.make_temporary(callee_return_type);
                 self.add_statement(vir::Statement::Call(binding, callee_id, arg_bindings));
@@ -599,6 +603,16 @@ impl<'a> State<'a> {
                 message: "type error",
                 note: format!("expected {dst_fmt}, found {src_fmt}"),
                 note_span: src.span,
+            });
+        }
+    }
+
+    fn check_argument_count(&mut self, expected: usize, actual: usize, span: Span) {
+        if actual != expected {
+            self.errors.push(Error {
+                message: "wrong number of arguments",
+                note: format!("expected {expected}, found {actual}"),
+                note_span: span,
             });
         }
     }
