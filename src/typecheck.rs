@@ -178,7 +178,7 @@ impl<'a> State<'a> {
                         step
                     };
                     let index_binding = self.make_variable(index, vir::Type::I64);
-                    let condition = self.make_temporary(vir::Type::I64);
+                    let condition = self.make_temporary(vir::BaseType::Bool.into());
                     let condition_block = self.make_block();
                     let body_block = self.make_block();
                     let after_block = self.make_block();
@@ -361,7 +361,7 @@ impl<'a> State<'a> {
                 let init_body_block = self.make_block();
                 let init_after_block = self.make_block();
                 let i_binding = self.make_temporary(vir::Type::I64);
-                let i_cmp_binding = self.make_temporary(vir::Type::I64);
+                let i_cmp_binding = self.make_temporary(vir::BaseType::Bool.into());
                 let i_step_binding = self.make_temporary(vir::Type::I64);
                 self.add_statement(vir::Statement::Literal(i_binding, 0));
                 self.add_statement(vir::Statement::Literal(i_step_binding, 1));

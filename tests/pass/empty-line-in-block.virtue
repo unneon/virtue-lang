@@ -5,7 +5,7 @@ func f()
 
 print "c"
 
-a = f()
+f()
 
 # c
 # a

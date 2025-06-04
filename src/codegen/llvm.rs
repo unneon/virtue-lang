@@ -279,9 +279,10 @@ impl State<'_> {
                     }
                     let callee_name = self.vir.functions[*callee_id].name;
                     if function.bindings[return_binding.id].type_.base != BaseType::Void {
+                        let return_type = convert_type(&self.vir.functions[*callee_id].return_type);
                         let temp_return = self.make_temporary();
                         self.write(format!(
-                            "%temp_{temp_return} = call i64 ({signature}) @{callee_name}({args})"
+                            "%temp_{temp_return} = call {return_type} ({signature}) @{callee_name}({args})"
                         ));
                         self.store(return_binding, temp_return);
                     } else {
@@ -367,16 +368,18 @@ impl State<'_> {
                                 self.write(format!("call i64 (i8*, i64) @virtue_print_raw(i8* @fmt_{function_id}_{block_id}_{statement_id}_{segment_id}, i64 {length})"));
                             }
                             FormatSegment::Arg(arg) => {
+                                let temp = self.make_temporary();
+                                self.load(temp, arg);
                                 let type_ = &function.bindings[arg.id].type_;
                                 if type_.base == BaseType::Struct(0) {
-                                    let string_temp = self.make_temporary();
-                                    self.load(string_temp, arg);
-                                    self.write(format!("call i64 (%struct_0) @virtue_print_str(%struct_0 %temp_{string_temp})"));
+                                    self.write(format!("call i64 (%struct_0) @virtue_print_str(%struct_0 %temp_{temp})"));
                                 } else if type_.base == BaseType::I64 {
-                                    let int_temp = self.make_temporary();
-                                    self.load(int_temp, arg);
                                     self.write(format!(
-                                        "call i64 (i64) @virtue_print_int(i64 %temp_{int_temp})"
+                                        "call i64 (i64) @virtue_print_int(i64 %temp_{temp})"
+                                    ));
+                                } else if type_.base == BaseType::Bool {
+                                    self.write(format!(
+                                        "call i64 (i8) @virtue_print_bool(i8 %temp_{temp})"
                                     ));
                                 } else {
                                     dbg!(type_);
@@ -437,16 +440,16 @@ impl State<'_> {
                     self.store(binding, result_temp);
                 }
                 Statement::UnaryOperator(binding, op, arg) => {
-                    let (instr, helper_arg) = match op {
-                        UnaryOperator::Negate => ("sub", "0"),
-                        UnaryOperator::BitNot => ("xor", "-1"),
-                        UnaryOperator::LogicNot => ("xor", "1"),
+                    let (instr, helper_arg, type_) = match op {
+                        UnaryOperator::Negate => ("sub", "0", "i64"),
+                        UnaryOperator::BitNot => ("xor", "-1", "i64"),
+                        UnaryOperator::LogicNot => ("xor", "1", "i8"),
                     };
                     let arg_temp = self.make_temporary();
                     let binding_temp = self.make_temporary();
                     self.load(arg_temp, arg);
                     self.write(format!(
-                        "%temp_{binding_temp} = {instr} i64 {helper_arg}, %temp_{arg_temp}"
+                        "%temp_{binding_temp} = {instr} {type_} {helper_arg}, %temp_{arg_temp}"
                     ));
                     self.store(binding, binding_temp);
                 }
