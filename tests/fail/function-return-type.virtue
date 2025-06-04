@@ -1,0 +1,9 @@
+func hello() string
+    return 42
+
+# error: type error
+#  --> test.virtue:2:12
+#    |
+#  2 |     return 42
+#    |            ^^ expected string, found int
+#

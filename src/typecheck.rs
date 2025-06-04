@@ -266,8 +266,12 @@ impl<'a> State<'a> {
                     self.add_statement(vir::Statement::Print(vir::FormatString { segments }));
                 }
                 ast::Statement::Return { value } => {
-                    let value = self.process_expression(value);
-                    self.add_statement(vir::Statement::Return(value));
+                    let value_span = value.span;
+                    let value_binding = self.process_expression(value);
+                    let value_type = self.binding_type(value_binding);
+                    let return_type = self.functions[self.current_function].return_type.clone();
+                    self.check_type_compatible(&return_type, (&value_type).with_span(value_span));
+                    self.add_statement(vir::Statement::Return(value_binding));
                     return Fallthrough::Unreachable;
                 }
                 ast::Statement::Struct { .. } => {}
