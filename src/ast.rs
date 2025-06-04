@@ -1,3 +1,5 @@
+use crate::error::Spanned;
+
 #[derive(Debug)]
 pub struct Module<'a> {
     pub statements: Vec<Statement<'a>>,
@@ -6,44 +8,44 @@ pub struct Module<'a> {
 #[derive(Debug)]
 pub enum Statement<'a> {
     Assignment {
-        left: Expression<'a>,
-        right: Expression<'a>,
+        left: Spanned<Expression<'a>>,
+        right: Spanned<Expression<'a>>,
     },
     AssignmentBinary {
         op: BinaryOperator,
-        left: Expression<'a>,
-        right: Expression<'a>,
+        left: Spanned<Expression<'a>>,
+        right: Spanned<Expression<'a>>,
     },
-    Expression(Expression<'a>),
+    Expression(Spanned<Expression<'a>>),
     ForRange {
         index: &'a str,
-        lower: Expression<'a>,
-        upper: Expression<'a>,
-        step: Option<Expression<'a>>,
+        lower: Spanned<Expression<'a>>,
+        upper: Spanned<Expression<'a>>,
+        step: Option<Spanned<Expression<'a>>>,
         body: Vec<Statement<'a>>,
     },
     Function(Function<'a>),
     If {
-        condition: Expression<'a>,
+        condition: Spanned<Expression<'a>>,
         true_: Vec<Statement<'a>>,
         false_: Vec<Statement<'a>>,
     },
     IncrementDecrement {
-        value: Expression<'a>,
+        value: Spanned<Expression<'a>>,
         op: IncrementDecrementOperator,
     },
     Print {
         fmt: Format<'a>,
     },
     Return {
-        value: Expression<'a>,
+        value: Spanned<Expression<'a>>,
     },
     Struct {
         name: &'a str,
         fields: Vec<(&'a str, Type<'a>)>,
     },
     While {
-        condition: Expression<'a>,
+        condition: Spanned<Expression<'a>>,
         body: Vec<Statement<'a>>,
     },
 }
@@ -63,17 +65,20 @@ pub struct Type<'a> {
 
 #[derive(Clone, Debug)]
 pub enum Expression<'a> {
-    ArrayLiteral(Vec<Expression<'a>>),
-    ArrayRepeat(Box<(Expression<'a>, Expression<'a>)>),
-    BinaryOperation(BinaryOperator, Box<(Expression<'a>, Expression<'a>)>),
-    Call(&'a str, Vec<Expression<'a>>),
-    CallMethod(Box<Expression<'a>>, &'a str, Vec<Expression<'a>>),
-    Index(Box<(Expression<'a>, Expression<'a>)>),
+    ArrayLiteral(Vec<Spanned<Expression<'a>>>),
+    ArrayRepeat(Box<(Spanned<Expression<'a>>, Spanned<Expression<'a>>)>),
+    BinaryOperation(
+        BinaryOperator,
+        Box<(Spanned<Expression<'a>>, Spanned<Expression<'a>>)>,
+    ),
+    Call(&'a str, Vec<Spanned<Expression<'a>>>),
+    CallMethod(Box<Expression<'a>>, &'a str, Vec<Spanned<Expression<'a>>>),
+    Index(Box<(Expression<'a>, Spanned<Expression<'a>>)>),
     Literal(i64),
     New(Type<'a>),
     Field(Box<Expression<'a>>, &'a str),
     StringLiteral(Vec<&'a str>),
-    UnaryOperation(UnaryOperator, Box<Expression<'a>>),
+    UnaryOperation(UnaryOperator, Box<Spanned<Expression<'a>>>),
     Variable(&'a str),
 }
 

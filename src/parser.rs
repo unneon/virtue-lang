@@ -2,6 +2,7 @@ use crate::ast::{
     BinaryOperator, Expression, Format, FormatSegment, Function, IncrementDecrementOperator,
     Module, Statement, Type, UnaryOperator,
 };
+use crate::error::{Span, SpanExt, Spanned};
 use nom::IResult;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while};
@@ -210,18 +211,18 @@ fn format_segment_variable<'a>() -> impl Parser<'a, FormatSegment<'a>> {
     delimited(char('{'), identifier, char('}')).map(FormatSegment::Variable)
 }
 
-fn expression<'a>() -> impl Parser<'a, Expression<'a>> {
+fn expression<'a>() -> impl Parser<'a, Spanned<Expression<'a>>> {
     |input| expression6(input)
 }
 
-fn expression6(input: &str) -> IResult<&str, Expression> {
+fn expression6(input: &str) -> IResult<&str, Spanned<Expression>> {
     let logic_and = tag("and").map(|_| BinaryOperator::LogicAnd);
     let logic_or = tag("or").map(|_| BinaryOperator::LogicOr);
     let op = alt((logic_and, logic_or));
     expression_binary_single(expression5, op, input)
 }
 
-fn expression5(input: &str) -> IResult<&str, Expression> {
+fn expression5(input: &str) -> IResult<&str, Spanned<Expression>> {
     let less_or_equal = tag("<=").map(|_| BinaryOperator::LessOrEqual);
     let less = tag("<").map(|_| BinaryOperator::Less);
     let greater_or_equal = tag(">=").map(|_| BinaryOperator::GreaterOrEqual);
@@ -239,7 +240,7 @@ fn expression5(input: &str) -> IResult<&str, Expression> {
     expression_binary_single(expression4, op, input)
 }
 
-fn expression4(input: &str) -> IResult<&str, Expression> {
+fn expression4(input: &str) -> IResult<&str, Spanned<Expression>> {
     let and = char('&').map(|_| BinaryOperator::BitAnd);
     let or = char('|').map(|_| BinaryOperator::BitOr);
     let xor = char('^').map(|_| BinaryOperator::Xor);
@@ -249,14 +250,14 @@ fn expression4(input: &str) -> IResult<&str, Expression> {
     expression_binary_single(expression3, op, input)
 }
 
-fn expression3(input: &str) -> IResult<&str, Expression> {
+fn expression3(input: &str) -> IResult<&str, Spanned<Expression>> {
     let add = char('+').map(|_| BinaryOperator::Add);
     let subtract = char('-').map(|_| BinaryOperator::Subtract);
     let op = alt((add, subtract));
     expression_binary(expression2, op, input)
 }
 
-fn expression2(input: &str) -> IResult<&str, Expression> {
+fn expression2(input: &str) -> IResult<&str, Spanned<Expression>> {
     let multiply = char('*').map(|_| BinaryOperator::Multiply);
     let divide = char('/').map(|_| BinaryOperator::Divide);
     let modulo = char('%').map(|_| BinaryOperator::Modulo);
@@ -265,64 +266,77 @@ fn expression2(input: &str) -> IResult<&str, Expression> {
 }
 
 fn expression_binary<'a>(
-    mut sub_expr: impl Parser<'a, Expression<'a>>,
+    mut sub_expr: impl Parser<'a, Spanned<Expression<'a>>>,
     op: impl Parser<'a, BinaryOperator>,
     input: &'a str,
-) -> IResult<&'a str, Expression<'a>> {
+) -> IResult<&'a str, Spanned<Expression<'a>>> {
+    let start = input.len();
     let (input, expression) = sub_expr.parse(input)?;
     fold_many0(
-        (preceded(sp, op), preceded(sp, sub_expr)),
+        (preceded(sp, op), preceded(sp, sub_expr), position),
         || expression.clone(),
-        |left, (op, right)| Expression::BinaryOperation(op, Box::new((left, right))),
+        |left, (op, right, end)| {
+            Expression::BinaryOperation(op, Box::new((left, right))).with_span(Span { start, end })
+        },
     )
     .parse(input)
 }
 
 fn expression_binary_single<'a>(
-    mut sub_expr: impl Parser<'a, Expression<'a>>,
+    mut sub_expr: impl Parser<'a, Spanned<Expression<'a>>>,
     op: impl Parser<'a, BinaryOperator>,
     input: &'a str,
-) -> IResult<&'a str, Expression<'a>> {
+) -> IResult<&'a str, Spanned<Expression<'a>>> {
+    let start = input.len();
     let (input, left) = sub_expr.parse(input)?;
-    if let Ok((input, (op, right))) = (preceded(sp, op), preceded(sp, sub_expr)).parse(input) {
+    if let Ok((input, (op, right, end))) =
+        (preceded(sp, op), preceded(sp, sub_expr), position).parse(input)
+    {
         Ok((
             input,
-            Expression::BinaryOperation(op, Box::new((left, right))),
+            Expression::BinaryOperation(op, Box::new((left, right))).with_span(Span { start, end }),
         ))
     } else {
         Ok((input, left))
     }
 }
 
-fn expression1(input: &str) -> IResult<&str, Expression> {
+fn expression1(input: &str) -> IResult<&str, Spanned<Expression>> {
     let negate = char('-').map(|_| UnaryOperator::Negate);
     let bitnot = char('~').map(|_| UnaryOperator::BitNot);
     let not = (tag("not"), sp).map(|_| UnaryOperator::LogicNot);
     let op = alt((negate, bitnot, not));
-    (opt(op), expression0)
-        .map(|(op, expr)| match op {
-            Some(op) => Expression::UnaryOperation(op, Box::new(expr)),
+    (position, opt(op), expression0, position)
+        .map(|(start, op, expr, end)| match op {
+            Some(op) => {
+                Expression::UnaryOperation(op, Box::new(expr)).with_span(Span { start, end })
+            }
             None => expr,
         })
         .parse(input)
 }
 
-fn expression0(input: &str) -> IResult<&str, Expression> {
-    alt((
-        integer_literal,
-        parentheses,
-        array_literal,
-        array_repeat,
-        method_call,
-        field_expression,
-        function_call,
-        index_expression,
-        new_expression,
-        string_literal,
-        bool_literal,
-        variable_reference,
-    ))
-    .parse(input)
+fn expression0(input: &str) -> IResult<&str, Spanned<Expression>> {
+    (
+        position,
+        alt((
+            integer_literal,
+            parentheses,
+            array_literal,
+            array_repeat,
+            method_call,
+            field_expression,
+            function_call,
+            index_expression,
+            new_expression,
+            string_literal,
+            bool_literal,
+            variable_reference,
+        )),
+        position,
+    )
+        .map(|(start, expr, end)| expr.with_span(Span { start, end }))
+        .parse(input)
 }
 
 fn identifier(input: &str) -> IResult<&str, &str> {
@@ -341,7 +355,9 @@ fn integer_literal(input: &str) -> IResult<&str, Expression> {
 }
 
 fn parentheses(input: &str) -> IResult<&str, Expression> {
-    delimited((sp, char('(')), expression(), (sp, char(')'))).parse(input)
+    delimited((sp, char('(')), expression(), (sp, char(')')))
+        .map(|expr| expr.value)
+        .parse(input)
 }
 
 fn array_literal(input: &str) -> IResult<&str, Expression> {
@@ -473,4 +489,8 @@ fn newline(input: &str) -> IResult<&str, ()> {
 
 fn sp(input: &str) -> IResult<&str, ()> {
     take_while(|c| c == ' ').map(|_| ()).parse(input)
+}
+
+fn position(input: &str) -> IResult<&str, usize> {
+    Ok((input, input.len()))
 }

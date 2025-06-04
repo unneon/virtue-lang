@@ -7,6 +7,7 @@ use std::fs;
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::Arc;
 use virtue::codegen::{ALL_BACKENDS, Backend};
+use virtue::error::NO_COLORS;
 use virtue::util::tempfile;
 
 struct TestFile {
@@ -110,8 +111,10 @@ fn parse_directives(source: &str) -> Directives {
             directives.ignore_backend.insert(Backend::Llvm);
         } else if line == "# ignore-qbe" {
             directives.ignore_backend.insert(Backend::Qbe);
-        } else {
-            directives.output += line.strip_prefix("# ").unwrap();
+        } else if let Some(line) = line.strip_prefix("# ") {
+            directives.output += line;
+            directives.output.push('\n');
+        } else if line == "#" {
             directives.output.push('\n');
         }
     }
@@ -192,7 +195,12 @@ fn run_fail(test: TestFile) -> Result<(), Failed> {
         Err(errors) => {
             let actual_stderr: String = errors
                 .iter()
-                .flat_map(|error| format!("{}\n", error.message).into_chars())
+                .flat_map(|error| {
+                    error
+                        .format(&test.source, "test.virtue", &NO_COLORS)
+                        .into_chars()
+                        .chain(std::iter::once('\n'))
+                })
                 .collect();
             let expected_stderr = &test.directives.output;
             if actual_stderr != *expected_stderr {

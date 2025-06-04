@@ -1,5 +1,5 @@
 use crate::ast::{BinaryOperator, IncrementDecrementOperator};
-use crate::error::Error;
+use crate::error::{Error, SpanExt, Spanned};
 use crate::parser::parse;
 use crate::vir::Binding;
 use crate::{ast, vir};
@@ -373,11 +373,11 @@ impl<'a> State<'a> {
             }
             ast::Expression::Call(callee_name, args_ast) => {
                 if *callee_name == "alloc" {
-                    let count = match &args_ast[0] {
+                    let count = match &*args_ast[0] {
                         ast::Expression::Literal(count) => *count,
                         _ => todo!(),
                     };
-                    let type_ = match &args_ast[1] {
+                    let type_ = match &*args_ast[1] {
                         ast::Expression::Variable("i8") => vir::BaseType::PointerI8.into(),
                         _ => todo!(),
                     };
@@ -403,10 +403,11 @@ impl<'a> State<'a> {
                 assert_eq!(arg_bindings.len(), callee.args.len());
                 for (arg_index, caller_arg_binding) in arg_bindings.iter().enumerate() {
                     let caller_arg_type = self.binding_type(*caller_arg_binding);
+                    let caller_arg_type = (&caller_arg_type).with_span(args_ast[arg_index].span);
                     let callee = &self.functions[callee_id];
                     let callee_arg = callee.args[arg_index].binding;
                     let callee_arg_type = callee.bindings[callee_arg.id].type_.clone();
-                    self.check_type_compatible(&callee_arg_type, &caller_arg_type);
+                    self.check_type_compatible(&callee_arg_type, caller_arg_type);
                 }
                 let binding = self.make_temporary(callee_return_type);
                 self.add_statement(vir::Statement::Call(binding, callee_id, arg_bindings));
@@ -540,12 +541,14 @@ impl<'a> State<'a> {
         self.functions[self.current_function].blocks[self.current_block].push(statement);
     }
 
-    fn check_type_compatible(&mut self, dst: &vir::Type, src: &vir::Type) {
-        if dst != src {
-            let dst = self.format_type(dst);
-            let src = self.format_type(src);
+    fn check_type_compatible(&mut self, dst: &vir::Type, src: Spanned<&vir::Type>) {
+        if dst != *src {
+            let dst_fmt = self.format_type(dst);
+            let src_fmt = self.format_type(*src);
             self.errors.push(Error {
-                message: format!("expected type {dst}, found {src}"),
+                message: "type error",
+                note: format!("expected {dst_fmt}, found {src_fmt}"),
+                note_span: src.span,
             });
         }
     }

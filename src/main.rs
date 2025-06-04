@@ -2,6 +2,7 @@ use std::fmt::Display;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use virtue::codegen::Backend;
+use virtue::error::ANSI_COLORS;
 
 struct Options {
     source_path: PathBuf,
@@ -30,7 +31,7 @@ const USAGE: &str = r#"virtue [OPTIONS] file.virtue
 
 fn main() {
     let options = options();
-    let source = std::fs::read_to_string(options.source_path).unwrap();
+    let source = std::fs::read_to_string(&options.source_path).unwrap();
     let output_path = options.output_path.as_ref().map(PathBuf::as_ref);
 
     let ast = virtue::parser::parse(&source).unwrap();
@@ -38,7 +39,18 @@ fn main() {
         output(format_args!("{ast:#?}"), output_path);
     }
 
-    let vir = virtue::typecheck::typecheck(&ast).unwrap();
+    let vir = match virtue::typecheck::typecheck(&ast) {
+        Ok(vir) => vir,
+        Err(errors) => {
+            for error in errors {
+                eprintln!(
+                    "{}",
+                    error.format(&source, options.source_path.to_str().unwrap(), &ANSI_COLORS)
+                );
+            }
+            std::process::exit(1);
+        }
+    };
     if options.format == Format::DebugVir {
         output(format_args!("{vir:#?}"), output_path);
     }

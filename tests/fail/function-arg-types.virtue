@@ -4,7 +4,27 @@ f(0, 0)
 f("a", "a")
 f("a", 0)
 
-# expected type string, found int
-# expected type int, found string
-# expected type int, found string
-# expected type string, found int
+# error: type error
+#  --> test.virtue:3:6
+#    |
+#  3 | f(0, 0)
+#    |      ^ expected string, found int
+#
+# error: type error
+#  --> test.virtue:4:3
+#    |
+#  4 | f("a", "a")
+#    |   ^^^ expected int, found string
+#
+# error: type error
+#  --> test.virtue:5:3
+#    |
+#  5 | f("a", 0)
+#    |   ^^^ expected int, found string
+#
+# error: type error
+#  --> test.virtue:5:8
+#    |
+#  5 | f("a", 0)
+#    |        ^ expected string, found int
+#
