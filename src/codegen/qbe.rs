@@ -4,7 +4,7 @@ pub use subprocess::compile_il;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::vir::{BaseType, Binding, FormatSegment, Function, Program, Statement, Type};
-use qbe::Type::{Byte, Long, Word};
+use qbe::Type::{Byte, Long, SignedByte, UnsignedByte, Word};
 use qbe::{Cmp, DataDef, DataItem, Instr, Linkage, Value};
 
 struct State<'a> {
@@ -96,17 +96,24 @@ impl<'a> State<'a> {
                     self.assign(binding, Instr::Load(Long, field_binding));
                 }
                 Statement::Index(binding, array_binding, index_binding) => {
+                    let element_type = self.vir_func.bindings[array_binding.id].type_.dereference();
                     let offset_binding = self.make_temporary();
                     let right_binding = self.make_temporary();
                     self.assign(
                         offset_binding.clone(),
-                        Instr::Mul(index_binding.into(), Value::Const(8)),
+                        Instr::Mul(
+                            index_binding.into(),
+                            Value::Const(element_type.byte_size() as u64),
+                        ),
                     );
                     self.assign(
                         right_binding.clone(),
                         Instr::Add(array_binding.into(), offset_binding),
                     );
-                    self.assign(binding, Instr::Load(Long, right_binding));
+                    self.assign(
+                        binding,
+                        Instr::Load(load_type(&element_type), right_binding),
+                    );
                 }
                 Statement::JumpAlways(block) => {
                     self.func.add_instr(Instr::Jmp(format!("_{block}")));
@@ -326,7 +333,7 @@ pub fn make_il(vir: &Program) -> qbe::Module<'static> {
             args,
             match function.return_type.base {
                 BaseType::Void => None,
-                _ => Some(extended_type(&function.return_type)),
+                _ => Some(base_type(&function.return_type)),
             },
         );
         state.temp_counter = 0;
@@ -360,6 +367,19 @@ fn extended_type(type_: &Type) -> qbe::Type<'static> {
         BaseType::I32 => Word,
         BaseType::I8 => Byte,
         BaseType::Bool => Byte,
+        BaseType::PointerI8 => Long,
+        BaseType::Struct(_) => Long,
+        BaseType::Void => unreachable!(),
+    }
+}
+
+fn load_type(type_: &Type) -> qbe::Type<'static> {
+    match &type_.base {
+        BaseType::Array(_) => Long,
+        BaseType::I64 => Long,
+        BaseType::I32 => Word,
+        BaseType::I8 => SignedByte,
+        BaseType::Bool => UnsignedByte,
         BaseType::PointerI8 => Long,
         BaseType::Struct(_) => Long,
         BaseType::Void => unreachable!(),
