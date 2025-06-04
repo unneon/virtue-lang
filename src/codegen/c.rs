@@ -3,7 +3,7 @@ mod subprocess;
 pub use subprocess::compile_c;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
-use crate::vir::{BaseType, Binding, FormatSegment, Function, Program, Statement, Type};
+use crate::vir::{BaseType, Binding, Function, Program, Statement, Type};
 use std::fmt::Write;
 
 struct State<'a> {
@@ -145,13 +145,14 @@ impl State<'_> {
                     self.write(format!("    _{result_id} = _{left_id} {op} _{right_id};"));
                 }
                 Statement::Call(result, function, args) => {
-                    let result_id = result.id;
-                    let result_assignment =
-                        if self.vir.functions[*function].return_type.base != BaseType::Void {
-                            format!("_{result_id} = ")
-                        } else {
-                            String::new()
-                        };
+                    let result_assignment = if let Some(result) = result
+                        && self.vir.functions[*function].return_type.base != BaseType::Void
+                    {
+                        let result_id = result.id;
+                        format!("_{result_id} = ")
+                    } else {
+                        String::new()
+                    };
                     let function_name = self.vir.functions[*function].name;
                     let mut c_args = String::new();
                     for (arg_index, arg) in args.iter().enumerate() {
@@ -211,31 +212,6 @@ impl State<'_> {
                             Value::Const(0),
                         ],
                     );
-                }
-                Statement::Print(fmt) => {
-                    for segment in &fmt.segments {
-                        match segment {
-                            FormatSegment::Text(text) => {
-                                let length = self.vir.string_len(*text);
-                                self.write(format!("    virtue_print_raw(str{text}, {length});"));
-                            }
-                            FormatSegment::Arg(arg) => {
-                                let arg_id = arg.id;
-                                match function.bindings[arg.id].type_.base {
-                                    BaseType::I64 => {
-                                        self.write(format!("    virtue_print_int(_{arg_id});"))
-                                    }
-                                    BaseType::Bool => {
-                                        self.write(format!("    virtue_print_bool(_{arg_id});"))
-                                    }
-                                    BaseType::Struct(0) => {
-                                        self.write(format!("    virtue_print_str(_{arg_id});"))
-                                    }
-                                    _ => todo!(),
-                                }
-                            }
-                        }
-                    }
                 }
                 Statement::Return(binding) => {
                     if !function.is_main {

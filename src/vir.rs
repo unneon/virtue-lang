@@ -39,7 +39,7 @@ pub enum Statement {
     AssignmentField(Binding, usize, Binding),
     AssignmentIndex(Binding, Binding, Binding),
     BinaryOperator(Binding, BinaryOperator, Binding, Binding),
-    Call(Binding, usize, Vec<Binding>),
+    Call(Option<Binding>, usize, Vec<Binding>),
     Field(Binding, Binding, usize),
     Index(Binding, Binding, Binding),
     JumpAlways(usize),
@@ -51,7 +51,6 @@ pub enum Statement {
     Literal(Binding, i64),
     New(Binding, usize),
     NewArray(Binding, Binding),
-    Print(FormatString),
     Return(Option<Binding>),
     StringConstant(Binding, usize),
     Syscall(Binding, Vec<Binding>),
@@ -61,17 +60,6 @@ pub enum Statement {
 #[derive(Clone, Copy, Debug)]
 pub struct Binding {
     pub id: usize,
-}
-
-#[derive(Debug)]
-pub struct FormatString {
-    pub segments: Vec<FormatSegment>,
-}
-
-#[derive(Debug)]
-pub enum FormatSegment {
-    Text(usize),
-    Arg(Binding),
 }
 
 #[derive(Debug)]

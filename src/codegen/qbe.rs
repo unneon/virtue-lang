@@ -3,7 +3,7 @@ mod subprocess;
 pub use subprocess::compile_il;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
-use crate::vir::{BaseType, Binding, FormatSegment, Function, Program, Statement, Type};
+use crate::vir::{BaseType, Binding, Function, Program, Statement, Type};
 use qbe::Type::{Byte, Long, SignedByte, UnsignedByte, Word};
 use qbe::{Cmp, DataDef, DataItem, Instr, Linkage, Value};
 
@@ -85,7 +85,11 @@ impl<'a> State<'a> {
                     let function_name = self.vir.functions[*function_id].name;
                     let args = args.iter().map(|arg| (Long, arg.into())).collect();
                     let return_ = Instr::Call(function_name.to_string(), args, None);
-                    self.assign(return_binding, return_)
+                    if let Some(return_binding) = return_binding {
+                        self.assign(return_binding, return_)
+                    } else {
+                        self.func.add_instr(return_);
+                    }
                 }
                 Statement::Field(binding, object_binding, field) => {
                     let field_offset = 8 * field;
@@ -158,41 +162,6 @@ impl<'a> State<'a> {
                             None,
                         ),
                     );
-                }
-                Statement::Print(fmt) => {
-                    for segment in &fmt.segments {
-                        match segment {
-                            FormatSegment::Text(text) => self.func.add_instr(Instr::Call(
-                                "virtue_print_raw".to_owned(),
-                                vec![
-                                    (Long, Value::Global(format!("string_{text}"))),
-                                    (Long, Value::Const(self.vir.string_len(*text) as u64)),
-                                ],
-                                None,
-                            )),
-                            FormatSegment::Arg(arg) => {
-                                let type_ = &self.vir_func.bindings[arg.id].type_;
-                                self.func.add_instr(match type_.base {
-                                    BaseType::I64 => Instr::Call(
-                                        "virtue_print_int".to_owned(),
-                                        vec![(Long, arg.into())],
-                                        None,
-                                    ),
-                                    BaseType::Struct(0) => Instr::Call(
-                                        "virtue_print_str".to_owned(),
-                                        vec![(Long, arg.into())],
-                                        None,
-                                    ),
-                                    BaseType::Bool => Instr::Call(
-                                        "virtue_print_bool".to_owned(),
-                                        vec![(Long, arg.into())],
-                                        None,
-                                    ),
-                                    _ => todo!(),
-                                });
-                            }
-                        }
-                    }
                 }
                 Statement::Return(value) => {
                     if !self.vir_func.is_main {

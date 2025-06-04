@@ -3,7 +3,7 @@ mod subprocess;
 pub use subprocess::compile_ir;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
-use crate::vir::{BaseType, Binding, FormatSegment, Program, Statement, Type};
+use crate::vir::{BaseType, Binding, Program, Statement, Type};
 use std::fmt::Write;
 
 struct State<'a> {
@@ -38,24 +38,6 @@ impl State<'_> {
                 };
             }
             self.ir += "\\00\"\n";
-        }
-    }
-
-    fn prologue_format(&mut self) {
-        for (function_id, function) in self.vir.functions.iter().enumerate() {
-            for (block_id, block) in function.blocks.iter().enumerate() {
-                for (statement_id, statement) in block.iter().enumerate() {
-                    if let Statement::Print(fmt) = statement {
-                        for (segment_id, segment) in fmt.segments.iter().enumerate() {
-                            if let FormatSegment::Text(text) = segment {
-                                let length = self.vir.string_len(*text);
-                                let literal = escape_string(self.vir.strings[*text]);
-                                self.write(format!("@fmt_{function_id}_{block_id}_{statement_id}_{segment_id} = internal constant [{length} x i8] c\"{literal}\""));
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -278,7 +260,9 @@ impl State<'_> {
                         write!(&mut args, "{type_} %temp_{temp}").unwrap();
                     }
                     let callee_name = self.vir.functions[*callee_id].name;
-                    if function.bindings[return_binding.id].type_.base != BaseType::Void {
+                    if let Some(return_binding) = return_binding
+                        && function.bindings[return_binding.id].type_.base != BaseType::Void
+                    {
                         let return_type = convert_type(&self.vir.functions[*callee_id].return_type);
                         let temp_return = self.make_temporary();
                         self.write(format!(
@@ -358,36 +342,6 @@ impl State<'_> {
                         "%temp_{result_temp} = alloca {element_type}, i64 %temp_{length_temp}"
                     ));
                     self.store(binding, result_temp);
-                }
-                Statement::Print(fmt) => {
-                    let function_id = self.current_function;
-                    for (segment_id, segment) in fmt.segments.iter().enumerate() {
-                        match segment {
-                            FormatSegment::Text(text) => {
-                                let length = self.vir.string_len(*text);
-                                self.write(format!("call i64 (i8*, i64) @virtue_print_raw(i8* @fmt_{function_id}_{block_id}_{statement_id}_{segment_id}, i64 {length})"));
-                            }
-                            FormatSegment::Arg(arg) => {
-                                let temp = self.make_temporary();
-                                self.load(temp, arg);
-                                let type_ = &function.bindings[arg.id].type_;
-                                if type_.base == BaseType::Struct(0) {
-                                    self.write(format!("call i64 (%struct_0) @virtue_print_str(%struct_0 %temp_{temp})"));
-                                } else if type_.base == BaseType::I64 {
-                                    self.write(format!(
-                                        "call i64 (i64) @virtue_print_int(i64 %temp_{temp})"
-                                    ));
-                                } else if type_.base == BaseType::Bool {
-                                    self.write(format!(
-                                        "call i64 (i8) @virtue_print_bool(i8 %temp_{temp})"
-                                    ));
-                                } else {
-                                    dbg!(type_);
-                                    todo!()
-                                }
-                            }
-                        }
-                    }
                 }
                 Statement::Return(binding) => {
                     if let Some(binding) = binding {
@@ -513,17 +467,6 @@ fn convert_type(type_: &Type) -> String {
     }
 }
 
-fn escape_string(parts: &[&str]) -> String {
-    let mut escaped = String::new();
-    for part in parts {
-        escaped.push_str(match *part {
-            "\n" => "\\0A",
-            _ => part,
-        });
-    }
-    escaped
-}
-
 pub fn make_ir(vir: &Program) -> String {
     let mut state = State {
         ir: String::new(),
@@ -534,7 +477,6 @@ pub fn make_ir(vir: &Program) -> String {
 
     state.prologue_structs();
     state.prologue_strings();
-    state.prologue_format();
     state.all_functions();
 
     state.ir

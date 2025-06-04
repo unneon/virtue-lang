@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOperator, IncrementDecrementOperator, UnaryOperator};
+use crate::ast::{BinaryOperator, FormatSegment, IncrementDecrementOperator, UnaryOperator};
 use crate::error::{Error, Span};
 use crate::parser::parse;
 use crate::vir::Binding;
@@ -23,8 +23,6 @@ enum Fallthrough {
     Unreachable,
     Reachable,
 }
-
-const NEWLINE_STRING: usize = 0;
 
 static STD_AST: LazyLock<ast::Module> =
     LazyLock::new(|| parse(include_str!("std.virtue")).unwrap());
@@ -263,13 +261,49 @@ impl<'a> State<'a> {
                     self.process_assignment(value, after);
                 }
                 ast::Statement::Print { fmt } => {
-                    let segments = fmt
-                        .segments
-                        .iter()
-                        .map(|segment| self.convert_format_segment(segment))
-                        .chain(std::iter::once(vir::FormatSegment::Text(NEWLINE_STRING)))
-                        .collect();
-                    self.add_statement(vir::Statement::Print(vir::FormatString { segments }));
+                    for segment in &fmt.segments {
+                        match segment {
+                            FormatSegment::Text(text) => {
+                                let function = self.function_map["virtue_print_str"];
+                                let text = self.make_string(text);
+                                let text_binding =
+                                    self.make_temporary(vir::BaseType::Struct(0).into());
+                                self.add_statement(vir::Statement::StringConstant(
+                                    text_binding,
+                                    text,
+                                ));
+                                self.add_statement(vir::Statement::Call(
+                                    None,
+                                    function,
+                                    vec![text_binding],
+                                ));
+                            }
+                            FormatSegment::Variable(var) => {
+                                let var = self.variable_binding(var);
+                                let var_type = self.binding_type(var);
+                                let function = match var_type.base {
+                                    vir::BaseType::I64 => self.function_map["virtue_print_int"],
+                                    vir::BaseType::Bool => self.function_map["virtue_print_bool"],
+                                    vir::BaseType::Struct(0) => {
+                                        self.function_map["virtue_print_str"]
+                                    }
+                                    _ => todo!(),
+                                };
+                                self.add_statement(vir::Statement::Call(None, function, vec![var]));
+                            }
+                        }
+                    }
+                    let newline_text = self.make_string(&["\n"]);
+                    let newline_binding = self.make_temporary(vir::BaseType::Struct(0).into());
+                    self.add_statement(vir::Statement::StringConstant(
+                        newline_binding,
+                        newline_text,
+                    ));
+                    self.add_statement(vir::Statement::Call(
+                        None,
+                        self.function_map["virtue_print_str"],
+                        vec![newline_binding],
+                    ));
                 }
                 ast::Statement::Return { value } => {
                     let value_span = value.span;
@@ -460,7 +494,7 @@ impl<'a> State<'a> {
                     }
                 }
                 let binding = self.make_temporary(callee_return_type);
-                self.add_statement(vir::Statement::Call(binding, callee_id, arg_bindings));
+                self.add_statement(vir::Statement::Call(Some(binding), callee_id, arg_bindings));
                 binding
             }
             ast::Expression::CallMethod(object_expr, _method_name, _args_ast) => {
@@ -627,18 +661,6 @@ impl<'a> State<'a> {
             [.., "pointer_i8"] => vir::BaseType::PointerI8.into(),
             [.., struct_name] => vir::BaseType::Struct(self.struct_map[struct_name]).into(),
             segments => todo!("convert_type {segments:?}"),
-        }
-    }
-
-    fn convert_format_segment(
-        &mut self,
-        segment: &'a ast::FormatSegment<'a>,
-    ) -> vir::FormatSegment {
-        match segment {
-            ast::FormatSegment::Text(text) => vir::FormatSegment::Text(self.make_string(text)),
-            ast::FormatSegment::Variable(variable) => {
-                vir::FormatSegment::Arg(self.variable_binding(variable))
-            }
         }
     }
 
