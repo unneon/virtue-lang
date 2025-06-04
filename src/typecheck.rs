@@ -304,24 +304,34 @@ impl<'a> State<'a> {
 
     fn process_expression(&mut self, expression: &'a ast::Expression<'a>) -> Binding {
         match expression {
-            ast::Expression::ArrayLiteral(initials) => {
-                let initials: Vec<_> = initials
+            ast::Expression::ArrayLiteral(initial_exprs) => {
+                let initial_bindings: Vec<_> = initial_exprs
                     .iter()
                     .map(|initial| self.process_expression(initial))
                     .collect();
-                let type_ = self.binding_type(initials[0]);
-                for initial in &initials {
-                    assert_eq!(self.binding_type(*initial), type_);
-                }
+                let type_ = if let Some(initial_0) = initial_bindings.first() {
+                    let type_ = self.binding_type(*initial_0).base.into();
+                    for (initial_binding, initial_expr) in
+                        initial_bindings.iter().zip(initial_exprs)
+                    {
+                        self.check_type_compatible(
+                            &type_,
+                            (&self.binding_type(*initial_binding)).with_span(initial_expr.span),
+                        );
+                    }
+                    type_
+                } else {
+                    vir::BaseType::I64.into()
+                };
                 let length_binding = self.make_temporary(vir::Type::I64);
                 let binding =
                     self.make_temporary(vir::BaseType::Array(Box::new(type_.clone())).into());
                 self.add_statement(vir::Statement::Literal(
                     length_binding,
-                    initials.len() as i64,
+                    initial_bindings.len() as i64,
                 ));
                 self.add_statement(vir::Statement::NewArray(binding, length_binding));
-                for (i, initial) in initials.iter().enumerate() {
+                for (i, initial) in initial_bindings.iter().enumerate() {
                     let i_binding = self.make_temporary(vir::Type::I64);
                     self.add_statement(vir::Statement::Literal(i_binding, i as i64));
                     self.add_statement(vir::Statement::AssignmentIndex(

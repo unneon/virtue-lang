@@ -4,6 +4,7 @@ use libtest_mimic::{Arguments, Failed, Trial};
 use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
+use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::Arc;
 use virtue::codegen::{ALL_BACKENDS, Backend};
@@ -15,6 +16,7 @@ struct TestFile {
     name: String,
     source: String,
     directives: Directives,
+    path: PathBuf,
 }
 
 #[derive(Clone)]
@@ -87,6 +89,7 @@ fn walk_test_files() -> impl Iterator<Item = TestFile> {
             name,
             source,
             directives,
+            path,
         }
     })
 }
@@ -204,7 +207,28 @@ fn run_fail(test: TestFile) -> Result<(), Failed> {
                 .collect();
             let expected_stderr = &test.directives.output;
             if actual_stderr != *expected_stderr {
-                return Err(format!("\x1B[1;31mactual stderr:\x1B[0m\n{actual_stderr}\n\x1B[1;32mexpected stderr:\x1B[0m\n{expected_stderr}").into());
+                if std::env::var("VIRTUE_LANG_BLESS")
+                    .ok()
+                    .as_ref()
+                    .map(String::as_str)
+                    == Some("1")
+                {
+                    let source = &test.source;
+                    let directives = actual_stderr
+                        .lines()
+                        .map(|line| {
+                            if line.is_empty() {
+                                "#\n".to_owned()
+                            } else {
+                                format!("# {line}\n")
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("");
+                    fs::write(test.path, format!("{source}\n{directives}")).unwrap();
+                } else {
+                    return Err(format!("\x1B[1;31mactual stderr:\x1B[0m\n{actual_stderr}\n\x1B[1;32mexpected stderr:\x1B[0m\n{expected_stderr}").into());
+                }
             }
             return Ok(());
         }

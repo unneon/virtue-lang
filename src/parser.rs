@@ -377,7 +377,7 @@ fn parentheses(input: &str) -> IResult<&str, Expression> {
 fn array_literal(input: &str) -> IResult<&str, Expression> {
     delimited(
         (sp, char('[')),
-        separated_list0((sp, char(',')), expression()),
+        separated_list0((sp, char(','), sp), expression()),
         (sp, char(']')),
     )
     .map(Expression::ArrayLiteral)
@@ -450,7 +450,7 @@ fn string_literal(input: &str) -> IResult<&str, Expression> {
         !s.is_empty()
     });
     let segment = alt((string_escape, normal));
-    delimited((sp, char('"')), many0(segment), char('"'))
+    delimited(char('"'), many0(segment), char('"'))
         .map(Expression::StringLiteral)
         .parse(input)
 }
