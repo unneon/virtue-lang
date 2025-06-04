@@ -72,6 +72,7 @@ pub enum Expression<'a> {
         BinaryOperator,
         Box<(Spanned<Expression<'a>>, Spanned<Expression<'a>>)>,
     ),
+    BoolLiteral(bool),
     Call(&'a str, Vec<Spanned<Expression<'a>>>),
     CallMethod(Box<Expression<'a>>, &'a str, Vec<Spanned<Expression<'a>>>),
     Index(Box<(Expression<'a>, Spanned<Expression<'a>>)>),

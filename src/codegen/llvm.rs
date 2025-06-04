@@ -102,6 +102,9 @@ impl State<'_> {
     fn function_stack_allocation(&mut self) {
         let function = &self.vir.functions[self.current_function];
         for (binding_id, binding) in function.bindings.iter().enumerate() {
+            if binding.type_.base == BaseType::Void {
+                continue;
+            }
             let binding_type = convert_type(&binding.type_);
             self.write(format!("%stack_{binding_id} = alloca {binding_type}"));
         }
@@ -251,7 +254,7 @@ impl State<'_> {
                     if returns_bool {
                         let temp_zext = self.make_temporary();
                         self.write(format!(
-                            "%temp_{temp_zext} = zext i1 %temp_{temp_result} to i64"
+                            "%temp_{temp_zext} = zext i1 %temp_{temp_result} to i8"
                         ));
                         self.store(binding, temp_zext);
                     } else {
@@ -274,12 +277,16 @@ impl State<'_> {
                         }
                         write!(&mut args, "{type_} %temp_{temp}").unwrap();
                     }
-                    let temp_return = self.make_temporary();
                     let callee_name = self.vir.functions[*callee_id].name;
-                    self.write(format!(
-                        "%temp_{temp_return} = call i64 ({signature}) @{callee_name}({args})"
-                    ));
-                    self.store(return_binding, temp_return);
+                    if function.bindings[return_binding.id].type_.base != BaseType::Void {
+                        let temp_return = self.make_temporary();
+                        self.write(format!(
+                            "%temp_{temp_return} = call i64 ({signature}) @{callee_name}({args})"
+                        ));
+                        self.store(return_binding, temp_return);
+                    } else {
+                        self.write(format!("call void ({signature}) @{callee_name}({args})"));
+                    }
                 }
                 Statement::Field(result_binding, object_binding, field_id) => {
                     let object_binding_id = object_binding.id;
@@ -326,9 +333,7 @@ impl State<'_> {
                     let temp_i64 = self.make_temporary();
                     let temp_i1 = self.make_temporary();
                     self.load(temp_i64, condition);
-                    self.write(format!(
-                        "%temp_{temp_i1} = trunc i64 %temp_{temp_i64} to i1"
-                    ));
+                    self.write(format!("%temp_{temp_i1} = trunc i8 %temp_{temp_i64} to i1"));
                     self.write(format!(
                         "br i1 %temp_{temp_i1}, label %block_{true_block}, label %block_{false_block}"
                     ));
@@ -382,14 +387,18 @@ impl State<'_> {
                     }
                 }
                 Statement::Return(binding) => {
-                    let type_ = convert_type(&function.return_type);
-                    let temp = self.make_temporary();
-                    self.load(temp, binding);
-                    if !function.is_main {
-                        self.write(format!("ret {type_} %temp_{temp}"));
+                    if let Some(binding) = binding {
+                        let type_ = convert_type(&function.return_type);
+                        let temp = self.make_temporary();
+                        self.load(temp, binding);
+                        if !function.is_main {
+                            self.write(format!("ret {type_} %temp_{temp}"));
+                        } else {
+                            self.write(format!("call void asm sideeffect \"syscall\", \"{{rax}},{{rdi}}\" (i64 60, {type_} %temp_{temp})"));
+                            self.write("unreachable");
+                        }
                     } else {
-                        self.write(format!("call void asm sideeffect \"syscall\", \"{{rax}},{{rdi}}\" (i64 60, {type_} %temp_{temp})"));
-                        self.write("unreachable");
+                        self.write("ret void");
                     }
                     return;
                 }
@@ -494,6 +503,7 @@ fn convert_type(type_: &Type) -> String {
         BaseType::I64 => "i64".to_owned(),
         BaseType::I32 => "i32".to_owned(),
         BaseType::I8 => "i8".to_owned(),
+        BaseType::Bool => "i8".to_owned(),
         BaseType::PointerI8 => "i8*".to_owned(),
         BaseType::Struct(id) => format!("%struct_{id}"),
         BaseType::Void => "void".to_owned(),

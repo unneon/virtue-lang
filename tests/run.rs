@@ -54,7 +54,7 @@ fn find_tests() -> Result<Vec<Trial>, Box<dyn Error>> {
                     let file = Arc::clone(&file);
                     let ignore =
                         file.directives.ignore || file.directives.ignore_backend.contains(&backend);
-                    let runner = move || run_pass(file, Backend::C);
+                    let runner = move || run_pass(file, backend);
                     let trial = Trial::test(name, runner).with_ignored_flag(ignore);
                     tests.push(trial);
                 }

@@ -225,6 +225,9 @@ impl State<'_> {
                                     BaseType::I64 => {
                                         self.write(format!("    virtue_print_int(_{arg_id});"))
                                     }
+                                    BaseType::Bool => {
+                                        self.write(format!("    virtue_print_bool(_{arg_id});"))
+                                    }
                                     BaseType::Struct(0) => {
                                         self.write(format!("    virtue_print_str(_{arg_id});"))
                                     }
@@ -236,10 +239,14 @@ impl State<'_> {
                 }
                 Statement::Return(binding) => {
                     if !function.is_main {
-                        let binding_id = binding.id;
-                        self.write(format!("    return _{binding_id};"));
+                        if let Some(binding) = binding {
+                            let binding_id = binding.id;
+                            self.write(format!("    return _{binding_id};"));
+                        } else {
+                            self.write("    return;");
+                        }
                     } else {
-                        self.syscall(None, &[Value::Const(60), Value::Binding(*binding)]);
+                        self.syscall(None, &[Value::Const(60), Value::Binding(binding.unwrap())]);
                     }
                 }
                 Statement::Syscall(result_binding, arg_bindings) => {
@@ -330,6 +337,7 @@ fn convert_type(type_: &Type) -> String {
         BaseType::I8 => "signed char".to_owned(),
         BaseType::I32 => "int".to_owned(),
         BaseType::I64 => "long long".to_owned(),
+        BaseType::Bool => "signed char".to_owned(),
         BaseType::PointerI8 => "signed char*".to_owned(),
         BaseType::Array(element_type) => format!("{}*", convert_type(element_type)),
         BaseType::Struct(name) => format!("struct struct{name}"),

@@ -3,4 +3,4 @@ b = ~(2 ^ ~1)
 c = not (not (not false))
 print "{a} {b} {c}"
 
-# -32 3 1
+# -32 3 true

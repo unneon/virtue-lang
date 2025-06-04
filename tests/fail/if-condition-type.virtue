@@ -1,0 +1,9 @@
+if "true"
+    print "Hello"
+
+# error: type error
+#  --> test.virtue:1:4
+#    |
+#  1 | if "true"
+#    |    ^^^^^^ expected bool, found string
+#

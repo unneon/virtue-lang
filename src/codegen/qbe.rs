@@ -51,7 +51,7 @@ impl<'a> State<'a> {
                         Instr::Add(array_binding.into(), offset_binding),
                     );
                     self.func.add_instr(Instr::Store(
-                        convert_type(&element_type),
+                        extended_type(&element_type),
                         left_binding,
                         right_binding.into(),
                     ));
@@ -176,6 +176,11 @@ impl<'a> State<'a> {
                                         vec![(Long, arg.into())],
                                         None,
                                     ),
+                                    BaseType::Bool => Instr::Call(
+                                        "virtue_print_bool".to_owned(),
+                                        vec![(Long, arg.into())],
+                                        None,
+                                    ),
                                     _ => todo!(),
                                 });
                             }
@@ -184,11 +189,12 @@ impl<'a> State<'a> {
                 }
                 Statement::Return(value) => {
                     if !self.vir_func.is_main {
-                        self.func.add_instr(Instr::Ret(Some(value.into())));
+                        self.func
+                            .add_instr(Instr::Ret(value.as_ref().map(From::from)));
                     } else {
                         self.func.add_instr(Instr::Call(
                             "syscall".to_owned(),
-                            vec![(Long, Value::Const(60)), (Long, value.into())],
+                            vec![(Long, Value::Const(60)), (Long, (&value.unwrap()).into())],
                             None,
                         ));
                         self.func.add_instr(Instr::Hlt);
@@ -220,7 +226,7 @@ impl<'a> State<'a> {
                         .iter()
                         .map(|arg| {
                             (
-                                convert_type(&self.vir_func.bindings[arg.id].type_),
+                                extended_type(&self.vir_func.bindings[arg.id].type_),
                                 arg.into(),
                             )
                         })
@@ -308,7 +314,7 @@ pub fn make_il(vir: &Program) -> qbe::Module<'static> {
             .iter()
             .map(|arg| {
                 (
-                    convert_type(&function.bindings[arg.binding.id].type_),
+                    base_type(&function.bindings[arg.binding.id].type_),
                     (&arg.binding).into(),
                 )
             })
@@ -318,7 +324,10 @@ pub fn make_il(vir: &Program) -> qbe::Module<'static> {
             linkage,
             name,
             args,
-            Some(convert_type(&function.return_type)),
+            match function.return_type.base {
+                BaseType::Void => None,
+                _ => Some(extended_type(&function.return_type)),
+            },
         );
         state.temp_counter = 0;
         for (block_id, block) in function.blocks.iter().enumerate() {
@@ -331,12 +340,26 @@ pub fn make_il(vir: &Program) -> qbe::Module<'static> {
     state.il
 }
 
-fn convert_type(type_: &Type) -> qbe::Type<'static> {
+fn base_type(type_: &Type) -> qbe::Type<'static> {
+    match &type_.base {
+        BaseType::Array(_) => Long,
+        BaseType::I64 => Long,
+        BaseType::I32 => Word,
+        BaseType::I8 => Long,
+        BaseType::Bool => Long,
+        BaseType::PointerI8 => Long,
+        BaseType::Struct(_) => Long,
+        BaseType::Void => unreachable!(),
+    }
+}
+
+fn extended_type(type_: &Type) -> qbe::Type<'static> {
     match &type_.base {
         BaseType::Array(_) => Long,
         BaseType::I64 => Long,
         BaseType::I32 => Word,
         BaseType::I8 => Byte,
+        BaseType::Bool => Byte,
         BaseType::PointerI8 => Long,
         BaseType::Struct(_) => Long,
         BaseType::Void => unreachable!(),

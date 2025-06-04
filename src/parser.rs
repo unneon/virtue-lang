@@ -460,8 +460,8 @@ fn string_escape(input: &str) -> IResult<&str, &str> {
 }
 
 fn bool_literal(input: &str) -> IResult<&str, Expression> {
-    let true_ = tag("true").map(|_| Expression::Literal(1));
-    let false_ = tag("false").map(|_| Expression::Literal(0));
+    let true_ = tag("true").map(|_| Expression::BoolLiteral(true));
+    let false_ = tag("false").map(|_| Expression::BoolLiteral(false));
     preceded(sp, alt((true_, false_))).parse(input)
 }
 

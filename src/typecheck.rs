@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOperator, IncrementDecrementOperator};
+use crate::ast::{BinaryOperator, IncrementDecrementOperator, UnaryOperator};
 use crate::error::{Error, SpanExt, Spanned};
 use crate::parser::parse;
 use crate::vir::Binding;
@@ -117,12 +117,15 @@ impl<'a> State<'a> {
         for i in 0..self.functions.len() {
             self.current_function = i;
             self.current_block = self.make_block();
-            if self.process_block(self.functions[i].ast_block) == Fallthrough::Reachable
-                && self.functions[i].name == "main"
-            {
-                let default_return = self.make_temporary(vir::Type::I32);
-                self.add_statement(vir::Statement::Literal(default_return, 0));
-                self.add_statement(vir::Statement::Return(default_return));
+            let fallthrough = self.process_block(self.functions[i].ast_block);
+            if fallthrough == Fallthrough::Reachable {
+                if self.functions[i].name == "main" {
+                    let default_return = self.make_temporary(vir::Type::I32);
+                    self.add_statement(vir::Statement::Literal(default_return, 0));
+                    self.add_statement(vir::Statement::Return(Some(default_return)));
+                } else if self.functions[i].return_type.base == vir::BaseType::Void {
+                    self.add_statement(vir::Statement::Return(None));
+                }
             }
         }
     }
@@ -224,9 +227,14 @@ impl<'a> State<'a> {
                     let false_block = self.make_block();
                     let after_block = self.make_block();
 
-                    let condition = self.process_expression(condition);
+                    let condition_span = condition.span;
+                    let condition_binding = self.process_expression(condition);
+                    self.check_type_compatible(
+                        &vir::BaseType::Bool.into(),
+                        (&self.binding_type(condition_binding)).with_span(condition_span),
+                    );
                     self.add_statement(vir::Statement::JumpConditional {
-                        condition,
+                        condition: condition_binding,
                         true_block,
                         false_block,
                     });
@@ -271,7 +279,7 @@ impl<'a> State<'a> {
                     let value_type = self.binding_type(value_binding);
                     let return_type = self.functions[self.current_function].return_type.clone();
                     self.check_type_compatible(&return_type, (&value_type).with_span(value_span));
-                    self.add_statement(vir::Statement::Return(value_binding));
+                    self.add_statement(vir::Statement::Return(Some(value_binding)));
                     return Fallthrough::Unreachable;
                 }
                 ast::Statement::Struct { .. } => {}
@@ -386,11 +394,26 @@ impl<'a> State<'a> {
                 binding
             }
             ast::Expression::BinaryOperation(op, args) => {
+                use BinaryOperator::*;
                 let (left, right) = args.as_ref();
                 let left = self.process_expression(left);
                 let right = self.process_expression(right);
-                let binding = self.make_temporary(self.binding_type(left));
+                let type_ = match op {
+                    Add | Subtract | Multiply | Divide | Modulo | BitAnd | BitOr | Xor
+                    | ShiftLeft | ShiftRight => self.binding_type(left),
+                    Less | LessOrEqual | Greater | GreaterOrEqual | Equal | NotEqual | LogicAnd
+                    | LogicOr => vir::BaseType::Bool.into(),
+                };
+                let binding = self.make_temporary(type_);
                 self.add_statement(vir::Statement::BinaryOperator(binding, *op, left, right));
+                binding
+            }
+            ast::Expression::BoolLiteral(literal) => {
+                let binding = self.make_temporary(vir::BaseType::Bool.into());
+                self.add_statement(vir::Statement::Literal(
+                    binding,
+                    if *literal { 1 } else { 0 },
+                ));
                 binding
             }
             ast::Expression::Call(callee_name, args_ast) => {
@@ -475,8 +498,13 @@ impl<'a> State<'a> {
                 binding
             }
             ast::Expression::UnaryOperation(op, arg) => {
+                use UnaryOperator::*;
                 let arg = self.process_expression(arg);
-                let binding = self.make_temporary(vir::Type::I64);
+                let type_ = match op {
+                    Negate | BitNot => vir::Type::I64,
+                    LogicNot => vir::BaseType::Bool.into(),
+                };
+                let binding = self.make_temporary(type_);
                 self.add_statement(vir::Statement::UnaryOperator(binding, *op, arg));
                 binding
             }
@@ -580,7 +608,7 @@ impl<'a> State<'a> {
             [.., "int"] => vir::Type::I64,
             [.., "i64"] => vir::Type::I64,
             [.., "i32"] => vir::Type::I32,
-            [.., "bool"] => vir::Type::I64,
+            [.., "bool"] => vir::BaseType::Bool.into(),
             [.., "pointer_i8"] => vir::BaseType::PointerI8.into(),
             [.., struct_name] => vir::BaseType::Struct(self.struct_map[struct_name]).into(),
             segments => todo!("convert_type {segments:?}"),
@@ -623,6 +651,7 @@ impl<'a> State<'a> {
             vir::BaseType::I64 => "int".to_owned(),
             vir::BaseType::I32 => "i32".to_owned(),
             vir::BaseType::I8 => "i8".to_owned(),
+            vir::BaseType::Bool => "bool".to_owned(),
             vir::BaseType::PointerI8 => "pointer_i8".to_owned(),
             vir::BaseType::Struct(struct_id) => self.structs[*struct_id].name.to_owned(),
             vir::BaseType::Void => "void".to_owned(),

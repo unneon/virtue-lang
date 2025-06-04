@@ -28,3 +28,9 @@ func virtue_print_int(n int)
         s[s.length - i - 1] = 45
         i++
     syscall(1, 1, s.pointer + s.length - i, i)
+
+func virtue_print_bool(x bool)
+    if x
+        virtue_print_str("true")
+    else
+        virtue_print_str("false")
