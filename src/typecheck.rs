@@ -384,11 +384,18 @@ impl<'a> State<'a> {
             ast::Expression::ArrayRepeat(repeat) => {
                 let (initial, length) = repeat.as_ref();
                 let initial = self.process_expression(initial);
-                let length = self.process_expression(length);
+                let length_binding = self.process_expression(length);
+
+                self.check_type_compatible(
+                    &vir::Type::I64,
+                    &self.binding_type(length_binding),
+                    length.span,
+                );
+
                 let type_ = self.binding_type(initial);
                 let binding =
                     self.make_temporary(vir::BaseType::Array(Box::new(type_.clone())).into());
-                self.add_statement(vir::Statement::NewArray(binding, length));
+                self.add_statement(vir::Statement::NewArray(binding, length_binding));
 
                 let init_condition_block = self.make_block();
                 let init_body_block = self.make_block();
@@ -405,7 +412,7 @@ impl<'a> State<'a> {
                     i_cmp_binding,
                     BinaryOperator::Less,
                     i_binding,
-                    length,
+                    length_binding,
                 ));
                 self.add_statement(vir::Statement::JumpConditional {
                     condition: i_cmp_binding,

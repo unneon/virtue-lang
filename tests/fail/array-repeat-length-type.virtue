@@ -1,0 +1,8 @@
+a = [0; "100"]
+
+# error: type error
+#  --> test.virtue:1:9
+#    |
+#  1 | a = [0; "100"]
+#    |         ^^^^^ expected int, found string
+#

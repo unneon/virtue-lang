@@ -387,7 +387,7 @@ fn array_literal(input: &str) -> IResult<&str, Expression> {
 fn array_repeat(input: &str) -> IResult<&str, Expression> {
     delimited(
         (sp, char('[')),
-        (expression(), preceded((sp, char(';')), expression())),
+        (expression(), preceded((sp, char(';'), sp), expression())),
         (sp, char(']')),
     )
     .map(|(initializer, length)| Expression::ArrayRepeat(Box::new((initializer, length))))
