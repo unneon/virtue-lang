@@ -287,7 +287,7 @@ fn expression_binary<'a>(
     let start = input.len();
     let (input, expression) = sub_expr.parse(input)?;
     fold_many0(
-        (preceded(sp, op), preceded(sp, sub_expr), position),
+        (preceded(sp, spanned(op)), preceded(sp, sub_expr), position),
         || expression.clone(),
         |left, (op, right, end)| {
             Expression::BinaryOperation(op, Box::new((left, right))).with_span(Span { start, end })
@@ -304,7 +304,7 @@ fn expression_binary_single<'a>(
     let start = input.len();
     let (input, left) = sub_expr.parse(input)?;
     if let Ok((input, (op, right, end))) =
-        (preceded(sp, op), preceded(sp, sub_expr), position).parse(input)
+        (preceded(sp, spanned(op)), preceded(sp, sub_expr), position).parse(input)
     {
         Ok((
             input,

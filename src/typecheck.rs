@@ -118,7 +118,7 @@ impl<'a> State<'a> {
             let fallthrough = self.process_block(self.functions[i].ast_block);
             if fallthrough == Fallthrough::Reachable {
                 if self.functions[i].name == "main" {
-                    let default_return = self.make_temporary(vir::Type::I32);
+                    let default_return = self.make_temporary(vir::Type::I64);
                     self.add_statement(vir::Statement::Literal(default_return, 0));
                     self.add_statement(vir::Statement::Return(Some(default_return)));
                 } else if self.functions[i].return_type.base == vir::BaseType::Void {
@@ -437,16 +437,56 @@ impl<'a> State<'a> {
             ast::Expression::BinaryOperation(op, args) => {
                 use BinaryOperator::*;
                 let (left, right) = args.as_ref();
-                let left = self.process_expression(left);
-                let right = self.process_expression(right);
-                let type_ = match op {
-                    Add | Subtract | Multiply | Divide | Modulo | BitAnd | BitOr | Xor
-                    | ShiftLeft | ShiftRight => self.binding_type(left),
-                    Less | LessOrEqual | Greater | GreaterOrEqual | Equal | NotEqual | LogicAnd
-                    | LogicOr => vir::BaseType::Bool.into(),
+                let left_binding = self.process_expression(left);
+                let left_type = self.binding_type(left_binding);
+                let right_binding = self.process_expression(right);
+                let right_type = self.binding_type(right_binding);
+                let type_ = match (**op, &left_type.base, &right_type.base) {
+                    (
+                        Add | Subtract | Multiply | Divide | Modulo | BitAnd | BitOr | Xor
+                        | ShiftLeft | ShiftRight,
+                        vir::BaseType::I64,
+                        vir::BaseType::I64,
+                    ) => vir::Type::I64,
+                    (Add | Subtract, vir::BaseType::PointerI8, vir::BaseType::I64) => {
+                        vir::BaseType::PointerI8.into()
+                    }
+                    (Add, vir::BaseType::Struct(0), vir::BaseType::Struct(0)) => {
+                        let binding = self.make_temporary(vir::BaseType::Struct(0).into());
+                        self.add_statement(vir::Statement::Call(
+                            Some(binding),
+                            self.function_map["virtue_add_str"],
+                            vec![left_binding, right_binding],
+                        ));
+                        return binding;
+                    }
+                    (
+                        Less | LessOrEqual | Greater | GreaterOrEqual | Equal | NotEqual,
+                        vir::BaseType::I64,
+                        vir::BaseType::I64,
+                    ) => vir::BaseType::Bool.into(),
+                    (LogicAnd | LogicOr, vir::BaseType::Bool, vir::BaseType::Bool) => {
+                        vir::BaseType::Bool.into()
+                    }
+                    _ => {
+                        let op_fmt = **op;
+                        let left_fmt = self.format_type(&left_type);
+                        let right_fmt = self.format_type(&right_type);
+                        self.errors.push(Error {
+                            message: "incompatible types",
+                            note: format!("can't {op_fmt} {left_fmt} and {right_fmt}"),
+                            note_span: op.span,
+                        });
+                        return self.make_temporary(vir::BaseType::Void.into());
+                    }
                 };
                 let binding = self.make_temporary(type_);
-                self.add_statement(vir::Statement::BinaryOperator(binding, *op, left, right));
+                self.add_statement(vir::Statement::BinaryOperator(
+                    binding,
+                    **op,
+                    left_binding,
+                    right_binding,
+                ));
                 binding
             }
             ast::Expression::BoolLiteral(literal) => {
@@ -459,16 +499,13 @@ impl<'a> State<'a> {
             }
             ast::Expression::Call(callee_name, args_ast) => {
                 if **callee_name == "alloc" {
-                    let count = match &*args_ast[0] {
-                        ast::Expression::Literal(count) => *count,
-                        _ => todo!(),
-                    };
+                    let count = self.process_expression(&args_ast[0]);
                     let type_ = match &*args_ast[1] {
                         ast::Expression::Variable("i8") => vir::BaseType::PointerI8.into(),
                         _ => todo!(),
                     };
                     let binding = self.make_temporary(type_);
-                    self.add_statement(vir::Statement::Alloc(binding, count as usize));
+                    self.add_statement(vir::Statement::Alloc(binding, count));
                     return binding;
                 }
 
@@ -505,8 +542,13 @@ impl<'a> State<'a> {
                         );
                     }
                 }
-                let binding = self.make_temporary(callee_return_type);
-                self.add_statement(vir::Statement::Call(Some(binding), callee_id, arg_bindings));
+                let binding = self.make_temporary(callee_return_type.clone());
+                let call_binding = if callee_return_type.base != vir::BaseType::Void {
+                    Some(binding)
+                } else {
+                    None
+                };
+                self.add_statement(vir::Statement::Call(call_binding, callee_id, arg_bindings));
                 binding
             }
             ast::Expression::CallMethod(object_expr, _method_name, _args_ast) => {
@@ -528,9 +570,19 @@ impl<'a> State<'a> {
                 let (array, index) = indexing.as_ref();
                 let array = self.process_expression(array);
                 let index = self.process_expression(index);
-                let binding = self.make_temporary(self.binding_type(array).unwrap_list().clone());
-                self.add_statement(vir::Statement::Index(binding, array, index));
-                binding
+                if self.binding_type(array).base == vir::BaseType::Struct(0) {
+                    let string = array;
+                    let string_pointer = self.make_temporary(vir::BaseType::PointerI8.into());
+                    let binding = self.make_temporary(vir::BaseType::I8.into());
+                    self.add_statement(vir::Statement::Field(string_pointer, string, 0));
+                    self.add_statement(vir::Statement::Index(binding, string_pointer, index));
+                    binding
+                } else {
+                    let binding =
+                        self.make_temporary(self.binding_type(array).unwrap_list().clone());
+                    self.add_statement(vir::Statement::Index(binding, array, index));
+                    binding
+                }
             }
             ast::Expression::Literal(literal) => {
                 let binding = self.make_temporary(vir::Type::I64);
@@ -753,7 +805,7 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> Result<vir::Program<'a>, Vec<E
         current_block: 0,
     };
     let main_type = ast::Type {
-        segments: vec!["i32"],
+        segments: vec!["int"],
     };
 
     state.preprocess_block(&STD_AST.statements);

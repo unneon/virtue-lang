@@ -34,7 +34,7 @@ pub struct BindingData {
 
 #[derive(Debug)]
 pub enum Statement {
-    Alloc(Binding, usize),
+    Alloc(Binding, Binding),
     Assignment(Binding, Binding),
     AssignmentField(Binding, usize, Binding),
     AssignmentIndex(Binding, Binding, Binding),

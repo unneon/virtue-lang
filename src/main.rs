@@ -15,8 +15,11 @@ struct Options {
 enum Format {
     DebugAst,
     DebugVir,
+    #[cfg(feature = "c")]
     C,
+    #[cfg(feature = "llvm")]
     LlvmIr,
+    #[cfg(feature = "qbe")]
     QbeIl,
     Executable,
 }
@@ -56,6 +59,7 @@ fn main() {
     }
 
     match options.backend {
+        #[cfg(feature = "c")]
         Backend::C => {
             let c = virtue::codegen::c::make_c(&vir);
             if options.format == Format::C {
@@ -64,6 +68,7 @@ fn main() {
 
             virtue::codegen::c::compile_c(&c, output_path).unwrap();
         }
+        #[cfg(feature = "llvm")]
         Backend::Llvm => {
             let ir = virtue::codegen::llvm::make_ir(&vir);
             if options.format == Format::LlvmIr {
@@ -72,6 +77,7 @@ fn main() {
 
             virtue::codegen::llvm::compile_ir(&ir, output_path).unwrap();
         }
+        #[cfg(feature = "qbe")]
         Backend::Qbe => {
             let il = virtue::codegen::qbe::make_il(&vir);
             if options.format == Format::QbeIl {
@@ -114,10 +120,19 @@ fn options() -> Options {
             } else if arg == "debug-vir" {
                 Format::DebugVir
             } else if arg == "c" {
+                #[cfg(not(feature = "c"))]
+                error("c backend not enabled");
+                #[cfg(feature = "c")]
                 Format::C
             } else if arg == "llvm-ir" {
+                #[cfg(not(feature = "llvm"))]
+                error("llvm backend not enabled");
+                #[cfg(feature = "llvm")]
                 Format::LlvmIr
             } else if arg == "qbe-il" {
+                #[cfg(not(feature = "qbe"))]
+                error("qbe backend not enabled");
+                #[cfg(feature = "qbe")]
                 Format::QbeIl
             } else if arg == "executable" {
                 Format::Executable
@@ -132,10 +147,19 @@ fn options() -> Options {
                 error("option -b requires an argument");
             };
             backend = Some(if arg == "c" {
+                #[cfg(not(feature = "c"))]
+                error("c backend not enabled");
+                #[cfg(feature = "c")]
                 Backend::C
             } else if arg == "llvm" {
+                #[cfg(not(feature = "llvm"))]
+                error("llvm backend not enabled");
+                #[cfg(feature = "llvm")]
                 Backend::Llvm
             } else if arg == "qbe" {
+                #[cfg(not(feature = "qbe"))]
+                error("qbe backend not enabled");
+                #[cfg(feature = "qbe")]
                 Backend::Qbe
             } else {
                 error("option -b specified to unknown backend");
@@ -158,16 +182,26 @@ fn options() -> Options {
     let format = format.unwrap_or(Format::Executable);
     let backend = match backend {
         Some(backend) => backend,
+        #[cfg(feature = "c")]
         None if format == Format::C => Backend::C,
+        #[cfg(feature = "qbe")]
         None if format == Format::QbeIl => Backend::Qbe,
+        #[cfg(feature = "llvm")]
         None => Backend::Llvm,
+        #[cfg(not(feature = "llvm"))]
+        None => error("default llvm backend not enabled"),
     };
 
+    #[cfg(feature = "c")]
     if format == Format::C && backend != Backend::C {
         error("format c requires c backend");
-    } else if format == Format::LlvmIr && backend != Backend::Llvm {
+    }
+    #[cfg(feature = "llvm")]
+    if format == Format::LlvmIr && backend != Backend::Llvm {
         error("format llvm-ir requires llvm backend");
-    } else if format == Format::QbeIl && backend != Backend::Qbe {
+    }
+    #[cfg(feature = "qbe")]
+    if format == Format::QbeIl && backend != Backend::Qbe {
         error("format qbe-il requires qbe backend");
     }
 

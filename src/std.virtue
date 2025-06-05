@@ -2,6 +2,16 @@ struct string
     pointer pointer_i8
     length i64
 
+func virtue_add_str(left string, right string) string
+    result = new string
+    result.length = left.length + right.length
+    result.pointer = alloc(result.length, i8)
+    for i from 0 to left.length - 1
+        result[i] = left[i]
+    for i from 0 to right.length - 1
+        result[left.length + i] = right[i]
+    return result
+
 func virtue_print_raw(pointer pointer_i8, length int)
     syscall(1, 1, pointer, length)
 

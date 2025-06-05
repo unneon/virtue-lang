@@ -1,0 +1,15 @@
+a = 10 + "20"
+b = "10" + 20
+
+# error: incompatible types
+#  --> test.virtue:1:8
+#    |
+#  1 | a = 10 + "20"
+#    |        ^ can't add int and string
+#
+# error: incompatible types
+#  --> test.virtue:2:10
+#    |
+#  2 | b = "10" + 20
+#    |          ^ can't add string and int
+#

@@ -46,15 +46,18 @@ fn find_tests() -> Result<Vec<Trial>, Box<dyn Error>> {
                 for backend in ALL_BACKENDS {
                     let name = &file.name;
                     let backend_name = match backend {
+                        #[cfg(feature = "c")]
                         Backend::C => "c",
+                        #[cfg(feature = "llvm")]
                         Backend::Llvm => "llvm",
+                        #[cfg(feature = "qbe")]
                         Backend::Qbe => "qbe",
                     };
                     let name = format!("pass::{name}::{backend_name}");
                     let file = Arc::clone(&file);
                     let ignore =
                         file.directives.ignore || file.directives.ignore_backend.contains(&backend);
-                    let runner = move || run_pass(file, backend);
+                    let runner = move || run_pass(file, *backend);
                     let trial = Trial::test(name, runner).with_ignored_flag(ignore);
                     tests.push(trial);
                 }
@@ -109,10 +112,13 @@ fn parse_directives(source: &str) -> Directives {
         if line == "# ignore" {
             directives.ignore = true;
         } else if line == "# ignore-c" {
+            #[cfg(feature = "c")]
             directives.ignore_backend.insert(Backend::C);
         } else if line == "# ignore-llvm" {
+            #[cfg(feature = "llvm")]
             directives.ignore_backend.insert(Backend::Llvm);
         } else if line == "# ignore-qbe" {
+            #[cfg(feature = "qbe")]
             directives.ignore_backend.insert(Backend::Qbe);
         } else if let Some(line) = line.strip_prefix("# ") {
             directives.output += line;
@@ -131,12 +137,16 @@ fn run_pass(test: Arc<TestFile>, backend: Backend) -> Result<(), Failed> {
     };
     let vir = virtue::typecheck::typecheck(&ast).unwrap();
     let intermediate_name = match backend {
+        #[cfg(feature = "c")]
         Backend::C => "C",
+        #[cfg(feature = "llvm")]
         Backend::Llvm => "LLVM IR",
+        #[cfg(feature = "qbe")]
         Backend::Qbe => "QBE IL",
     };
     let output_file = tempfile();
     let intermediate = match backend {
+        #[cfg(feature = "c")]
         Backend::C => {
             let c = virtue::codegen::c::make_c(&vir);
             if let Err(e) = virtue::codegen::c::compile_c(&c, Some(output_file.path())) {
@@ -147,6 +157,7 @@ fn run_pass(test: Arc<TestFile>, backend: Backend) -> Result<(), Failed> {
             }
             c
         }
+        #[cfg(feature = "llvm")]
         Backend::Llvm => {
             let ir = virtue::codegen::llvm::make_ir(&vir);
             if let Err(e) = virtue::codegen::llvm::compile_ir(&ir, Some(output_file.path())) {
@@ -157,6 +168,7 @@ fn run_pass(test: Arc<TestFile>, backend: Backend) -> Result<(), Failed> {
             }
             ir
         }
+        #[cfg(feature = "qbe")]
         Backend::Qbe => {
             let il = virtue::codegen::qbe::make_il(&vir);
             if let Err(e) = virtue::codegen::qbe::compile_il(&il, Some(output_file.path())) {

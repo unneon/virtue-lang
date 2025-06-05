@@ -1,0 +1,14 @@
+struct simple
+    a int
+    b int
+func f() simple
+    s = new simple
+    s.a = 1234
+    s.b = 666
+    return s
+s = f()
+a = s.a
+b = s.b
+print "{a} {b}"
+
+# 1234 666

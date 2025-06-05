@@ -3,10 +3,16 @@ name = "virtue"
 version = "0.0.0"
 edition = "2024"
 
+[features]
+default = ["c", "llvm", "qbe"]
+c = []
+llvm = []
+qbe = ["dep:qbe"]
+
 [dependencies]
 memfd = "0.6"
 nom = "8.0"
-qbe = { git = "https://github.com/unneon/qbe-rs" }
+qbe = { git = "https://github.com/unneon/qbe-rs", optional = true }
 
 [dev-dependencies]
 libtest-mimic = "0.8"

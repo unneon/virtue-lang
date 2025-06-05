@@ -16,7 +16,6 @@ pub fn compile_c(c: &str, output_path: Option<&Path>) -> Result<(), String> {
 
     let mut stdin = child.stdin.take().unwrap();
     stdin.write_all(c.as_bytes()).unwrap();
-    stdin.flush().unwrap();
     drop(stdin);
 
     let output = child.wait_with_output().unwrap();

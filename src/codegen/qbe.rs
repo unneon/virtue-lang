@@ -10,8 +10,9 @@ use qbe::{Cmp, DataDef, DataItem, Instr, Linkage, Value};
 struct State<'a> {
     vir: &'a Program<'a>,
     vir_func: &'a Function<'a>,
-    il: qbe::Module<'static>,
-    func: qbe::Function<'static>,
+    il: qbe::Module<'a>,
+    aggregates: &'a [qbe::TypeDef<'a>],
+    func: qbe::Function<'a>,
     temp_counter: usize,
 }
 
@@ -20,7 +21,14 @@ impl<'a> State<'a> {
         for statement in statements {
             match statement {
                 Statement::Alloc(binding, count) => {
-                    self.assign(binding, Instr::Alloc4(*count as u32));
+                    let element_type = self.vir_func.bindings[binding.id].type_.dereference();
+                    let size = self.make_temporary();
+                    self.assign(
+                        size.clone(),
+                        Instr::Mul(count.into(), Value::Const(element_type.byte_size() as u64)),
+                    );
+                    let malloc = self.malloc(size);
+                    self.assign(binding, malloc);
                 }
                 Statement::Assignment(left, right) => {
                     self.assign(left, Instr::Copy(right.into()));
@@ -82,7 +90,15 @@ impl<'a> State<'a> {
                 }
                 Statement::Call(return_binding, function_id, args) => {
                     let function_name = self.vir.functions[*function_id].name;
-                    let args = args.iter().map(|arg| (Long, arg.into())).collect();
+                    let args = args
+                        .iter()
+                        .map(|arg| {
+                            (
+                                abi_type(&self.vir_func.bindings[arg.id].type_, self.aggregates),
+                                arg.into(),
+                            )
+                        })
+                        .collect();
                     let return_ = Instr::Call(function_name.to_string(), args, None);
                     if let Some(return_binding) = return_binding {
                         self.assign(return_binding, return_)
@@ -143,24 +159,14 @@ impl<'a> State<'a> {
                     self.assign(binding, Instr::Alloc8(struct_size as u64));
                 }
                 Statement::NewArray(binding, length) => {
+                    let element_type = self.vir_func.bindings[binding.id].type_.dereference();
                     let size = self.make_temporary();
-                    self.assign(size.clone(), Instr::Mul(length.into(), Value::Const(8)));
                     self.assign(
-                        binding,
-                        Instr::Call(
-                            "syscall".to_owned(),
-                            vec![
-                                (Long, Value::Const(9)),
-                                (Long, Value::Const(0)),
-                                (Long, size),
-                                (Long, Value::Const(0x3)),
-                                (Long, Value::Const(0x22)),
-                                (Long, Value::Const(u64::MAX)),
-                                (Long, Value::Const(0)),
-                            ],
-                            None,
-                        ),
+                        size.clone(),
+                        Instr::Mul(length.into(), Value::Const(element_type.byte_size() as u64)),
                     );
+                    let malloc = self.malloc(size);
+                    self.assign(binding, malloc);
                 }
                 Statement::Return(value) => {
                     if !self.vir_func.is_main {
@@ -222,8 +228,48 @@ impl<'a> State<'a> {
         }
     }
 
-    fn assign(&mut self, left: impl Into<Value>, right: Instr<'static>) {
-        self.func.assign_instr(left.into(), Long, right);
+    fn malloc(&mut self, size: impl Into<Value> + 'static) -> Instr<'static> {
+        Instr::Call(
+            "syscall".to_owned(),
+            vec![
+                (Long, Value::Const(9)),
+                (Long, Value::Const(0)),
+                (Long, size.into()),
+                (Long, Value::Const(0x3)),
+                (Long, Value::Const(0x22)),
+                (Long, Value::Const(u64::MAX)),
+                (Long, Value::Const(0)),
+            ],
+            None,
+        )
+    }
+
+    fn assign(&mut self, left: impl Into<Value>, right: Instr<'a>) {
+        let left = left.into();
+        let Value::Temporary(left_name) = &left else {
+            unreachable!()
+        };
+        let type_ = if let Some(left) = left_name.strip_prefix("_") {
+            let type_ = &self.vir_func.bindings[left.parse::<usize>().unwrap()].type_;
+            abi_type(type_, self.aggregates)
+        } else {
+            Long
+        };
+        if matches!(right, Instr::Call(_, _, _)) {
+            // The Rust qbe library converts the type to base type instead of ABI types, though I'm
+            // not sure if this isn't an exception in QBE made for struct-returning functions.
+            // TODO: Make a bug report?
+            self.func
+                .blocks
+                .last_mut()
+                .unwrap()
+                .items
+                .push(qbe::BlockItem::Statement(qbe::Statement::Assign(
+                    left, type_, right,
+                )))
+        } else {
+            self.func.assign_instr(left, type_, right);
+        }
     }
 
     fn make_temporary(&mut self) -> Value {
@@ -239,14 +285,37 @@ impl From<&Binding> for Value {
     }
 }
 
-pub fn make_il(vir: &Program) -> qbe::Module<'static> {
+pub fn make_il(vir: &Program) -> String {
+    let aggregates: Vec<_> = vir
+        .structs
+        .iter()
+        .enumerate()
+        .map(|(struct_id, struct_)| qbe::TypeDef {
+            name: format!("_{struct_id}"),
+            align: None,
+            items: struct_
+                .fields
+                .iter()
+                .map(|field| (extended_type(field), 1))
+                .collect(),
+        })
+        .collect();
+
     let mut state = State {
         vir,
         vir_func: &vir.functions[0],
         il: qbe::Module::new(),
+        aggregates: &aggregates,
         func: qbe::Function::new(Linkage::public(), "main", Vec::new(), Some(Word)),
         temp_counter: 0,
     };
+
+    for aggregate in &aggregates {
+        // The Rust qbe library requires reference to a TypeDef to construct an aggregate type, but
+        // doesn't provide a way to get it once added (it should probably use an index/name
+        // instead.) So we keep a copy in memory to pass it to `abi_type`.
+        state.il.add_type(aggregate.clone());
+    }
 
     for (string_id, string) in vir.strings.iter().enumerate() {
         state.il.add_data(DataDef::new(
@@ -273,7 +342,7 @@ pub fn make_il(vir: &Program) -> qbe::Module<'static> {
             .iter()
             .map(|arg| {
                 (
-                    base_type(&function.bindings[arg.binding.id].type_),
+                    abi_type(&function.bindings[arg.binding.id].type_, &aggregates),
                     (&arg.binding).into(),
                 )
             })
@@ -285,7 +354,7 @@ pub fn make_il(vir: &Program) -> qbe::Module<'static> {
             args,
             match function.return_type.base {
                 BaseType::Void => None,
-                _ => Some(base_type(&function.return_type)),
+                _ => Some(abi_type(&function.return_type, &aggregates)),
             },
         );
         state.temp_counter = 0;
@@ -296,20 +365,7 @@ pub fn make_il(vir: &Program) -> qbe::Module<'static> {
         state.il.add_function(state.func);
     }
 
-    state.il
-}
-
-fn base_type(type_: &Type) -> qbe::Type<'static> {
-    match &type_.base {
-        BaseType::Array(_) => Long,
-        BaseType::I64 => Long,
-        BaseType::I32 => Word,
-        BaseType::I8 => Long,
-        BaseType::Bool => Long,
-        BaseType::PointerI8 => Long,
-        BaseType::Struct(_) => Long,
-        BaseType::Void => unreachable!(),
-    }
+    state.il.to_string()
 }
 
 fn extended_type(type_: &Type) -> qbe::Type<'static> {
@@ -321,6 +377,19 @@ fn extended_type(type_: &Type) -> qbe::Type<'static> {
         BaseType::Bool => Byte,
         BaseType::PointerI8 => Long,
         BaseType::Struct(_) => Long,
+        BaseType::Void => unreachable!(),
+    }
+}
+
+fn abi_type<'a>(type_: &Type, aggregates: &'a [qbe::TypeDef<'a>]) -> qbe::Type<'a> {
+    match &type_.base {
+        BaseType::Array(_) => Long,
+        BaseType::I64 => Long,
+        BaseType::I32 => Word,
+        BaseType::I8 => SignedByte,
+        BaseType::Bool => UnsignedByte,
+        BaseType::PointerI8 => Long,
+        BaseType::Struct(struct_id) => qbe::Type::Aggregate(&aggregates[*struct_id]),
         BaseType::Void => unreachable!(),
     }
 }

@@ -69,7 +69,7 @@ pub enum Expression<'a> {
     ArrayLiteral(Vec<Spanned<Expression<'a>>>),
     ArrayRepeat(Box<(Spanned<Expression<'a>>, Spanned<Expression<'a>>)>),
     BinaryOperation(
-        BinaryOperator,
+        Spanned<BinaryOperator>,
         Box<(Spanned<Expression<'a>>, Spanned<Expression<'a>>)>,
     ),
     BoolLiteral(bool),
@@ -128,4 +128,23 @@ pub struct Format<'a> {
 pub enum FormatSegment<'a> {
     Text(Vec<&'a str>),
     Variable(&'a str),
+}
+
+impl std::fmt::Display for BinaryOperator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use BinaryOperator::*;
+        f.write_str(match self {
+            Add => "add",
+            Subtract => "subtract",
+            Multiply => "multiply",
+            Divide => "divide",
+            Modulo => "modulo",
+            BitAnd | LogicAnd => "and",
+            BitOr | LogicOr => "or",
+            Xor => "xor",
+            ShiftLeft => "shift left",
+            ShiftRight => "shift right",
+            Less | LessOrEqual | Greater | GreaterOrEqual | Equal | NotEqual => "compare",
+        })
+    }
 }

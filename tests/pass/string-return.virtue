@@ -1,0 +1,6 @@
+func hello() string
+    return "hello"
+a = hello()
+print "{a}"
+
+# hello

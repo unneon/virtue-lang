@@ -1,0 +1,5 @@
+a = "hello"
+b = a + a
+print "{a} {b}"
+
+# hello hellohello

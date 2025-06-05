@@ -122,7 +122,11 @@ impl State<'_> {
                 Statement::Alloc(binding, count) => {
                     let type_ = convert_type(&function.bindings[binding.id].type_.dereference());
                     let temp = self.make_temporary();
-                    self.write(format!("%temp_{temp} = alloca {type_}, i64 {count}"));
+                    let count_temp = self.make_temporary();
+                    self.load(count_temp, count);
+                    self.write(format!(
+                        "%temp_{temp} = alloca {type_}, i64 %temp_{count_temp}"
+                    ));
                     self.store(binding, temp);
                 }
                 Statement::Assignment(left, right) => {
@@ -289,7 +293,7 @@ impl State<'_> {
                 }
                 Statement::Index(result_binding, array_binding, index_binding) => {
                     let value_type =
-                        convert_type(function.bindings[array_binding.id].type_.unwrap_list());
+                        convert_type(&function.bindings[array_binding.id].type_.dereference());
                     let array_temp = self.make_temporary();
                     let index_temp = self.make_temporary();
                     let field_temp = self.make_temporary();

@@ -3,15 +3,15 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-pub fn compile_il(module: &qbe::Module, output_path: Option<&Path>) -> Result<(), String> {
+pub fn compile_il(il: &str, output_path: Option<&Path>) -> Result<(), String> {
     let object_file = tempfile();
-    let assembly = qbe(module)?;
+    let assembly = qbe(il)?;
     as_(&assembly, object_file.path())?;
     ld(object_file.path(), output_path)?;
     Ok(())
 }
 
-fn qbe(module: &qbe::Module) -> Result<Vec<u8>, String> {
+fn qbe(il: &str) -> Result<Vec<u8>, String> {
     let mut child = Command::new("qbe")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -20,7 +20,7 @@ fn qbe(module: &qbe::Module) -> Result<Vec<u8>, String> {
         .unwrap();
 
     let mut stdin = child.stdin.take().unwrap();
-    write!(stdin, "{module}").unwrap();
+    stdin.write_all(il.as_bytes()).unwrap();
     drop(stdin);
 
     let output = child.wait_with_output().unwrap();

@@ -1,0 +1,11 @@
+struct simple
+    a int
+func f() simple
+    s = new simple
+    s.a = 1234
+    return s
+s = f()
+a = s.a
+print "{a}"
+
+# 1234

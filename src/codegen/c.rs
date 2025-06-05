@@ -85,19 +85,13 @@ impl State<'_> {
         for statement in block {
             match statement {
                 Statement::Alloc(binding, count) => {
-                    let element_type = function.bindings[binding.id].type_.dereference();
-                    self.syscall(
-                        Some(binding),
-                        &[
-                            Value::Const(9),
-                            Value::Const(0),
-                            Value::Const((count * element_type.byte_size()) as i64),
-                            Value::Const(0x3),
-                            Value::Const(0x22),
-                            Value::Const(-1),
-                            Value::Const(0),
-                        ],
-                    );
+                    let binding_id = binding.id;
+                    let count_id = count.id;
+                    let size_temp = self.make_temporary();
+                    self.write(format!(
+                        "    long long tmp{size_temp} = _{count_id} * sizeof(*_{binding_id});"
+                    ));
+                    self.malloc(binding, Value::Temporary(size_temp));
                 }
                 Statement::Assignment(left, right) => {
                     if function.bindings[left.id].type_.base == BaseType::Void {
@@ -195,23 +189,11 @@ impl State<'_> {
                 Statement::NewArray(array, length) => {
                     let array_id = array.id;
                     let length_id = length.id;
-                    let size_temp = self.temporary_counter;
-                    self.temporary_counter += 1;
+                    let size_temp = self.make_temporary();
                     self.write(format!(
                         "    long long tmp{size_temp} = _{length_id} * sizeof(*_{array_id});"
                     ));
-                    self.syscall(
-                        Some(array),
-                        &[
-                            Value::Const(9),
-                            Value::Const(0),
-                            Value::Temporary(size_temp),
-                            Value::Const(0x3),
-                            Value::Const(0x22),
-                            Value::Const(-1),
-                            Value::Const(0),
-                        ],
-                    );
+                    self.malloc(array, Value::Temporary(size_temp));
                 }
                 Statement::Return(binding) => {
                     if !function.is_main {
@@ -267,6 +249,21 @@ impl State<'_> {
         format!("{function_return_type} {function_name}({args})")
     }
 
+    fn malloc(&mut self, array: &Binding, size: Value) {
+        self.syscall(
+            Some(array),
+            &[
+                Value::Const(9),
+                Value::Const(0),
+                size,
+                Value::Const(0x3),
+                Value::Const(0x22),
+                Value::Const(-1),
+                Value::Const(0),
+            ],
+        );
+    }
+
     fn syscall(&mut self, return_binding: Option<&Binding>, arg_bindings: &[Value]) {
         let return_ = if let Some(return_binding) = return_binding {
             let return_id = return_binding.id;
@@ -300,6 +297,12 @@ impl State<'_> {
         self.write(format!(
             "    asm volatile (\"syscall\" : {return_} : {args} : \"rcx\", \"r11\", \"memory\");"
         ));
+    }
+
+    fn make_temporary(&mut self) -> usize {
+        let temporary = self.temporary_counter;
+        self.temporary_counter += 1;
+        temporary
     }
 
     fn write(&mut self, content: impl AsRef<str>) {
