@@ -321,6 +321,7 @@ fn convert_type(type_: &Type) -> String {
         BaseType::Array(element_type) => format!("{}*", convert_type(element_type)),
         BaseType::Struct(name) => format!("struct struct{name}"),
         BaseType::Void => "void".to_owned(),
+        BaseType::Error => unreachable!(),
     }
 }
 

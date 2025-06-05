@@ -1,0 +1,9 @@
+a = new some_struct
+a.some_field = 123
+
+# error: struct does not exist
+#  --> test.virtue:1:9
+#    |
+#  1 | a = new some_struct
+#    |         ^^^^^^^^^^^
+#

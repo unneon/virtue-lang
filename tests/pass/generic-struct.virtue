@@ -1,0 +1,16 @@
+struct generic_struct(t type)
+    field t
+
+ints = new generic_struct int
+strings = new generic_struct string
+
+ints.field = 42
+strings.field = "Hi"
+
+i = ints.field
+s = strings.field
+
+print "{i} {s}"
+
+# ignore
+# 42 Hi

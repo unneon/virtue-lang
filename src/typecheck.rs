@@ -27,6 +27,11 @@ enum Fallthrough {
 static STD_AST: LazyLock<ast::Module> =
     LazyLock::new(|| parse(include_str!("std.virtue")).unwrap());
 
+const STRING_TYPE: vir::Type = vir::Type {
+    base: vir::BaseType::Struct(0),
+    predicates: Vec::new(),
+};
+
 impl<'a> State<'a> {
     fn preprocess_function(
         &mut self,
@@ -46,15 +51,16 @@ impl<'a> State<'a> {
             });
             binding_map.insert(*name, binding);
         }
+        let return_type = match return_type {
+            Some(return_type) => self.convert_type(return_type),
+            None => vir::BaseType::Void.into(),
+        };
         self.functions.push(vir::Function {
             exported: name == "main",
             is_main: name == "main",
             name,
             args: vir_args,
-            return_type: match return_type {
-                Some(return_type) => self.convert_type(return_type),
-                None => vir::BaseType::Void.into(),
-            },
+            return_type,
             bindings,
             binding_map,
             blocks: Vec::new(),
@@ -591,6 +597,9 @@ impl<'a> State<'a> {
             }
             ast::Expression::New(struct_name) => {
                 let struct_type = self.convert_type(struct_name);
+                if struct_type.is_error() {
+                    return self.error_binding();
+                }
                 let struct_id = struct_type.unwrap_struct();
                 let binding = self.make_temporary(struct_type);
                 self.add_statement(vir::Statement::New(binding, struct_id));
@@ -598,7 +607,7 @@ impl<'a> State<'a> {
             }
             ast::Expression::StringLiteral(literal) => {
                 let string_id = self.make_string(literal);
-                let binding = self.make_temporary(self.struct_by_name("string"));
+                let binding = self.make_temporary(STRING_TYPE);
                 self.add_statement(vir::Statement::StringConstant(binding, string_id));
                 binding
             }
@@ -622,7 +631,11 @@ impl<'a> State<'a> {
         match dest {
             ast::Expression::Field(object, field_name) => {
                 let object_binding = self.process_expression(object);
-                let struct_id = self.binding_type(object_binding).unwrap_struct();
+                let struct_type = self.binding_type(object_binding);
+                if struct_type.is_error() {
+                    return;
+                }
+                let struct_id = struct_type.unwrap_struct();
                 let Ok(field_id) = self.struct_field(struct_id, *field_name) else {
                     return;
                 };
@@ -694,6 +707,10 @@ impl<'a> State<'a> {
         block_id
     }
 
+    fn error_binding(&mut self) -> Binding {
+        self.make_temporary(vir::BaseType::Error.into())
+    }
+
     fn add_statement(&mut self, statement: vir::Statement) {
         self.functions[self.current_function].blocks[self.current_block].push(statement);
     }
@@ -720,15 +737,15 @@ impl<'a> State<'a> {
         }
     }
 
-    fn convert_type(&self, type_: &ast::Type) -> vir::Type {
-        match type_.segments.as_slice() {
-            [.., "int"] => vir::Type::I64,
-            [.., "i64"] => vir::Type::I64,
-            [.., "i32"] => vir::Type::I32,
-            [.., "bool"] => vir::BaseType::Bool.into(),
-            [.., "pointer_i8"] => vir::BaseType::PointerI8.into(),
-            [.., struct_name] => vir::BaseType::Struct(self.struct_map[struct_name]).into(),
-            segments => todo!("convert_type {segments:?}"),
+    fn convert_type(&mut self, type_: &ast::Type) -> vir::Type {
+        let name = type_.segments.as_slice().last().unwrap();
+        match **name {
+            "int" => vir::Type::I64,
+            "i64" => vir::Type::I64,
+            "i32" => vir::Type::I32,
+            "bool" => vir::BaseType::Bool.into(),
+            "pointer_i8" => vir::BaseType::PointerI8.into(),
+            _ => self.struct_by_name(*name),
         }
     }
 
@@ -756,8 +773,18 @@ impl<'a> State<'a> {
         }
     }
 
-    fn struct_by_name(&self, name: &str) -> vir::Type {
-        vir::BaseType::Struct(self.struct_map[name]).into()
+    fn struct_by_name(&mut self, name: Spanned<&str>) -> vir::Type {
+        match self.struct_map.get(*name) {
+            Some(id) => vir::BaseType::Struct(*id).into(),
+            None => {
+                self.errors.push(Error {
+                    message: "struct does not exist",
+                    note: String::new(),
+                    note_span: name.span,
+                });
+                vir::BaseType::Error.into()
+            }
+        }
     }
 
     fn struct_field(&mut self, struct_id: usize, field_name: Spanned<&str>) -> Result<usize, ()> {
@@ -789,6 +816,7 @@ impl<'a> State<'a> {
             vir::BaseType::PointerI8 => "pointer_i8".to_owned(),
             vir::BaseType::Struct(struct_id) => self.structs[*struct_id].name.to_owned(),
             vir::BaseType::Void => "void".to_owned(),
+            vir::BaseType::Error => "(type error)".to_owned(),
         }
     }
 }
@@ -805,7 +833,7 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> Result<vir::Program<'a>, Vec<E
         current_block: 0,
     };
     let main_type = ast::Type {
-        segments: vec!["int"],
+        segments: vec![Spanned::fake("int")],
     };
 
     state.preprocess_block(&STD_AST.statements);

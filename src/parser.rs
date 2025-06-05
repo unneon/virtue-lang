@@ -475,7 +475,7 @@ fn variable_reference(input: &str) -> IResult<&str, Expression> {
 }
 
 fn type_(input: &str) -> IResult<&str, Type> {
-    many1(preceded(sp, identifier))
+    many1(preceded(sp, spanned(identifier)))
         .map(|segments| Type { segments })
         .parse(input)
 }

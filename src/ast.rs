@@ -61,7 +61,7 @@ pub struct Function<'a> {
 
 #[derive(Clone, Debug)]
 pub struct Type<'a> {
-    pub segments: Vec<&'a str>,
+    pub segments: Vec<Spanned<&'a str>>,
 }
 
 #[derive(Clone, Debug)]

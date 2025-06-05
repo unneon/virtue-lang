@@ -85,6 +85,7 @@ pub enum BaseType {
     PointerI8,
     Struct(usize),
     Void,
+    Error,
 }
 
 impl Program<'_> {
@@ -102,6 +103,10 @@ impl Type {
         predicates: Vec::new(),
         base: BaseType::I32,
     };
+
+    pub fn is_error(&self) -> bool {
+        matches!(self.base, BaseType::Error)
+    }
 
     pub fn unwrap_list(&self) -> &Type {
         match &self.base {
@@ -136,6 +141,7 @@ impl Type {
             // TODO: QBE and LLVM work differently here.
             BaseType::Struct(_) => 8,
             BaseType::Void => 0,
+            BaseType::Error => unreachable!(),
         }
     }
 }

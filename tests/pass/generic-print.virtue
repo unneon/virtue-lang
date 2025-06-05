@@ -1,0 +1,9 @@
+func generic_print(value t, t type)
+    print "{value}"
+
+generic_print(1234)
+generic_print("Hello")
+
+# ignore
+# 1234
+# Hello

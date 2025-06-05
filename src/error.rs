@@ -78,6 +78,15 @@ impl Error {
     }
 }
 
+impl<T> Spanned<T> {
+    pub fn fake(value: T) -> Spanned<T> {
+        Spanned {
+            value,
+            span: Span { start: 0, end: 0 },
+        }
+    }
+}
+
 impl<T> SpanExt for T {
     fn with_span(self, span: Span) -> Spanned<T> {
         Spanned { value: self, span }
