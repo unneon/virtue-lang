@@ -416,7 +416,7 @@ fn field_expression(input: &str) -> IResult<&str, Expression> {
 
 fn function_call(input: &str) -> IResult<&str, Expression> {
     (
-        preceded(sp, identifier),
+        preceded(sp, spanned(identifier)),
         delimited(
             (sp, char('(')),
             spanned(separated_list0(

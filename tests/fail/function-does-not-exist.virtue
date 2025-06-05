@@ -1,0 +1,8 @@
+f(1, 2)
+
+# error: function does not exist
+#  --> test.virtue:1:1
+#    |
+#  1 | f(1, 2)
+#    | ^
+#

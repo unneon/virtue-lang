@@ -1,5 +1,5 @@
 use crate::ast::{BinaryOperator, FormatSegment, IncrementDecrementOperator, UnaryOperator};
-use crate::error::{Error, Span};
+use crate::error::{Error, Span, Spanned};
 use crate::parser::parse;
 use crate::vir::Binding;
 use crate::{ast, vir};
@@ -457,7 +457,7 @@ impl<'a> State<'a> {
                 binding
             }
             ast::Expression::Call(callee_name, args_ast) => {
-                if *callee_name == "alloc" {
+                if **callee_name == "alloc" {
                     let count = match &*args_ast[0] {
                         ast::Expression::Literal(count) => *count,
                         _ => todo!(),
@@ -476,13 +476,17 @@ impl<'a> State<'a> {
                     .map(|arg| self.process_expression(arg))
                     .collect();
 
-                if *callee_name == "syscall" {
+                if **callee_name == "syscall" {
                     let binding = self.make_temporary(vir::Type::I64);
                     self.add_statement(vir::Statement::Syscall(binding, arg_bindings));
                     return binding;
                 }
 
-                let callee_id = self.function_map[callee_name];
+                let Ok(callee_id) = self.function_by_name(*callee_name) else {
+                    let fake_binding = self.make_temporary(vir::BaseType::Void.into());
+                    return fake_binding;
+                };
+
                 let callee = &self.functions[callee_id];
                 self.check_argument_count(callee.args.len(), arg_bindings.len(), args_ast.span);
                 let callee = &self.functions[callee_id];
@@ -679,6 +683,20 @@ impl<'a> State<'a> {
         self.functions[self.current_function].bindings[binding.id]
             .type_
             .clone()
+    }
+
+    fn function_by_name(&mut self, name: Spanned<&str>) -> Result<usize, ()> {
+        match self.function_map.get(*name) {
+            Some(id) => Ok(*id),
+            None => {
+                self.errors.push(Error {
+                    message: "function does not exist",
+                    note: String::new(),
+                    note_span: name.span,
+                });
+                Err(())
+            }
+        }
     }
 
     fn struct_by_name(&self, name: &str) -> vir::Type {

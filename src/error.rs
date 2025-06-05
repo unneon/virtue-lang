@@ -24,7 +24,7 @@ pub struct Span {
     pub end: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Spanned<T> {
     pub value: T,
     pub span: Span,
@@ -66,12 +66,13 @@ impl Error {
         let code = &source[line_start..line_end];
         let note_indent = " ".repeat(column - 1);
         let note_highlight = "^".repeat(end - start);
+        let note_space = if note.is_empty() { "" } else { " " };
         format!(
             r#"{red}error:{reset} {bold}{message}{reset}
  {blue}-->{reset} {filename}:{line}:{column}
    {blue}|{reset}
  {blue}{line}{reset} {blue}|{reset} {code}
-   {blue}|{reset} {note_indent}{red}{note_highlight} {note}{reset}
+   {blue}|{reset} {note_indent}{red}{note_highlight}{note_space}{note}{reset}
 "#
         )
     }
