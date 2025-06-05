@@ -28,16 +28,16 @@ impl State<'_> {
     }
 
     fn prologue_strings(&mut self) {
-        for (string_id, string) in self.vir.strings.iter().enumerate() {
-            let string_len = string.iter().map(|s| s.len()).sum::<usize>() + 1;
-            self.ir += &format!("@string_{string_id} = internal constant [{string_len} x i8] c\"");
-            for s in *string {
+        for (id, text) in self.vir.strings.iter().enumerate() {
+            let length = self.vir.string_len(id);
+            self.ir += &format!("@string_{id} = internal constant [{length} x i8] c\"");
+            for s in *text {
                 self.ir += match *s {
                     "\n" => "\\0A",
                     _ => s,
                 };
             }
-            self.ir += "\\00\"\n";
+            self.ir += "\"\n";
         }
     }
 
