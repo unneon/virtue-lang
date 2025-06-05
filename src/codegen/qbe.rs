@@ -12,7 +12,6 @@ struct State<'a> {
     vir_func: &'a Function<'a>,
     il: qbe::Module<'static>,
     func: qbe::Function<'static>,
-    string_counter: usize,
     temp_counter: usize,
 }
 
@@ -232,25 +231,6 @@ impl<'a> State<'a> {
         self.temp_counter += 1;
         Value::Temporary(format!("tmp_{temp_id}"))
     }
-
-    fn string_constant(&mut self, text: &[&str], assignment: Option<String>) -> Value {
-        let name = if let Some(assignment) = assignment {
-            assignment
-        } else {
-            let string_id = self.string_counter;
-            self.string_counter += 1;
-            format!("string_{string_id}")
-        };
-        let text = escape_string(text);
-        self.il.add_data(DataDef::new(
-            Linkage::private(),
-            name.clone(),
-            None,
-            vec![(Byte, DataItem::Str(text))],
-        ));
-
-        Value::Global(name)
-    }
 }
 
 impl From<&Binding> for Value {
@@ -265,13 +245,16 @@ pub fn make_il(vir: &Program) -> qbe::Module<'static> {
         vir_func: &vir.functions[0],
         il: qbe::Module::new(),
         func: qbe::Function::new(Linkage::public(), "main", Vec::new(), Some(Word)),
-        string_counter: 0,
         temp_counter: 0,
     };
 
-    state.string_counter = vir.strings.len();
     for (string_id, string) in vir.strings.iter().enumerate() {
-        state.string_constant(string, Some(format!("string_{string_id}")));
+        state.il.add_data(DataDef::new(
+            Linkage::private(),
+            format!("string_{string_id}"),
+            None,
+            vec![(Byte, DataItem::Str(escape_string(string)))],
+        ));
     }
 
     for function in &vir.functions {
