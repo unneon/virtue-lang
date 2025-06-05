@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::Arc;
 use virtue::codegen::{ALL_BACKENDS, Backend};
-use virtue::error::NO_COLORS;
+use virtue::error::{NO_COLORS, format_errors};
 use virtue::util::tempfile;
 
 struct TestFile {
@@ -135,7 +135,13 @@ fn run_pass(test: Arc<TestFile>, backend: Backend) -> Result<(), Failed> {
         Ok(ast) => ast,
         Err(e) => return Err(format!("\x1B[1mparse error:\x1B[0m\n{e}").into()),
     };
-    let vir = virtue::typecheck::typecheck(&ast).unwrap();
+    let vir = match virtue::typecheck::typecheck(&ast) {
+        Ok(vir) => vir,
+        Err(e) => {
+            let e = format_errors(&e, &test.source, "test.virtue", &NO_COLORS);
+            return Err(format!("\x1B[1mtypecheck error:\x1B[0m\n{e}").into());
+        }
+    };
     let intermediate_name = match backend {
         #[cfg(feature = "c")]
         Backend::C => "C",
@@ -208,15 +214,8 @@ fn run_fail(test: TestFile) -> Result<(), Failed> {
     let vir = match virtue::typecheck::typecheck(&ast) {
         Ok(vir) => vir,
         Err(errors) => {
-            let actual_stderr: String = errors
-                .iter()
-                .flat_map(|error| {
-                    error
-                        .format(&test.source, "test.virtue", &NO_COLORS)
-                        .into_chars()
-                        .chain(std::iter::once('\n'))
-                })
-                .collect();
+            let actual_stderr: String =
+                format_errors(&errors, &test.source, "test.virtue", &NO_COLORS);
             let expected_stderr = &test.directives.output;
             if actual_stderr != *expected_stderr {
                 if std::env::var("VIRTUE_LANG_BLESS")

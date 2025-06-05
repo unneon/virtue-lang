@@ -43,13 +43,25 @@ impl<'a> State<'a> {
         let mut vir_args = Vec::new();
         let mut bindings = Vec::new();
         let mut binding_map = HashMap::new();
+        let mut type_variable_map = HashMap::new();
         for (name, type_) in ast_args {
-            let binding = Binding { id: bindings.len() };
-            vir_args.push(vir::Arg { binding });
-            bindings.push(vir::BindingData {
-                type_: self.convert_type(type_),
-            });
-            binding_map.insert(*name, binding);
+            if **type_.segments.last().unwrap() == "type" {
+                type_variable_map.insert(*name, type_variable_map.len());
+            }
+        }
+        for (name, type_) in ast_args {
+            let core_type = **type_.segments.last().unwrap();
+            if core_type != "type" {
+                let binding = Binding { id: bindings.len() };
+                let type_ = if let Some(type_variable) = type_variable_map.get(core_type) {
+                    vir::BaseType::TypeVariable(*type_variable).into()
+                } else {
+                    self.convert_type(type_)
+                };
+                vir_args.push(vir::Arg { binding });
+                bindings.push(vir::BindingData { type_ });
+                binding_map.insert(*name, binding);
+            }
         }
         let return_type = match return_type {
             Some(return_type) => self.convert_type(return_type),
@@ -63,6 +75,7 @@ impl<'a> State<'a> {
             return_type,
             bindings,
             binding_map,
+            type_variable_map: HashMap::new(),
             blocks: Vec::new(),
             ast_block: body,
         });
@@ -294,6 +307,8 @@ impl<'a> State<'a> {
                                         self.function_map["virtue_print_str"]
                                     }
                                     vir::BaseType::Void => continue,
+                                    vir::BaseType::TypeVariable(_) => continue,
+                                    vir::BaseType::Error => continue,
                                     _ => todo!(),
                                 };
                                 self.add_statement(vir::Statement::Call(None, function, vec![var]));
@@ -774,6 +789,13 @@ impl<'a> State<'a> {
     }
 
     fn struct_by_name(&mut self, name: Spanned<&str>) -> vir::Type {
+        if self.current_function < self.functions.len()
+            && let Some(type_variable) = self.functions[self.current_function]
+                .type_variable_map
+                .get(*name)
+        {
+            return vir::BaseType::TypeVariable(*type_variable).into();
+        }
         match self.struct_map.get(*name) {
             Some(id) => vir::BaseType::Struct(*id).into(),
             None => {
@@ -816,6 +838,7 @@ impl<'a> State<'a> {
             vir::BaseType::PointerI8 => "pointer_i8".to_owned(),
             vir::BaseType::Struct(struct_id) => self.structs[*struct_id].name.to_owned(),
             vir::BaseType::Void => "void".to_owned(),
+            vir::BaseType::TypeVariable(id) => format!("(type variable {id})"),
             vir::BaseType::Error => "(type error)".to_owned(),
         }
     }
@@ -829,7 +852,7 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> Result<vir::Program<'a>, Vec<E
         struct_map: HashMap::new(),
         strings: vec![&["\n"]],
         errors: Vec::new(),
-        current_function: 0,
+        current_function: usize::MAX,
         current_block: 0,
     };
     let main_type = ast::Type {

@@ -378,6 +378,7 @@ fn extended_type(type_: &Type) -> qbe::Type<'static> {
         BaseType::PointerI8 => Long,
         BaseType::Struct(_) => Long,
         BaseType::Void => unreachable!(),
+        BaseType::TypeVariable(_) => unreachable!(),
         BaseType::Error => unreachable!(),
     }
 }
@@ -392,6 +393,7 @@ fn abi_type<'a>(type_: &Type, aggregates: &'a [qbe::TypeDef<'a>]) -> qbe::Type<'
         BaseType::PointerI8 => Long,
         BaseType::Struct(struct_id) => qbe::Type::Aggregate(&aggregates[*struct_id]),
         BaseType::Void => unreachable!(),
+        BaseType::TypeVariable(_) => unreachable!(),
         BaseType::Error => unreachable!(),
     }
 }
@@ -406,6 +408,7 @@ fn load_type(type_: &Type) -> qbe::Type<'static> {
         BaseType::PointerI8 => Long,
         BaseType::Struct(_) => Long,
         BaseType::Void => unreachable!(),
+        BaseType::TypeVariable(_) => unreachable!(),
         BaseType::Error => unreachable!(),
     }
 }

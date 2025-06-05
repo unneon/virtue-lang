@@ -1,4 +1,5 @@
 #![feature(decl_macro)]
+#![feature(string_into_chars)]
 #![feature(trait_alias)]
 
 pub mod ast;

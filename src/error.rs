@@ -45,7 +45,7 @@ pub const ANSI_COLORS: Colors = Colors {
 };
 
 impl Error {
-    pub fn format(&self, source: &str, filename: &str, colors: &Colors) -> String {
+    fn format(&self, source: &str, filename: &str, colors: &Colors) -> String {
         let Error {
             message,
             note,
@@ -99,4 +99,16 @@ impl<T> Deref for Spanned<T> {
     fn deref(&self) -> &T {
         &self.value
     }
+}
+
+pub fn format_errors(errors: &[Error], source: &str, filename: &str, colors: &Colors) -> String {
+    errors
+        .iter()
+        .flat_map(|error| {
+            error
+                .format(source, filename, colors)
+                .into_chars()
+                .chain(std::iter::once('\n'))
+        })
+        .collect()
 }

@@ -18,6 +18,7 @@ pub struct Function<'a> {
     pub return_type: Type,
     pub bindings: Vec<BindingData>,
     pub binding_map: HashMap<&'a str, Binding>,
+    pub type_variable_map: HashMap<&'a str, usize>,
     pub blocks: Vec<Vec<Statement>>,
     pub ast_block: &'a [ast::Statement<'a>],
 }
@@ -85,6 +86,7 @@ pub enum BaseType {
     PointerI8,
     Struct(usize),
     Void,
+    TypeVariable(usize),
     Error,
 }
 
@@ -141,6 +143,7 @@ impl Type {
             // TODO: QBE and LLVM work differently here.
             BaseType::Struct(_) => 8,
             BaseType::Void => 0,
+            BaseType::TypeVariable(_) => unreachable!(),
             BaseType::Error => unreachable!(),
         }
     }

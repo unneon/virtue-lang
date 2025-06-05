@@ -468,6 +468,7 @@ fn convert_type(type_: &Type) -> String {
         BaseType::PointerI8 => "i8*".to_owned(),
         BaseType::Struct(id) => format!("%struct_{id}"),
         BaseType::Void => "void".to_owned(),
+        BaseType::TypeVariable(_) => unreachable!(),
         BaseType::Error => unreachable!(),
     }
 }

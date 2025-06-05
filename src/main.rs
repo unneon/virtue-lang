@@ -2,7 +2,7 @@ use std::fmt::Display;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use virtue::codegen::Backend;
-use virtue::error::ANSI_COLORS;
+use virtue::error::{ANSI_COLORS, format_errors};
 
 struct Options {
     source_path: PathBuf,
@@ -45,12 +45,15 @@ fn main() {
     let vir = match virtue::typecheck::typecheck(&ast) {
         Ok(vir) => vir,
         Err(errors) => {
-            for error in errors {
-                eprintln!(
-                    "{}",
-                    error.format(&source, options.source_path.to_str().unwrap(), &ANSI_COLORS)
-                );
-            }
+            eprintln!(
+                "{}",
+                format_errors(
+                    &errors,
+                    &source,
+                    options.source_path.to_str().unwrap(),
+                    &ANSI_COLORS
+                )
+            );
             std::process::exit(1);
         }
     };
