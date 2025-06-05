@@ -1,0 +1,20 @@
+struct hello
+    a int
+    b int
+h = new hello
+h.c = 3
+c = h.c
+print "{c}"
+
+# error: field does not exist
+#  --> test.virtue:5:3
+#    |
+#  5 | h.c = 3
+#    |   ^ struct hello does not have this field
+#
+# error: field does not exist
+#  --> test.virtue:6:7
+#    |
+#  6 | c = h.c
+#    |       ^ struct hello does not have this field
+#

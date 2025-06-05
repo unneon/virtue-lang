@@ -287,6 +287,7 @@ impl<'a> State<'a> {
                                     vir::BaseType::Struct(0) => {
                                         self.function_map["virtue_print_str"]
                                     }
+                                    vir::BaseType::Void => continue,
                                     _ => todo!(),
                                 };
                                 self.add_statement(vir::Statement::Call(None, function, vec![var]));
@@ -516,7 +517,9 @@ impl<'a> State<'a> {
             ast::Expression::Field(object_expr, field_name) => {
                 let object_binding = self.process_expression(object_expr);
                 let struct_id = self.binding_type(object_binding).unwrap_struct();
-                let field_id = self.structs[struct_id].field_map[field_name];
+                let Ok(field_id) = self.struct_field(struct_id, *field_name) else {
+                    return self.make_temporary(vir::BaseType::Void.into());
+                };
                 let binding = self.make_temporary(self.structs[struct_id].fields[field_id].clone());
                 self.add_statement(vir::Statement::Field(binding, object_binding, field_id));
                 binding
@@ -568,7 +571,9 @@ impl<'a> State<'a> {
             ast::Expression::Field(object, field_name) => {
                 let object_binding = self.process_expression(object);
                 let struct_id = self.binding_type(object_binding).unwrap_struct();
-                let field_id = self.structs[struct_id].field_map[field_name];
+                let Ok(field_id) = self.struct_field(struct_id, *field_name) else {
+                    return;
+                };
                 self.add_statement(vir::Statement::AssignmentField(
                     object_binding,
                     field_id,
@@ -701,6 +706,21 @@ impl<'a> State<'a> {
 
     fn struct_by_name(&self, name: &str) -> vir::Type {
         vir::BaseType::Struct(self.struct_map[name]).into()
+    }
+
+    fn struct_field(&mut self, struct_id: usize, field_name: Spanned<&str>) -> Result<usize, ()> {
+        match self.structs[struct_id].field_map.get(*field_name) {
+            Some(id) => Ok(*id),
+            None => {
+                let struct_name = self.structs[struct_id].name;
+                self.errors.push(Error {
+                    message: "field does not exist",
+                    note: format!("struct {struct_name} does not have this field"),
+                    note_span: field_name.span,
+                });
+                Err(())
+            }
+        }
     }
 
     fn format_type(&self, type_: &vir::Type) -> String {

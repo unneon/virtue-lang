@@ -409,7 +409,7 @@ fn method_call(input: &str) -> IResult<&str, Expression> {
 }
 
 fn field_expression(input: &str) -> IResult<&str, Expression> {
-    (variable_reference, preceded(char('.'), identifier))
+    (variable_reference, preceded(char('.'), spanned(identifier)))
         .map(|(object, field)| Expression::Field(Box::new(object), field))
         .parse(input)
 }

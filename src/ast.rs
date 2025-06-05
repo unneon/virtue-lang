@@ -78,7 +78,7 @@ pub enum Expression<'a> {
     Index(Box<(Expression<'a>, Spanned<Expression<'a>>)>),
     Literal(i64),
     New(Type<'a>),
-    Field(Box<Expression<'a>>, &'a str),
+    Field(Box<Expression<'a>>, Spanned<&'a str>),
     StringLiteral(Vec<&'a str>),
     UnaryOperation(UnaryOperator, Box<Spanned<Expression<'a>>>),
     Variable(&'a str),
