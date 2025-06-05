@@ -1,7 +1,7 @@
 use crate::ast::{BinaryOperator, FormatSegment, IncrementDecrementOperator, UnaryOperator};
 use crate::error::{Error, Span, Spanned};
 use crate::parser::parse;
-use crate::vir::Binding;
+use crate::vir::{AnyArg, Binding};
 use crate::{ast, vir};
 use std::collections::{HashMap, hash_map};
 use std::sync::LazyLock;
@@ -40,12 +40,15 @@ impl<'a> State<'a> {
         return_type: Option<&ast::Type<'a>>,
         body: &'a [ast::Statement<'a>],
     ) {
-        let mut vir_args = Vec::new();
+        let mut value_args = Vec::new();
+        let mut type_args = Vec::new();
+        let mut all_args = Vec::new();
         let mut bindings = Vec::new();
         let mut binding_map = HashMap::new();
         let mut type_variable_map = HashMap::new();
         for (name, type_) in ast_args {
             if **type_.segments.last().unwrap() == "type" {
+                type_args.push(());
                 type_variable_map.insert(*name, type_variable_map.len());
             }
         }
@@ -58,9 +61,17 @@ impl<'a> State<'a> {
                 } else {
                     self.convert_type(type_)
                 };
-                vir_args.push(vir::Arg { binding });
+                value_args.push(vir::Arg { binding });
                 bindings.push(vir::BindingData { type_ });
                 binding_map.insert(*name, binding);
+            }
+        }
+        for (name, type_) in ast_args {
+            let core_type = **type_.segments.last().unwrap();
+            if core_type != "type" {
+                all_args.push(vir::AnyArg::Value(binding_map[name].id));
+            } else {
+                all_args.push(vir::AnyArg::Type(type_variable_map[name]));
             }
         }
         let return_type = match return_type {
@@ -71,7 +82,9 @@ impl<'a> State<'a> {
             exported: name == "main",
             is_main: name == "main",
             name,
-            args: vir_args,
+            value_args,
+            type_args,
+            all_args,
             return_type,
             bindings,
             binding_map,
@@ -522,7 +535,9 @@ impl<'a> State<'a> {
                 if **callee_name == "alloc" {
                     let count = self.process_expression(&args_ast[0]);
                     let type_ = match &*args_ast[1] {
-                        ast::Expression::Variable("i8") => vir::BaseType::PointerI8.into(),
+                        ast::Expression::Variable(name) if **name == "i8" => {
+                            vir::BaseType::PointerI8.into()
+                        }
                         _ => todo!(),
                     };
                     let binding = self.make_temporary(type_);
@@ -530,12 +545,11 @@ impl<'a> State<'a> {
                     return binding;
                 }
 
-                let arg_bindings: Vec<_> = args_ast
-                    .iter()
-                    .map(|arg| self.process_expression(arg))
-                    .collect();
-
                 if **callee_name == "syscall" {
+                    let arg_bindings: Vec<_> = args_ast
+                        .iter()
+                        .map(|arg| self.process_expression(arg))
+                        .collect();
                     let binding = self.make_temporary(vir::Type::I64);
                     self.add_statement(vir::Statement::Syscall(binding, arg_bindings));
                     return binding;
@@ -546,16 +560,42 @@ impl<'a> State<'a> {
                     return fake_binding;
                 };
 
+                let mut value_arguments = Vec::new();
+                let mut type_substitutions = Vec::new();
+                for (arg_index, arg_ast) in (*args_ast).iter().enumerate() {
+                    match self.functions[callee_id].all_args.get(arg_index) {
+                        Some(AnyArg::Value(_value_arg_index)) => {
+                            value_arguments.push(self.process_expression(arg_ast));
+                        }
+                        Some(AnyArg::Type(_type_arg_index)) => {
+                            let ast::Expression::Variable(name) = &**arg_ast else {
+                                todo!()
+                            };
+                            let caller_ast_type = ast::Type {
+                                segments: vec![*name],
+                            };
+                            type_substitutions.push(self.convert_type(&caller_ast_type));
+                        }
+                        None => value_arguments.push(self.process_expression(arg_ast)),
+                    }
+                }
+
                 let callee = &self.functions[callee_id];
-                self.check_argument_count(callee.args.len(), arg_bindings.len(), args_ast.span);
+                self.check_argument_count(
+                    callee.value_args.len(),
+                    value_arguments.len(),
+                    args_ast.span,
+                );
                 let callee = &self.functions[callee_id];
                 let callee_return_type = callee.return_type.clone();
-                if callee.args.len() == arg_bindings.len() {
-                    for (arg_index, caller_arg_binding) in arg_bindings.iter().enumerate() {
+                if callee.value_args.len() == value_arguments.len() {
+                    for (arg_index, caller_arg_binding) in value_arguments.iter().enumerate() {
                         let caller_arg_type = self.binding_type(*caller_arg_binding);
                         let callee = &self.functions[callee_id];
-                        let callee_arg = callee.args[arg_index].binding;
-                        let callee_arg_type = callee.bindings[callee_arg.id].type_.clone();
+                        let callee_arg = callee.value_args[arg_index].binding;
+                        let callee_arg_type = callee.bindings[callee_arg.id]
+                            .type_
+                            .substitute_types(&type_substitutions);
                         self.check_type_compatible(
                             &callee_arg_type,
                             &caller_arg_type,
@@ -569,7 +609,11 @@ impl<'a> State<'a> {
                 } else {
                     None
                 };
-                self.add_statement(vir::Statement::Call(call_binding, callee_id, arg_bindings));
+                self.add_statement(vir::Statement::Call(
+                    call_binding,
+                    callee_id,
+                    value_arguments,
+                ));
                 binding
             }
             ast::Expression::CallMethod(object_expr, _method_name, _args_ast) => {

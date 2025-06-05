@@ -338,7 +338,7 @@ pub fn make_il(vir: &Program) -> String {
             function.name
         };
         let args = function
-            .args
+            .value_args
             .iter()
             .map(|arg| {
                 (

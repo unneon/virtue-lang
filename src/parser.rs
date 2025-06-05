@@ -56,7 +56,7 @@ fn statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
 
 fn variable_declaration_statement<'a>() -> impl Parser<'a, Statement<'a>> {
     (
-        spanned(identifier.map(Expression::Variable)),
+        spanned(spanned(identifier).map(Expression::Variable)),
         preceded(sp, opt(type_)),
         delimited((sp, char('='), sp), expression(), newline),
     )
@@ -469,7 +469,7 @@ fn bool_literal(input: &str) -> IResult<&str, Expression> {
 }
 
 fn variable_reference(input: &str) -> IResult<&str, Expression> {
-    preceded(sp, identifier)
+    preceded(sp, spanned(identifier))
         .map(Expression::Variable)
         .parse(input)
 }

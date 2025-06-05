@@ -14,7 +14,9 @@ pub struct Function<'a> {
     pub exported: bool,
     pub is_main: bool,
     pub name: &'a str,
-    pub args: Vec<Arg>,
+    pub value_args: Vec<Arg>,
+    pub type_args: Vec<()>,
+    pub all_args: Vec<AnyArg>,
     pub return_type: Type,
     pub bindings: Vec<BindingData>,
     pub binding_map: HashMap<&'a str, Binding>,
@@ -26,6 +28,12 @@ pub struct Function<'a> {
 #[derive(Debug)]
 pub struct Arg {
     pub binding: Binding,
+}
+
+#[derive(Debug)]
+pub enum AnyArg {
+    Value(usize),
+    Type(usize),
 }
 
 #[derive(Debug)]
@@ -105,6 +113,18 @@ impl Type {
         predicates: Vec::new(),
         base: BaseType::I32,
     };
+
+    pub fn substitute_types(&self, substitutions: &[Type]) -> Type {
+        use BaseType::*;
+        match &self.base {
+            Array(inner) => Type {
+                predicates: self.predicates.clone(),
+                base: Array(Box::new(inner.substitute_types(substitutions))),
+            },
+            TypeVariable(i) => substitutions[*i].clone(),
+            _ => self.clone(),
+        }
+    }
 
     pub fn is_error(&self) -> bool {
         matches!(self.base, BaseType::Error)

@@ -63,7 +63,7 @@ impl State<'_> {
             .bindings
             .iter()
             .enumerate()
-            .skip(function.args.len())
+            .skip(function.value_args.len())
         {
             if binding_data.type_.base == BaseType::Void {
                 continue;
@@ -239,7 +239,7 @@ impl State<'_> {
             function.name
         };
         let mut args = String::new();
-        for arg_index in 0..function.args.len() {
+        for arg_index in 0..function.value_args.len() {
             if arg_index > 0 {
                 args.push_str(", ");
             }

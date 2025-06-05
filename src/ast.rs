@@ -81,7 +81,7 @@ pub enum Expression<'a> {
     Field(Box<Expression<'a>>, Spanned<&'a str>),
     StringLiteral(Vec<&'a str>),
     UnaryOperation(UnaryOperator, Box<Spanned<Expression<'a>>>),
-    Variable(&'a str),
+    Variable(Spanned<&'a str>),
 }
 
 #[derive(Debug, Copy, Clone)]

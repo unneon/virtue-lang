@@ -1,8 +1,9 @@
 func generic_print(value t, t type)
     print "{value}"
 
-generic_print(1234)
-generic_print("Hello")
+generic_print(1234, int)
+generic_print("Hello", string)
 
+# ignore
 # 1234
 # Hello

@@ -71,7 +71,7 @@ impl State<'_> {
     fn function_args_declaration(&self) -> String {
         let function = &self.vir.functions[self.current_function];
         let mut decl = String::new();
-        for (arg_id, arg) in function.args.iter().enumerate() {
+        for (arg_id, arg) in function.value_args.iter().enumerate() {
             if arg_id > 0 {
                 decl.push_str(", ");
             }
@@ -94,7 +94,7 @@ impl State<'_> {
 
     fn function_args_copy(&mut self) {
         let function = &self.vir.functions[self.current_function];
-        for (arg_id, arg) in function.args.iter().enumerate() {
+        for (arg_id, arg) in function.value_args.iter().enumerate() {
             let arg_type = convert_type(&function.bindings[arg.binding.id].type_);
             self.write(format!(
                 "store {arg_type} %arg_{arg_id}, {arg_type}* %stack_{arg_id}"
