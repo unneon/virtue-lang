@@ -3,6 +3,7 @@ use crate::error::{Error, Span, Spanned};
 use crate::parser::parse;
 use crate::vir::{AnyArg, Binding};
 use crate::{ast, vir};
+use std::borrow::Cow;
 use std::collections::{HashMap, hash_map};
 use std::sync::LazyLock;
 
@@ -12,6 +13,7 @@ struct State<'a> {
     function_map: HashMap<&'a str, usize>,
     structs: Vec<vir::Struct<'a>>,
     struct_map: HashMap<&'a str, usize>,
+    generic_function_map: HashMap<(usize, Vec<vir::Type>), usize>,
     strings: Vec<&'a [&'a str]>,
     errors: Vec<Error>,
     current_function: usize,
@@ -81,7 +83,8 @@ impl<'a> State<'a> {
         self.functions.push(vir::Function {
             exported: name == "main",
             is_main: name == "main",
-            name,
+            is_fully_substituted: type_args.is_empty(),
+            name: Cow::Borrowed(name),
             value_args,
             type_args,
             all_args,
@@ -144,19 +147,22 @@ impl<'a> State<'a> {
     }
 
     fn process_all_functions(&mut self) {
-        for i in 0..self.functions.len() {
-            self.current_function = i;
+        self.current_function = 0;
+        while self.current_function < self.functions.len() {
             self.current_block = self.make_block();
-            let fallthrough = self.process_block(self.functions[i].ast_block);
+            let fallthrough = self.process_block(self.functions[self.current_function].ast_block);
             if fallthrough == Fallthrough::Reachable {
-                if self.functions[i].name == "main" {
+                if self.functions[self.current_function].name == "main" {
                     let default_return = self.make_temporary(vir::Type::I64);
                     self.add_statement(vir::Statement::Literal(default_return, 0));
                     self.add_statement(vir::Statement::Return(Some(default_return)));
-                } else if self.functions[i].return_type.base == vir::BaseType::Void {
+                } else if self.functions[self.current_function].return_type.base
+                    == vir::BaseType::Void
+                {
                     self.add_statement(vir::Statement::Return(None));
                 }
             }
+            self.current_function += 1;
         }
     }
 
@@ -304,11 +310,12 @@ impl<'a> State<'a> {
                                     text_binding,
                                     text,
                                 ));
-                                self.add_statement(vir::Statement::Call(
-                                    None,
+                                self.add_statement(vir::Statement::Call {
+                                    return_: None,
                                     function,
-                                    vec![text_binding],
-                                ));
+                                    type_substitutions: Vec::new(),
+                                    args: vec![text_binding],
+                                });
                             }
                             FormatSegment::Variable(var) => {
                                 let var = self.variable_binding(var);
@@ -324,7 +331,12 @@ impl<'a> State<'a> {
                                     vir::BaseType::Error => continue,
                                     _ => todo!(),
                                 };
-                                self.add_statement(vir::Statement::Call(None, function, vec![var]));
+                                self.add_statement(vir::Statement::Call {
+                                    return_: None,
+                                    function,
+                                    type_substitutions: Vec::new(),
+                                    args: vec![var],
+                                });
                             }
                         }
                     }
@@ -334,11 +346,12 @@ impl<'a> State<'a> {
                         newline_binding,
                         newline_text,
                     ));
-                    self.add_statement(vir::Statement::Call(
-                        None,
-                        self.function_map["virtue_print_str"],
-                        vec![newline_binding],
-                    ));
+                    self.add_statement(vir::Statement::Call {
+                        return_: None,
+                        function: self.function_map["virtue_print_str"],
+                        type_substitutions: Vec::new(),
+                        args: vec![newline_binding],
+                    });
                 }
                 ast::Statement::Return { value } => {
                     let value_span = value.span;
@@ -487,11 +500,12 @@ impl<'a> State<'a> {
                     }
                     (Add, vir::BaseType::Struct(0), vir::BaseType::Struct(0)) => {
                         let binding = self.make_temporary(vir::BaseType::Struct(0).into());
-                        self.add_statement(vir::Statement::Call(
-                            Some(binding),
-                            self.function_map["virtue_add_str"],
-                            vec![left_binding, right_binding],
-                        ));
+                        self.add_statement(vir::Statement::Call {
+                            return_: Some(binding),
+                            function: self.function_map["virtue_add_str"],
+                            type_substitutions: Vec::new(),
+                            args: vec![left_binding, right_binding],
+                        });
                         return binding;
                     }
                     (
@@ -603,17 +617,29 @@ impl<'a> State<'a> {
                         );
                     }
                 }
+
+                let callee_id = if !type_substitutions.is_empty()
+                    && type_substitutions
+                        .iter()
+                        .all(|type_| type_.is_fully_substituted())
+                {
+                    self.generic_request(callee_id, type_substitutions.clone())
+                } else {
+                    callee_id
+                };
+
                 let binding = self.make_temporary(callee_return_type.clone());
                 let call_binding = if callee_return_type.base != vir::BaseType::Void {
                     Some(binding)
                 } else {
                     None
                 };
-                self.add_statement(vir::Statement::Call(
-                    call_binding,
-                    callee_id,
-                    value_arguments,
-                ));
+                self.add_statement(vir::Statement::Call {
+                    return_: call_binding,
+                    function: callee_id,
+                    type_substitutions,
+                    args: value_arguments,
+                });
                 binding
             }
             ast::Expression::CallMethod(object_expr, _method_name, _args_ast) => {
@@ -722,6 +748,32 @@ impl<'a> State<'a> {
                 self.add_statement(vir::Statement::Assignment(left_binding, src));
             }
             _ => todo!("vir assignment unimplemented {src:?}"),
+        }
+    }
+
+    fn generic_request(&mut self, function_id: usize, type_substitutions: Vec<vir::Type>) -> usize {
+        match self
+            .generic_function_map
+            .entry((function_id, type_substitutions))
+        {
+            hash_map::Entry::Vacant(entry) => {
+                let type_substitutions = &entry.key().1;
+                let substituted_id = self.functions.len();
+                let function_name = self.functions[function_id].name.as_ref();
+                let mut substituted_function = self.functions[function_id].clone();
+                substituted_function.is_fully_substituted = true;
+                substituted_function.name =
+                    Cow::Owned(format!("g{substituted_id}_{function_name}"));
+                for arg in &mut substituted_function.value_args {
+                    let old_arg_type = &substituted_function.bindings[arg.binding.id].type_;
+                    let new_arg_type = old_arg_type.substitute_types(type_substitutions);
+                    substituted_function.bindings[arg.binding.id].type_ = new_arg_type;
+                }
+                entry.insert(substituted_id);
+                self.functions.push(substituted_function);
+                substituted_id
+            }
+            hash_map::Entry::Occupied(entry) => *entry.get(),
         }
     }
 
@@ -894,6 +946,7 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> Result<vir::Program<'a>, Vec<E
         function_map: HashMap::new(),
         structs: Vec::new(),
         struct_map: HashMap::new(),
+        generic_function_map: HashMap::new(),
         strings: vec![&["\n"]],
         errors: Vec::new(),
         current_function: usize::MAX,

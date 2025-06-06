@@ -47,6 +47,9 @@ impl State<'_> {
 
     fn all_functions(&mut self) {
         for function_id in 0..self.vir.functions.len() {
+            if !self.vir.functions[function_id].is_fully_substituted {
+                continue;
+            }
             self.current_function = function_id;
             self.temp_counter = 0;
             self.function();
@@ -63,11 +66,14 @@ impl State<'_> {
 
     fn function_declaration(&mut self) {
         let function = &self.vir.functions[self.current_function];
+        if !function.is_fully_substituted {
+            return;
+        }
         let return_type = convert_type(&function.return_type);
         let name = if function.is_main {
             "_start"
         } else {
-            function.name
+            function.name.as_ref()
         };
         let args = self.function_args_declaration();
         self.write(format!("define {return_type} @{name}({args}) {{"));
@@ -80,7 +86,8 @@ impl State<'_> {
             if arg_id > 0 {
                 decl.push_str(", ");
             }
-            let arg_type = convert_type(&function.bindings[arg.binding.id].type_);
+            let arg_type = &function.bindings[arg.binding.id].type_;
+            let arg_type = convert_type(arg_type);
             write!(&mut decl, "{arg_type} %arg_{arg_id}").unwrap();
         }
         decl
@@ -223,7 +230,12 @@ impl State<'_> {
                         self.store(binding, result);
                     }
                 }
-                Statement::Call(return_binding, callee_id, arg_bindings) => {
+                Statement::Call {
+                    return_,
+                    function: callee_id,
+                    args: arg_bindings,
+                    ..
+                } => {
                     let mut signature = String::new();
                     let mut args = String::new();
                     for (arg_index, arg_binding) in arg_bindings.iter().enumerate() {
@@ -238,8 +250,8 @@ impl State<'_> {
                         }
                         write!(&mut args, "{type_} {arg_val}").unwrap();
                     }
-                    let callee_name = self.vir.functions[*callee_id].name;
-                    if let Some(return_binding) = return_binding
+                    let callee_name = self.vir.functions[*callee_id].name.as_ref();
+                    if let Some(return_binding) = return_
                         && function.bindings[return_binding.id].type_.base != BaseType::Void
                     {
                         let return_type = convert_type(&self.vir.functions[*callee_id].return_type);

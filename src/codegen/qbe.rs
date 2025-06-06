@@ -88,8 +88,13 @@ impl<'a> State<'a> {
                     };
                     self.assign(result_binding, result);
                 }
-                Statement::Call(return_binding, function_id, args) => {
-                    let function_name = self.vir.functions[*function_id].name;
+                Statement::Call {
+                    return_,
+                    function,
+                    args,
+                    ..
+                } => {
+                    let function_name = self.vir.functions[*function].name.as_ref();
                     let args = args
                         .iter()
                         .map(|arg| {
@@ -99,11 +104,11 @@ impl<'a> State<'a> {
                             )
                         })
                         .collect();
-                    let return_ = Instr::Call(function_name.to_string(), args, None);
-                    if let Some(return_binding) = return_binding {
-                        self.assign(return_binding, return_)
+                    let call = Instr::Call(function_name.to_string(), args, None);
+                    if let Some(return_binding) = return_ {
+                        self.assign(return_binding, call)
                     } else {
-                        self.func.add_instr(return_);
+                        self.func.add_instr(call);
                     }
                 }
                 Statement::Field(binding, object_binding, field) => {
@@ -327,6 +332,9 @@ pub fn make_il(vir: &Program) -> String {
     }
 
     for function in &vir.functions {
+        if !function.is_fully_substituted {
+            continue;
+        }
         let linkage = if function.exported {
             Linkage::public()
         } else {
@@ -335,7 +343,7 @@ pub fn make_il(vir: &Program) -> String {
         let name = if function.is_main {
             "_start"
         } else {
-            function.name
+            function.name.as_ref()
         };
         let args = function
             .value_args

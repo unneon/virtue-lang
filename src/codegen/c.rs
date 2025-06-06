@@ -31,6 +31,9 @@ impl State<'_> {
             self.write("};");
         }
         for function in &self.vir.functions {
+            if !function.is_fully_substituted {
+                continue;
+            }
             let signature = self.function_signature(function);
             self.write(format!("{signature};"));
         }
@@ -48,6 +51,9 @@ impl State<'_> {
 
     fn all_functions(&mut self) {
         for function_id in 0..self.vir.functions.len() {
+            if !self.vir.functions[function_id].is_fully_substituted {
+                continue;
+            }
             self.current_function = function_id;
             self.temporary_counter = 0;
             self.extended_register_counter = 0;
@@ -138,16 +144,21 @@ impl State<'_> {
                     };
                     self.write(format!("    _{result_id} = _{left_id} {op} _{right_id};"));
                 }
-                Statement::Call(result, function, args) => {
-                    let result_assignment = if let Some(result) = result
+                Statement::Call {
+                    return_,
+                    function,
+                    args,
+                    ..
+                } => {
+                    let result_assignment = if let Some(return_) = return_
                         && self.vir.functions[*function].return_type.base != BaseType::Void
                     {
-                        let result_id = result.id;
-                        format!("_{result_id} = ")
+                        let return_id = return_.id;
+                        format!("_{return_id} = ")
                     } else {
                         String::new()
                     };
-                    let function_name = self.vir.functions[*function].name;
+                    let function_name = self.vir.functions[*function].name.as_ref();
                     let mut c_args = String::new();
                     for (arg_index, arg) in args.iter().enumerate() {
                         if arg_index > 0 {
@@ -236,7 +247,7 @@ impl State<'_> {
         let function_name = if function.is_main {
             "_start"
         } else {
-            function.name
+            function.name.as_ref()
         };
         let mut args = String::new();
         for arg_index in 0..function.value_args.len() {
