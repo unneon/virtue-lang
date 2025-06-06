@@ -14,15 +14,14 @@ pub struct Program<'a> {
 pub struct Function<'a> {
     pub exported: bool,
     pub is_main: bool,
-    pub is_fully_substituted: bool,
+    pub is_instantiated: bool,
     pub name: Cow<'a, str>,
     pub value_args: Vec<Arg>,
-    pub type_args: Vec<()>,
     pub all_args: Vec<AnyArg>,
     pub return_type: Type,
     pub bindings: Vec<BindingData>,
     pub binding_map: HashMap<&'a str, Binding>,
-    pub type_variable_map: HashMap<&'a str, usize>,
+    pub type_arg_map: HashMap<&'a str, usize>,
     pub blocks: Vec<Vec<Statement>>,
     pub ast_block: &'a [ast::Statement<'a>],
 }
@@ -67,6 +66,7 @@ pub enum Statement {
     Literal(Binding, i64),
     New(Binding, usize),
     Return(Option<Binding>),
+    // TODO: This should return a pointer instead of the entire struct.
     StringConstant(Binding, usize),
     Syscall(Binding, Vec<Binding>),
     UnaryOperator(Binding, UnaryOperator, Binding),
@@ -82,8 +82,8 @@ pub struct Struct<'a> {
     pub name: Cow<'a, str>,
     pub fields: Vec<Type>,
     pub field_map: HashMap<&'a str, usize>,
-    pub type_variable_map: HashMap<&'a str, usize>,
-    pub is_fully_substituted: bool,
+    pub type_arg_map: HashMap<&'a str, usize>,
+    pub is_instantiated: bool,
 }
 
 // TODO: Sort predicates or make comparisons order independent.
@@ -112,19 +112,6 @@ impl Program<'_> {
 }
 
 impl Type {
-    pub const I64: Type = Type {
-        predicates: Vec::new(),
-        base: BaseType::I64,
-    };
-    pub const I8: Type = Type {
-        predicates: Vec::new(),
-        base: BaseType::I8,
-    };
-    pub const BOOL: Type = Type {
-        predicates: Vec::new(),
-        base: BaseType::Bool,
-    };
-
     pub fn pointer(&self) -> Type {
         Type {
             predicates: self.predicates.clone(),
@@ -163,6 +150,10 @@ impl Type {
             Struct(_, args) => args.iter().all(Type::is_fully_substituted),
             TypeVariable(_) | Error => false,
         }
+    }
+
+    pub fn is_void(&self) -> bool {
+        matches!(self.base, BaseType::Void)
     }
 
     pub fn is_error(&self) -> bool {

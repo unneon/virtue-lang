@@ -20,7 +20,7 @@ struct Temporary {
 impl State<'_> {
     fn prologue_structs(&mut self) {
         for (struct_id, struct_) in self.vir.structs.iter().enumerate() {
-            if !struct_.is_fully_substituted {
+            if !struct_.is_instantiated {
                 continue;
             }
             let mut fields = String::new();
@@ -50,7 +50,7 @@ impl State<'_> {
 
     fn all_functions(&mut self) {
         for function_id in 0..self.vir.functions.len() {
-            if !self.vir.functions[function_id].is_fully_substituted {
+            if !self.vir.functions[function_id].is_instantiated {
                 continue;
             }
             self.current_function = function_id;
@@ -69,7 +69,7 @@ impl State<'_> {
 
     fn function_declaration(&mut self) {
         let function = &self.vir.functions[self.current_function];
-        if !function.is_fully_substituted {
+        if !function.is_instantiated {
             return;
         }
         let return_type = convert_type(&function.return_type);

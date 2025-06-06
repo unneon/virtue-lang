@@ -1,6 +1,6 @@
 use crate::ast::{
     BinaryOperator, Expression, Format, FormatSegment, Function, IncrementDecrementOperator,
-    Module, Statement, Type, UnaryOperator,
+    Module, Statement, Struct, Type, UnaryOperator,
 };
 use crate::error::{Span, SpanExt, Spanned};
 use nom::IResult;
@@ -21,7 +21,18 @@ pub fn parse(input: &str) -> Result<Module, String> {
 
 pub fn module(input: &str) -> IResult<&str, Module> {
     all_consuming(terminated(block(0), empty_lines))
-        .map(|statements| Module { statements })
+        .map(|body| {
+            let main = Function {
+                name: "main",
+                args: Vec::new(),
+                return_type: Some(Type {
+                    segments: vec![Spanned::fake("int")],
+                }),
+                body,
+            };
+            let statements = vec![Statement::Function(main)];
+            Module { statements }
+        })
         .parse(input)
 }
 
@@ -172,7 +183,7 @@ fn func_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
             (sp, char('(')),
             separated_list0(
                 preceded(sp, char(',')),
-                (preceded(sp, identifier), preceded(sp, type_)),
+                (preceded(sp, spanned(identifier)), preceded(sp, type_)),
             ),
         ),
         preceded((sp, char(')')), opt(type_)),
@@ -213,7 +224,10 @@ fn struct_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
             newline,
         )),
     )
-        .map(|(name, args, fields)| Statement::Struct { name, args, fields })
+        .map(|(name, args, fields)| {
+            let args = args.unwrap_or_default();
+            Statement::Struct(Struct { name, args, fields })
+        })
 }
 
 fn format_string<'a>() -> impl Parser<'a, Format<'a>> {

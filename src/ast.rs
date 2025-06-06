@@ -41,11 +41,7 @@ pub enum Statement<'a> {
     Return {
         value: Spanned<Expression<'a>>,
     },
-    Struct {
-        name: &'a str,
-        args: Option<Vec<(Spanned<&'a str>, Type<'a>)>>,
-        fields: Vec<(&'a str, Type<'a>)>,
-    },
+    Struct(Struct<'a>),
     While {
         condition: Spanned<Expression<'a>>,
         body: Vec<Statement<'a>>,
@@ -55,9 +51,16 @@ pub enum Statement<'a> {
 #[derive(Debug)]
 pub struct Function<'a> {
     pub name: &'a str,
-    pub args: Vec<(&'a str, Type<'a>)>,
+    pub args: Vec<(Spanned<&'a str>, Type<'a>)>,
     pub return_type: Option<Type<'a>>,
     pub body: Vec<Statement<'a>>,
+}
+
+#[derive(Debug)]
+pub struct Struct<'a> {
+    pub name: &'a str,
+    pub args: Vec<(Spanned<&'a str>, Type<'a>)>,
+    pub fields: Vec<(&'a str, Type<'a>)>,
 }
 
 #[derive(Clone, Debug)]
@@ -129,6 +132,12 @@ pub struct Format<'a> {
 pub enum FormatSegment<'a> {
     Text(Vec<&'a str>),
     Variable(&'a str),
+}
+
+impl Type<'_> {
+    pub fn is_type(&self) -> bool {
+        self.segments.len() == 1 && self.segments[0].value == "type"
+    }
 }
 
 impl std::fmt::Display for BinaryOperator {

@@ -1,11 +1,12 @@
+pub mod std;
+
 use crate::ast::{BinaryOperator, FormatSegment, IncrementDecrementOperator, UnaryOperator};
 use crate::error::{Error, Span, Spanned};
-use crate::parser::parse;
-use crate::vir::{AnyArg, Binding};
+use crate::typecheck::std::{BOOL, ERROR, I8, I64, STD_AST, STRING, VOID};
+use crate::vir::Binding;
 use crate::{ast, vir};
-use std::borrow::Cow;
-use std::collections::{HashMap, hash_map};
-use std::sync::LazyLock;
+use ::std::borrow::Cow;
+use ::std::collections::{HashMap, hash_map};
 
 #[derive(Debug)]
 struct State<'a> {
@@ -28,82 +29,57 @@ enum Fallthrough {
 }
 
 #[derive(Clone, Copy)]
-enum TypeSubstitutionContext<'a> {
+enum TypeArgContext<'a> {
     CurrentFunction,
     Custom(&'a HashMap<&'a str, usize>),
 }
 
-static STD_AST: LazyLock<ast::Module> =
-    LazyLock::new(|| parse(include_str!("std.virtue")).unwrap());
-
-const STRING_TYPE: vir::Type = vir::Type {
-    base: vir::BaseType::Struct(0, Vec::new()),
-    predicates: Vec::new(),
-};
-
 impl<'a> State<'a> {
-    fn preprocess_function(
-        &mut self,
-        name: &'a str,
-        ast_args: &[(&'a str, ast::Type<'a>)],
-        return_type: Option<&ast::Type<'a>>,
-        body: &'a [ast::Statement<'a>],
-    ) {
+    fn preprocess_function(&mut self, function: &'a ast::Function<'a>) {
+        let id = self.functions.len();
+        self.function_map.insert(function.name, id);
+
+        let type_arg_map = collect_type_args(&function.args);
         let mut value_args = Vec::new();
-        let mut type_args = Vec::new();
         let mut all_args = Vec::new();
         let mut bindings = Vec::new();
         let mut binding_map = HashMap::new();
-        let mut type_variable_map = HashMap::new();
-        for (name, type_) in ast_args {
-            if **type_.segments.last().unwrap() == "type" {
-                type_args.push(());
-                type_variable_map.insert(*name, type_variable_map.len());
-            }
-        }
-        for (name, type_) in ast_args {
-            if **type_.segments.last().unwrap() != "type" {
+        for (name, type_) in &function.args {
+            if !type_.is_type() {
                 let binding = Binding { id: bindings.len() };
-                let type_ =
-                    self.convert_type(type_, TypeSubstitutionContext::Custom(&type_variable_map));
+                let type_ = self.convert_type(type_, &type_arg_map);
                 value_args.push(vir::Arg { binding });
                 bindings.push(vir::BindingData { type_ });
-                binding_map.insert(*name, binding);
+                binding_map.insert(**name, binding);
             }
         }
-        for (name, type_) in ast_args {
-            let core_type = **type_.segments.last().unwrap();
-            if core_type != "type" {
-                all_args.push(vir::AnyArg::Value(binding_map[name].id));
+        for (name, type_) in &function.args {
+            if !type_.is_type() {
+                all_args.push(vir::AnyArg::Value(binding_map[**name].id));
             } else {
-                all_args.push(vir::AnyArg::Type(type_variable_map[name]));
+                all_args.push(vir::AnyArg::Type(type_arg_map[**name]));
             }
         }
-        let return_type = match return_type {
-            Some(return_type) => self.convert_type(
-                return_type,
-                TypeSubstitutionContext::Custom(&type_variable_map),
-            ),
-            None => vir::BaseType::Void.into(),
+        let return_type = match &function.return_type {
+            Some(return_type) => self.convert_type(return_type, &type_arg_map),
+            None => VOID,
         };
         self.functions.push(vir::Function {
-            exported: name == "main",
-            is_main: name == "main",
-            is_fully_substituted: type_args.is_empty(),
-            name: Cow::Borrowed(name),
+            exported: function.name == "main",
+            is_main: function.name == "main",
+            is_instantiated: type_arg_map.is_empty(),
+            name: Cow::Borrowed(function.name),
             value_args,
-            type_args,
             all_args,
             return_type,
             bindings,
             binding_map,
-            type_variable_map: HashMap::new(),
+            type_arg_map,
             blocks: Vec::new(),
-            ast_block: body,
+            ast_block: &function.body,
         });
-        self.function_map.insert(name, self.functions.len() - 1);
 
-        self.preprocess_block(body);
+        self.preprocess_block(&function.body);
     }
 
     fn preprocess_block(&mut self, statements: &'a [ast::Statement<'a>]) {
@@ -112,59 +88,36 @@ impl<'a> State<'a> {
                 ast::Statement::Assignment { .. } => {}
                 ast::Statement::AssignmentBinary { .. } => {}
                 ast::Statement::Expression(_) => {}
-                ast::Statement::ForRange { body, .. } => {
-                    self.preprocess_block(body);
-                }
-                ast::Statement::Function(function) => self.preprocess_function(
-                    function.name,
-                    &function.args,
-                    function.return_type.as_ref(),
-                    &function.body,
-                ),
-                ast::Statement::If { true_, false_, .. } => {
-                    self.preprocess_block(true_);
-                    self.preprocess_block(false_);
-                }
+                ast::Statement::ForRange { .. } => {}
+                ast::Statement::Function(function) => self.preprocess_function(function),
+                ast::Statement::If { .. } => {}
                 ast::Statement::IncrementDecrement { .. } => {}
                 ast::Statement::Print { .. } => {}
                 ast::Statement::Return { .. } => {}
-                ast::Statement::Struct {
-                    name,
-                    args: ast_args,
-                    fields: ast_fields,
-                } => {
-                    let mut type_variable_map = HashMap::new();
-                    if let Some(ast_args) = ast_args {
-                        for (name, type_) in ast_args {
-                            if **type_.segments.last().unwrap() == "type" {
-                                type_variable_map.insert(**name, type_variable_map.len());
-                            }
-                        }
-                    }
-
-                    let struct_id = self.structs.len();
-                    let mut fields = Vec::new();
-                    let mut field_map = HashMap::new();
-                    for (name, type_) in ast_fields {
-                        fields.push(self.convert_type(
-                            type_,
-                            TypeSubstitutionContext::Custom(&type_variable_map),
-                        ));
-                        field_map.insert(*name, fields.len() - 1);
-                    }
-                    let struct_ = vir::Struct {
-                        name: Cow::Borrowed(name),
-                        fields,
-                        field_map,
-                        is_fully_substituted: type_variable_map.is_empty(),
-                        type_variable_map,
-                    };
-                    self.structs.push(struct_);
-                    self.struct_map.insert(name, struct_id);
-                }
-                ast::Statement::While { body, .. } => self.preprocess_block(body),
+                ast::Statement::Struct(struct_) => self.preprocess_struct(struct_),
+                ast::Statement::While { .. } => {}
             }
         }
+    }
+
+    fn preprocess_struct(&mut self, struct_: &'a ast::Struct<'a>) {
+        let struct_id = self.structs.len();
+        self.struct_map.insert(struct_.name, struct_id);
+
+        let type_arg_map = collect_type_args(&struct_.args);
+        let mut fields = Vec::new();
+        let mut field_map = HashMap::new();
+        for (name, type_) in &struct_.fields {
+            fields.push(self.convert_type(type_, &type_arg_map));
+            field_map.insert(*name, fields.len() - 1);
+        }
+        self.structs.push(vir::Struct {
+            name: Cow::Borrowed(struct_.name),
+            fields,
+            field_map,
+            is_instantiated: type_arg_map.is_empty(),
+            type_arg_map,
+        });
     }
 
     fn process_all_functions(&mut self) {
@@ -173,9 +126,8 @@ impl<'a> State<'a> {
             self.current_block = self.make_block();
             let fallthrough = self.process_block(self.functions[self.current_function].ast_block);
             if fallthrough == Fallthrough::Reachable {
-                if self.functions[self.current_function].name == "main" {
-                    let default_return = self.make_temporary(vir::Type::I64);
-                    self.add_statement(vir::Statement::Literal(default_return, 0));
+                if self.functions[self.current_function].is_main {
+                    let default_return = self.make_literal(0);
                     self.add_statement(vir::Statement::Return(Some(default_return)));
                 } else if self.functions[self.current_function].return_type.base
                     == vir::BaseType::Void
@@ -191,14 +143,16 @@ impl<'a> State<'a> {
         for statement in statements {
             match statement {
                 ast::Statement::Assignment { left, type_, right } => {
-                    let right_span = right.span;
-                    let right = self.process_expression(right);
+                    let right_binding = self.process_expression(right);
                     if let Some(type_) = type_ {
-                        let type_ =
-                            self.convert_type(type_, TypeSubstitutionContext::CurrentFunction);
-                        self.check_type_compatible(&type_, &self.binding_type(right), right_span);
+                        let type_ = self.convert_type(type_, TypeArgContext::CurrentFunction);
+                        self.check_type_compatible(
+                            &type_,
+                            &self.binding_type(right_binding),
+                            right.span,
+                        );
                     }
-                    self.process_assignment(left, right);
+                    self.process_assignment(left, right_binding);
                 }
                 ast::Statement::AssignmentBinary { op, left, right } => {
                     let left_binding = self.process_expression(left);
@@ -228,12 +182,10 @@ impl<'a> State<'a> {
                     let step_binding = if let Some(step) = step {
                         self.process_expression(step)
                     } else {
-                        let step = self.make_temporary(vir::Type::I64);
-                        self.add_statement(vir::Statement::Literal(step, 1));
-                        step
+                        self.make_literal(1)
                     };
-                    let index_binding = self.make_variable(index, vir::Type::I64);
-                    let condition = self.make_temporary(vir::BaseType::Bool.into());
+                    let index_binding = self.make_variable(index, I64);
+                    let condition = self.make_temporary(BOOL);
                     let condition_block = self.make_block();
                     let body_block = self.make_block();
                     let after_block = self.make_block();
@@ -256,7 +208,7 @@ impl<'a> State<'a> {
 
                     self.current_block = body_block;
                     if self.process_block(body) == Fallthrough::Reachable {
-                        let index_next_binding = self.make_temporary(vir::Type::I64);
+                        let index_next_binding = self.make_temporary(I64);
                         self.add_statement(vir::Statement::BinaryOperator(
                             index_next_binding,
                             BinaryOperator::Add,
@@ -282,13 +234,9 @@ impl<'a> State<'a> {
                     let false_block = self.make_block();
                     let after_block = self.make_block();
 
-                    let condition_span = condition.span;
                     let condition_binding = self.process_expression(condition);
-                    self.check_type_compatible(
-                        &vir::BaseType::Bool.into(),
-                        &self.binding_type(condition_binding),
-                        condition_span,
-                    );
+                    let condition_type = self.binding_type(condition_binding);
+                    self.check_type_compatible(&BOOL, &condition_type, condition.span);
                     self.add_statement(vir::Statement::JumpConditional {
                         condition: condition_binding,
                         true_block,
@@ -310,13 +258,12 @@ impl<'a> State<'a> {
                 ast::Statement::IncrementDecrement { value, op } => {
                     let before = self.process_expression(value);
                     let type_ = self.binding_type(before);
-                    let one = self.make_temporary(type_.clone());
+                    let one = self.make_literal(1);
                     let after = self.make_temporary(type_);
                     let op = match op {
                         IncrementDecrementOperator::Increment => BinaryOperator::Add,
                         IncrementDecrementOperator::Decrement => BinaryOperator::Subtract,
                     };
-                    self.add_statement(vir::Statement::Literal(one, 1));
                     self.add_statement(vir::Statement::BinaryOperator(after, op, before, one));
                     self.process_assignment(value, after);
                 }
@@ -326,7 +273,7 @@ impl<'a> State<'a> {
                             FormatSegment::Text(text) => {
                                 let function = self.function_map["virtue_print_str"];
                                 let text = self.make_string(text);
-                                let text_binding = self.make_temporary(STRING_TYPE);
+                                let text_binding = self.make_temporary(STRING);
                                 self.add_statement(vir::Statement::StringConstant(
                                     text_binding,
                                     text,
@@ -362,7 +309,7 @@ impl<'a> State<'a> {
                         }
                     }
                     let newline_text = self.make_string(&["\n"]);
-                    let newline_binding = self.make_temporary(STRING_TYPE);
+                    let newline_binding = self.make_temporary(STRING);
                     self.add_statement(vir::Statement::StringConstant(
                         newline_binding,
                         newline_text,
@@ -431,21 +378,15 @@ impl<'a> State<'a> {
                     }
                     type_
                 } else {
-                    vir::BaseType::I64.into()
+                    I64
                 };
                 let list_struct_id = self.generic_struct_request(1, vec![type_.clone()]);
                 let list_type = vir::BaseType::Struct(list_struct_id, Vec::new()).into();
-                let length_binding = self.make_temporary(vir::Type::I64);
-                let pointer_binding =
-                    self.make_temporary(vir::BaseType::Pointer(Box::new(type_.clone())).into());
-                self.add_statement(vir::Statement::Literal(
-                    length_binding,
-                    initial_bindings.len() as i64,
-                ));
+                let length_binding = self.make_literal(initial_bindings.len() as i64);
+                let pointer_binding = self.make_temporary(type_.pointer());
                 self.add_statement(vir::Statement::Alloc(pointer_binding, length_binding));
                 for (i, initial_binding) in initial_bindings.iter().enumerate() {
-                    let i_binding = self.make_temporary(vir::Type::I64);
-                    self.add_statement(vir::Statement::Literal(i_binding, i as i64));
+                    let i_binding = self.make_literal(i as i64);
                     self.add_statement(vir::Statement::AssignmentIndex(
                         pointer_binding,
                         i_binding,
@@ -476,11 +417,7 @@ impl<'a> State<'a> {
                 let list_type = vir::BaseType::Struct(list_struct_id, Vec::new()).into();
 
                 let length_binding = self.process_expression(length);
-                self.check_type_compatible(
-                    &vir::Type::I64,
-                    &self.binding_type(length_binding),
-                    length.span,
-                );
+                self.check_type_compatible(&I64, &self.binding_type(length_binding), length.span);
 
                 let pointer_binding = self.make_temporary(pointer_type);
                 self.add_statement(vir::Statement::Alloc(pointer_binding, length_binding));
@@ -488,11 +425,9 @@ impl<'a> State<'a> {
                 let init_condition_block = self.make_block();
                 let init_body_block = self.make_block();
                 let init_after_block = self.make_block();
-                let i_binding = self.make_temporary(vir::Type::I64);
-                let i_cmp_binding = self.make_temporary(vir::BaseType::Bool.into());
-                let i_step_binding = self.make_temporary(vir::Type::I64);
-                self.add_statement(vir::Statement::Literal(i_binding, 0));
-                self.add_statement(vir::Statement::Literal(i_step_binding, 1));
+                let i_cmp_binding = self.make_temporary(BOOL);
+                let i_binding = self.make_literal(0);
+                let i_step_binding = self.make_literal(1);
                 self.add_statement(vir::Statement::JumpAlways(init_condition_block));
 
                 self.current_block = init_condition_block;
@@ -550,12 +485,12 @@ impl<'a> State<'a> {
                         | ShiftLeft | ShiftRight,
                         vir::BaseType::I64,
                         vir::BaseType::I64,
-                    ) => vir::Type::I64,
+                    ) => I64,
                     (Add | Subtract, vir::BaseType::Pointer(inner), vir::BaseType::I64) => {
-                        vir::BaseType::Pointer(inner.clone()).into()
+                        inner.pointer()
                     }
                     (Add, vir::BaseType::Struct(0, _), vir::BaseType::Struct(0, _)) => {
-                        let binding = self.make_temporary(STRING_TYPE);
+                        let binding = self.make_temporary(STRING);
                         self.add_statement(vir::Statement::Call {
                             return_: Some(binding),
                             function: self.function_map["virtue_add_str"],
@@ -568,10 +503,8 @@ impl<'a> State<'a> {
                         Less | LessOrEqual | Greater | GreaterOrEqual | Equal | NotEqual,
                         vir::BaseType::I64,
                         vir::BaseType::I64,
-                    ) => vir::BaseType::Bool.into(),
-                    (LogicAnd | LogicOr, vir::BaseType::Bool, vir::BaseType::Bool) => {
-                        vir::BaseType::Bool.into()
-                    }
+                    ) => BOOL,
+                    (LogicAnd | LogicOr, vir::BaseType::Bool, vir::BaseType::Bool) => BOOL,
                     _ => {
                         let op_fmt = **op;
                         let left_fmt = self.format_type(&left_type);
@@ -594,7 +527,7 @@ impl<'a> State<'a> {
                 binding
             }
             ast::Expression::BoolLiteral(literal) => {
-                let binding = self.make_temporary(vir::BaseType::Bool.into());
+                let binding = self.make_temporary(BOOL);
                 self.add_statement(vir::Statement::Literal(
                     binding,
                     if *literal { 1 } else { 0 },
@@ -607,12 +540,9 @@ impl<'a> State<'a> {
                     let type_ = match &*args_ast[1] {
                         ast::Expression::Variable(name) => {
                             let inner = self
-                                .convert_type_impl(
-                                    &[*name],
-                                    TypeSubstitutionContext::CurrentFunction,
-                                )
+                                .convert_type_impl(&[*name], TypeArgContext::CurrentFunction)
                                 .0;
-                            vir::BaseType::Pointer(Box::new(inner)).into()
+                            inner.pointer()
                         }
                         _ => todo!(),
                     };
@@ -626,49 +556,46 @@ impl<'a> State<'a> {
                         .iter()
                         .map(|arg| self.process_expression(arg))
                         .collect();
-                    let binding = self.make_temporary(vir::Type::I64);
+                    let binding = self.make_temporary(I64);
                     self.add_statement(vir::Statement::Syscall(binding, arg_bindings));
                     return binding;
                 }
 
                 let Ok(callee_id) = self.function_by_name(*callee_name) else {
-                    let fake_binding = self.make_temporary(vir::BaseType::Void.into());
-                    return fake_binding;
+                    return self.make_temporary(ERROR);
                 };
 
-                let mut value_arguments = Vec::new();
+                let mut value_args = Vec::new();
                 let mut type_substitutions = Vec::new();
                 for (arg_index, arg_ast) in (*args_ast).iter().enumerate() {
                     match self.functions[callee_id].all_args.get(arg_index) {
-                        Some(AnyArg::Value(_value_arg_index)) => {
-                            value_arguments.push(self.process_expression(arg_ast));
+                        Some(vir::AnyArg::Value(_value_arg_index)) => {
+                            value_args.push(self.process_expression(arg_ast));
                         }
-                        Some(AnyArg::Type(_type_arg_index)) => {
+                        Some(vir::AnyArg::Type(_type_arg_index)) => {
                             let ast::Expression::Variable(name) = &**arg_ast else {
                                 todo!()
                             };
                             let caller_ast_type = ast::Type {
                                 segments: vec![*name],
                             };
-                            type_substitutions.push(self.convert_type(
-                                &caller_ast_type,
-                                TypeSubstitutionContext::CurrentFunction,
-                            ));
+                            type_substitutions.push(
+                                self.convert_type(
+                                    &caller_ast_type,
+                                    TypeArgContext::CurrentFunction,
+                                ),
+                            );
                         }
-                        None => value_arguments.push(self.process_expression(arg_ast)),
+                        None => value_args.push(self.process_expression(arg_ast)),
                     }
                 }
 
                 let callee = &self.functions[callee_id];
-                self.check_argument_count(
-                    callee.value_args.len(),
-                    value_arguments.len(),
-                    args_ast.span,
-                );
+                self.check_argument_count(callee.value_args.len(), value_args.len(), args_ast.span);
                 let callee = &self.functions[callee_id];
                 let callee_return_type = callee.return_type.clone();
-                if callee.value_args.len() == value_arguments.len() {
-                    for (arg_index, caller_arg_binding) in value_arguments.iter().enumerate() {
+                if callee.value_args.len() == value_args.len() {
+                    for (arg_index, caller_arg_binding) in value_args.iter().enumerate() {
                         let caller_arg_type = self.binding_type(*caller_arg_binding);
                         let callee = &self.functions[callee_id];
                         let callee_arg = callee.value_args[arg_index].binding;
@@ -694,7 +621,7 @@ impl<'a> State<'a> {
                 };
 
                 let binding = self.make_temporary(callee_return_type.clone());
-                let call_binding = if callee_return_type.base != vir::BaseType::Void {
+                let call_binding = if !callee_return_type.is_void() {
                     Some(binding)
                 } else {
                     None
@@ -703,7 +630,7 @@ impl<'a> State<'a> {
                     return_: call_binding,
                     function: callee_id,
                     type_substitutions,
-                    args: value_arguments,
+                    args: value_args,
                 });
                 binding
             }
@@ -716,7 +643,7 @@ impl<'a> State<'a> {
                 let object_binding = self.process_expression(object_expr);
                 let struct_id = self.binding_type(object_binding).unwrap_struct();
                 let Ok(field_id) = self.struct_field(struct_id, *field_name) else {
-                    return self.make_temporary(vir::BaseType::Void.into());
+                    return self.make_temporary(ERROR);
                 };
                 let binding = self.make_temporary(self.structs[struct_id].fields[field_id].clone());
                 self.add_statement(vir::Statement::Field(binding, object_binding, field_id));
@@ -726,12 +653,10 @@ impl<'a> State<'a> {
                 let (array, index) = indexing.as_ref();
                 let array = self.process_expression(array);
                 let index = self.process_expression(index);
-                if self.binding_type(array).base == STRING_TYPE.base {
+                if self.binding_type(array).base == STRING.base {
                     let string = array;
-                    let string_pointer = self.make_temporary(
-                        vir::BaseType::Pointer(Box::new(vir::BaseType::I8.into())).into(),
-                    );
-                    let binding = self.make_temporary(vir::BaseType::I8.into());
+                    let string_pointer = self.make_temporary(I8.pointer());
+                    let binding = self.make_temporary(I8);
                     self.add_statement(vir::Statement::Field(string_pointer, string, 0));
                     self.add_statement(vir::Statement::Index(binding, string_pointer, index));
                     binding
@@ -749,16 +674,11 @@ impl<'a> State<'a> {
                     binding
                 }
             }
-            ast::Expression::Literal(literal) => {
-                let binding = self.make_temporary(vir::Type::I64);
-                self.add_statement(vir::Statement::Literal(binding, *literal));
-                binding
-            }
+            ast::Expression::Literal(literal) => self.make_literal(*literal),
             ast::Expression::New(struct_name) => {
-                let struct_type =
-                    self.convert_type(struct_name, TypeSubstitutionContext::CurrentFunction);
+                let struct_type = self.convert_type(struct_name, TypeArgContext::CurrentFunction);
                 if struct_type.is_error() {
-                    return self.error_binding();
+                    return self.make_temporary(ERROR);
                 }
                 let vir::BaseType::Struct(struct_id, struct_args) = struct_type.base else {
                     unreachable!()
@@ -780,7 +700,7 @@ impl<'a> State<'a> {
             }
             ast::Expression::StringLiteral(literal) => {
                 let string_id = self.make_string(literal);
-                let binding = self.make_temporary(STRING_TYPE);
+                let binding = self.make_temporary(STRING);
                 self.add_statement(vir::Statement::StringConstant(binding, string_id));
                 binding
             }
@@ -788,8 +708,8 @@ impl<'a> State<'a> {
                 use UnaryOperator::*;
                 let arg = self.process_expression(arg);
                 let type_ = match op {
-                    Negate | BitNot => vir::Type::I64,
-                    LogicNot => vir::BaseType::Bool.into(),
+                    Negate | BitNot => I64,
+                    LogicNot => BOOL,
                 };
                 let binding = self.make_temporary(type_);
                 self.add_statement(vir::Statement::UnaryOperator(binding, *op, arg));
@@ -822,11 +742,9 @@ impl<'a> State<'a> {
                 let (array, index) = indexing.as_ref();
                 let array = self.process_expression(array);
                 let index = self.process_expression(index);
-                if self.binding_type(array).base == STRING_TYPE.base {
+                if self.binding_type(array).base == STRING.base {
                     let string = array;
-                    let string_pointer = self.make_temporary(
-                        vir::BaseType::Pointer(Box::new(vir::BaseType::I8.into())).into(),
-                    );
+                    let string_pointer = self.make_temporary(I8.pointer());
                     self.add_statement(vir::Statement::Field(string_pointer, string, 0));
                     self.add_statement(vir::Statement::AssignmentIndex(string_pointer, index, src));
                 } else {
@@ -858,7 +776,7 @@ impl<'a> State<'a> {
                 let substituted_id = self.functions.len();
                 let function_name = self.functions[function_id].name.as_ref();
                 let mut substituted_function = self.functions[function_id].clone();
-                substituted_function.is_fully_substituted = true;
+                substituted_function.is_instantiated = true;
                 substituted_function.name =
                     Cow::Owned(format!("g{substituted_id}_{function_name}"));
                 for arg in &mut substituted_function.value_args {
@@ -889,7 +807,7 @@ impl<'a> State<'a> {
                 let struct_name = self.structs[struct_id].name.as_ref();
                 let mut substituted_struct = self.structs[struct_id].clone();
                 substituted_struct.name = Cow::Owned(format!("g{substitution_id}_{struct_name}"));
-                substituted_struct.is_fully_substituted = true;
+                substituted_struct.is_instantiated = true;
                 for field in &mut substituted_struct.fields {
                     *field = field.substitute_types(type_substitutions);
                 }
@@ -929,6 +847,12 @@ impl<'a> State<'a> {
         binding
     }
 
+    fn make_literal(&mut self, value: i64) -> Binding {
+        let temp = self.make_temporary(I64);
+        self.add_statement(vir::Statement::Literal(temp, value));
+        temp
+    }
+
     fn make_string(&mut self, text: &'a [&'a str]) -> usize {
         let string_id = self.strings.len();
         self.strings.push(text);
@@ -940,10 +864,6 @@ impl<'a> State<'a> {
         let block_id = current_function.blocks.len();
         current_function.blocks.push(Vec::new());
         block_id
-    }
-
-    fn error_binding(&mut self) -> Binding {
-        self.make_temporary(vir::BaseType::Error.into())
     }
 
     fn add_statement(&mut self, statement: vir::Statement) {
@@ -972,20 +892,24 @@ impl<'a> State<'a> {
         }
     }
 
-    fn convert_type(&mut self, type_: &ast::Type<'a>, ctx: TypeSubstitutionContext) -> vir::Type {
-        self.convert_type_impl(&type_.segments, ctx).0
+    fn convert_type<'b>(
+        &mut self,
+        type_: &ast::Type<'a>,
+        ctx: impl Into<TypeArgContext<'b>>,
+    ) -> vir::Type {
+        self.convert_type_impl(&type_.segments, ctx.into()).0
     }
 
     fn convert_type_impl<'b>(
         &mut self,
         segments: &'b [Spanned<&'a str>],
-        ctx: TypeSubstitutionContext,
+        ctx: TypeArgContext,
     ) -> (vir::Type, &'b [Spanned<&'a str>]) {
         let (head, tail) = segments.split_first().unwrap();
         match (**head, tail) {
-            ("int", []) => return (vir::Type::I64, &[]),
-            ("i8", []) => return (vir::Type::I8, &[]),
-            ("bool", []) => return (vir::Type::BOOL, &[]),
+            ("int", []) => return (I64, &[]),
+            ("i8", []) => return (I8, &[]),
+            ("bool", []) => return (BOOL, &[]),
             ("ptr", tail) => {
                 let (inner, tail) = self.convert_type_impl(tail, ctx);
                 return (vir::BaseType::Pointer(Box::new(inner)).into(), tail);
@@ -1000,7 +924,7 @@ impl<'a> State<'a> {
         let mut type_ = self.struct_by_name(*head, ctx);
         if let vir::BaseType::Struct(struct_id, struct_args) = &mut type_.base {
             let mut tail = tail;
-            for _ in 0..self.structs[*struct_id].type_variable_map.len() {
+            for _ in 0..self.structs[*struct_id].type_arg_map.len() {
                 let (arg, new_tail) = self.convert_type_impl(tail, ctx);
                 struct_args.push(arg);
                 tail = new_tail;
@@ -1033,7 +957,7 @@ impl<'a> State<'a> {
         }
     }
 
-    fn struct_by_name(&mut self, name: Spanned<&str>, ctx: TypeSubstitutionContext) -> vir::Type {
+    fn struct_by_name(&mut self, name: Spanned<&str>, ctx: TypeArgContext) -> vir::Type {
         match self.try_struct_by_name(name, ctx) {
             Some(type_) => type_,
             None => {
@@ -1050,13 +974,11 @@ impl<'a> State<'a> {
     fn try_struct_by_name(
         &mut self,
         name: Spanned<&str>,
-        ctx: TypeSubstitutionContext,
+        ctx: TypeArgContext,
     ) -> Option<vir::Type> {
         let type_variable_map = match ctx {
-            TypeSubstitutionContext::CurrentFunction => {
-                &self.functions[self.current_function].type_variable_map
-            }
-            TypeSubstitutionContext::Custom(custom) => custom,
+            TypeArgContext::CurrentFunction => &self.functions[self.current_function].type_arg_map,
+            TypeArgContext::Custom(custom) => custom,
         };
         if let Some(type_variable) = type_variable_map.get(*name) {
             return Some(vir::BaseType::TypeVariable(*type_variable).into());
@@ -1109,6 +1031,22 @@ impl<'a> State<'a> {
     }
 }
 
+impl<'a, 'b> From<&'a HashMap<&'b str, usize>> for TypeArgContext<'a> {
+    fn from(type_args: &'a HashMap<&'b str, usize>) -> TypeArgContext<'a> {
+        TypeArgContext::Custom(type_args)
+    }
+}
+
+fn collect_type_args<'a>(args: &'a [(Spanned<&'a str>, ast::Type<'a>)]) -> HashMap<&'a str, usize> {
+    let mut map = HashMap::new();
+    for (name, type_) in args {
+        if type_.is_type() {
+            map.insert(**name, map.len());
+        }
+    }
+    map
+}
+
 pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> Result<vir::Program<'a>, Vec<Error>> {
     let mut state = State {
         functions: Vec::new(),
@@ -1117,26 +1055,23 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> Result<vir::Program<'a>, Vec<E
         struct_map: HashMap::new(),
         generic_function_map: HashMap::new(),
         generic_struct_map: HashMap::new(),
-        strings: vec![&["\n"]],
+        strings: Vec::new(),
         errors: Vec::new(),
         current_function: usize::MAX,
         current_block: 0,
     };
-    let main_type = ast::Type {
-        segments: vec![Spanned::fake("int")],
-    };
 
     state.preprocess_block(&STD_AST.statements);
-    state.preprocess_function("main", &[], Some(&main_type), &ast.statements);
+    state.preprocess_block(&ast.statements);
     state.process_all_functions();
 
-    if state.errors.is_empty() {
-        Ok(vir::Program {
-            functions: state.functions,
-            structs: state.structs,
-            strings: state.strings,
-        })
-    } else {
-        Err(state.errors)
+    if !state.errors.is_empty() {
+        return Err(state.errors);
     }
+
+    Ok(vir::Program {
+        functions: state.functions,
+        structs: state.structs,
+        strings: state.strings,
+    })
 }
