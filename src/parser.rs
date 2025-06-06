@@ -10,7 +10,7 @@ use nom::character::anychar;
 use nom::character::complete::{char, digit1};
 use nom::combinator::{all_consuming, opt, recognize, verify};
 use nom::error::Error;
-use nom::multi::{count, fold_many0, many0, many1, separated_list0};
+use nom::multi::{count, fold_many0, many0, many1, separated_list0, separated_list1};
 use nom::sequence::{delimited, pair, preceded, terminated};
 
 trait Parser<'a, T> = nom::Parser<&'a str, Output = T, Error = Error<&'a str>>;
@@ -194,14 +194,26 @@ fn return_statement<'a>() -> impl Parser<'a, Statement<'a>> {
 
 fn struct_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
     (
-        delimited((tag("struct"), sp), identifier, newline),
+        preceded((tag("struct"), sp), identifier),
+        delimited(
+            sp,
+            opt(delimited(
+                (char('('), sp),
+                separated_list1(
+                    (sp, char(','), sp),
+                    (spanned(identifier), preceded(sp, type_)),
+                ),
+                (sp, char(')')),
+            )),
+            (sp, newline),
+        ),
         many0(delimited(
             (empty_lines, indentiation(nesting + 1)),
             (identifier, type_),
             newline,
         )),
     )
-        .map(|(name, fields)| Statement::Struct { name, fields })
+        .map(|(name, args, fields)| Statement::Struct { name, args, fields })
 }
 
 fn format_string<'a>() -> impl Parser<'a, Format<'a>> {

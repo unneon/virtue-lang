@@ -124,6 +124,7 @@ impl<'a> State<'a> {
                 ast::Statement::Return { .. } => {}
                 ast::Statement::Struct {
                     name,
+                    args: _,
                     fields: ast_fields,
                 } => {
                     let mut fields = Vec::new();
@@ -849,15 +850,24 @@ impl<'a> State<'a> {
     }
 
     fn convert_type(&mut self, type_: &ast::Type) -> vir::Type {
-        let name = type_.segments.as_slice().last().unwrap();
-        match **name {
-            "int" => vir::Type::I64,
-            "i64" => vir::Type::I64,
-            "i32" => vir::Type::I32,
-            "bool" => vir::BaseType::Bool.into(),
-            "pointer_i8" => vir::BaseType::PointerI8.into(),
-            _ => self.struct_by_name(*name),
+        self.convert_type_impl(&type_.segments)
+    }
+
+    fn convert_type_impl(&mut self, segments: &[Spanned<&str>]) -> vir::Type {
+        let (head, tail) = segments.split_first().unwrap();
+        match (**head, tail) {
+            ("int", []) => return vir::Type::I64,
+            ("i8", []) => return vir::BaseType::I8.into(),
+            ("bool", []) => return vir::BaseType::Bool.into(),
+            ("pointer_i8", []) => return vir::BaseType::PointerI8.into(),
+            _ => {}
         }
+        if let Some(&function_id) = self.function_map.get(**head) {
+            let mut tail = self.convert_type_impl(tail);
+            tail.predicates.push(function_id);
+            return tail;
+        }
+        self.struct_by_name(*head)
     }
 
     fn variable_binding(&self, variable: &str) -> Binding {
@@ -885,15 +895,8 @@ impl<'a> State<'a> {
     }
 
     fn struct_by_name(&mut self, name: Spanned<&str>) -> vir::Type {
-        if self.current_function < self.functions.len()
-            && let Some(type_variable) = self.functions[self.current_function]
-                .type_variable_map
-                .get(*name)
-        {
-            return vir::BaseType::TypeVariable(*type_variable).into();
-        }
-        match self.struct_map.get(*name) {
-            Some(id) => vir::BaseType::Struct(*id).into(),
+        match self.try_struct_by_name(name) {
+            Some(type_) => type_,
             None => {
                 self.errors.push(Error {
                     message: "struct does not exist",
@@ -903,6 +906,19 @@ impl<'a> State<'a> {
                 vir::BaseType::Error.into()
             }
         }
+    }
+
+    fn try_struct_by_name(&mut self, name: Spanned<&str>) -> Option<vir::Type> {
+        if self.current_function < self.functions.len()
+            && let Some(type_variable) = self.functions[self.current_function]
+                .type_variable_map
+                .get(*name)
+        {
+            return Some(vir::BaseType::TypeVariable(*type_variable).into());
+        }
+        self.struct_map
+            .get(*name)
+            .map(|id| vir::BaseType::Struct(*id).into())
     }
 
     fn struct_field(&mut self, struct_id: usize, field_name: Spanned<&str>) -> Result<usize, ()> {
@@ -921,8 +937,13 @@ impl<'a> State<'a> {
     }
 
     fn format_type(&self, type_: &vir::Type) -> String {
-        assert!(type_.predicates.is_empty());
-        match &type_.base {
+        let predicates: String = type_
+            .predicates
+            .iter()
+            .rev()
+            .flat_map(|id| format!("{} ", self.functions[*id].name).into_chars())
+            .collect();
+        let base = match &type_.base {
             vir::BaseType::Array(inner) => {
                 let inner = self.format_type(inner);
                 format!("list {inner}")
@@ -936,7 +957,8 @@ impl<'a> State<'a> {
             vir::BaseType::Void => "void".to_owned(),
             vir::BaseType::TypeVariable(id) => format!("(type variable {id})"),
             vir::BaseType::Error => "(type error)".to_owned(),
-        }
+        };
+        format!("{predicates}{base}")
     }
 }
 

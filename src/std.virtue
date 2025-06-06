@@ -1,6 +1,6 @@
 struct string
     pointer pointer_i8
-    length i64
+    length int
 
 func virtue_add_str(left string, right string) string
     result = new string

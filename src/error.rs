@@ -62,6 +62,8 @@ impl Error {
         let line = source[..start].chars().filter(|c| *c == '\n').count() + 1;
         let line_start = source[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
         let line_end = line_start + source[line_start..].find('\n').unwrap_or(source.len());
+        let file_padding_indent = " ".repeat(line.ilog10() as usize);
+        let line_padding_indent = " ".repeat(line.ilog10() as usize + 2);
         let column = start - line_start + 1;
         let code = &source[line_start..line_end];
         let note_indent = " ".repeat(column - 1);
@@ -69,10 +71,10 @@ impl Error {
         let note_space = if note.is_empty() { "" } else { " " };
         format!(
             r#"{red}error:{reset} {bold}{message}{reset}
- {blue}-->{reset} {filename}:{line}:{column}
-   {blue}|{reset}
+ {file_padding_indent}{blue}-->{reset} {filename}:{line}:{column}
+ {line_padding_indent}{blue}|{reset}
  {blue}{line}{reset} {blue}|{reset} {code}
-   {blue}|{reset} {note_indent}{red}{note_highlight}{note_space}{note}{reset}
+ {line_padding_indent}{blue}|{reset} {note_indent}{red}{note_highlight}{note_space}{note}{reset}
 "#
         )
     }

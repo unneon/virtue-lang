@@ -43,6 +43,7 @@ pub enum Statement<'a> {
     },
     Struct {
         name: &'a str,
+        args: Option<Vec<(Spanned<&'a str>, Type<'a>)>>,
         fields: Vec<(&'a str, Type<'a>)>,
     },
     While {
