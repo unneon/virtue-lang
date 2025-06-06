@@ -271,18 +271,20 @@ impl<'a> State<'a> {
                     for segment in &fmt.segments {
                         match segment {
                             FormatSegment::Text(text) => {
-                                let function = self.function_map["virtue_print_str"];
-                                let text = self.make_string(text);
-                                let text_binding = self.make_temporary(STRING);
+                                let function = self.function_map["virtue_print_raw"];
+                                let string_id = self.make_string(text);
+                                let pointer_binding = self.make_temporary(I8.pointer());
                                 self.add_statement(vir::Statement::StringConstant(
-                                    text_binding,
-                                    text,
+                                    pointer_binding,
+                                    string_id,
                                 ));
+                                let length_binding =
+                                    self.make_literal(self.string_len(string_id) as i64);
                                 self.add_statement(vir::Statement::Call {
                                     return_: None,
                                     function,
                                     type_substitutions: Vec::new(),
-                                    args: vec![text_binding],
+                                    args: vec![pointer_binding, length_binding],
                                 });
                             }
                             FormatSegment::Variable(var) => {
@@ -308,17 +310,18 @@ impl<'a> State<'a> {
                             }
                         }
                     }
-                    let newline_text = self.make_string(&["\n"]);
-                    let newline_binding = self.make_temporary(STRING);
+                    let newline_string_id = self.make_string(&["\n"]);
+                    let newline_binding = self.make_temporary(I8.pointer());
                     self.add_statement(vir::Statement::StringConstant(
                         newline_binding,
-                        newline_text,
+                        newline_string_id,
                     ));
+                    let newline_length_binding = self.make_literal(1);
                     self.add_statement(vir::Statement::Call {
                         return_: None,
-                        function: self.function_map["virtue_print_str"],
+                        function: self.function_map["virtue_print_raw"],
                         type_substitutions: Vec::new(),
-                        args: vec![newline_binding],
+                        args: vec![newline_binding, newline_length_binding],
                     });
                 }
                 ast::Statement::Return { value } => {
@@ -701,7 +704,12 @@ impl<'a> State<'a> {
             ast::Expression::StringLiteral(literal) => {
                 let string_id = self.make_string(literal);
                 let binding = self.make_temporary(STRING);
-                self.add_statement(vir::Statement::StringConstant(binding, string_id));
+                let pointer_binding = self.make_temporary(I8.pointer());
+                self.add_statement(vir::Statement::StringConstant(pointer_binding, string_id));
+                let length_binding = self.make_literal(self.string_len(string_id) as i64);
+                self.add_statement(vir::Statement::New(binding, 0));
+                self.add_statement(vir::Statement::AssignmentField(binding, 0, pointer_binding));
+                self.add_statement(vir::Statement::AssignmentField(binding, 1, length_binding));
                 binding
             }
             ast::Expression::UnaryOperation(op, arg) => {
@@ -1001,6 +1009,10 @@ impl<'a> State<'a> {
                 Err(())
             }
         }
+    }
+
+    fn string_len(&self, id: usize) -> usize {
+        self.strings[id].iter().map(|s| s.len()).sum()
     }
 
     fn format_type(&self, type_: &vir::Type) -> String {

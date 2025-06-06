@@ -329,17 +329,9 @@ impl State<'_> {
                     return;
                 }
                 Statement::StringConstant(binding, string_id) => {
-                    let binding_id = binding.id;
                     let length = self.vir.string_len(*string_id);
-                    let literal_pointer = self.temp(format!("getelementptr [{length} x i8], [{length} x i8]* @string_{string_id}, i32 0, i32 0"));
-                    let pointer_field = self.temp(format!(
-                        "getelementptr %struct_0, ptr %stack_{binding_id}, i32 0, i32 0"
-                    ));
-                    let length_field = self.temp(format!(
-                        "getelementptr %struct_0, ptr %stack_{binding_id}, i32 0, i32 1"
-                    ));
-                    self.write(format!("store i8* {literal_pointer}, i8** {pointer_field}"));
-                    self.write(format!("store i64 {length}, i64* {length_field}"));
+                    let pointer = self.temp(format!("getelementptr [{length} x i8], [{length} x i8]* @string_{string_id}, i32 0, i32 0"));
+                    self.store(binding, pointer);
                 }
                 Statement::Syscall(binding, arg_bindings) => {
                     let registers = ["{rax}", "{rdi}", "{rsi}", "{rdx}", "{r10}", "{r8}", "{r9}"]

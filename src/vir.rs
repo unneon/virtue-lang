@@ -66,7 +66,6 @@ pub enum Statement {
     Literal(Binding, i64),
     New(Binding, usize),
     Return(Option<Binding>),
-    // TODO: This should return a pointer instead of the entire struct.
     StringConstant(Binding, usize),
     Syscall(Binding, Vec<Binding>),
     UnaryOperator(Binding, UnaryOperator, Binding),

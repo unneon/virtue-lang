@@ -218,9 +218,7 @@ impl State<'_> {
                 }
                 Statement::StringConstant(binding, value) => {
                     let binding_id = binding.id;
-                    let length = self.vir.string_len(*value);
-                    self.write(format!("    _{binding_id}._0 = str{value};"));
-                    self.write(format!("    _{binding_id}._1 = {length};"));
+                    self.write(format!("    _{binding_id} = str{value};"));
                 }
                 Statement::UnaryOperator(result, op, arg) => {
                     let result_id = result.id;

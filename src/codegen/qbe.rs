@@ -178,24 +178,10 @@ impl<'a> State<'a> {
                     return;
                 }
                 Statement::StringConstant(binding, string) => {
-                    self.assign(binding, Instr::Alloc8(16));
-                    let pointer_field = binding;
-                    let length_field = self.make_temporary();
-                    let length = self.vir.string_len(*string);
                     self.assign(
-                        length_field.clone(),
-                        Instr::Add(pointer_field.into(), Value::Const(8)),
+                        binding,
+                        Instr::Copy(Value::Global(format!("string_{string}"))),
                     );
-                    self.func.add_instr(Instr::Store(
-                        Long,
-                        pointer_field.into(),
-                        Value::Global(format!("string_{string}")),
-                    ));
-                    self.func.add_instr(Instr::Store(
-                        Long,
-                        length_field,
-                        Value::Const(length as u64),
-                    ));
                 }
                 Statement::Syscall(binding, arg_bindings) => {
                     let args = arg_bindings
