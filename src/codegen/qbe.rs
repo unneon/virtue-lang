@@ -163,16 +163,6 @@ impl<'a> State<'a> {
                     let struct_size = 8 * field_count;
                     self.assign(binding, Instr::Alloc8(struct_size as u64));
                 }
-                Statement::NewArray(binding, length) => {
-                    let element_type = self.vir_func.bindings[binding.id].type_.dereference();
-                    let size = self.make_temporary();
-                    self.assign(
-                        size.clone(),
-                        Instr::Mul(length.into(), Value::Const(element_type.byte_size() as u64)),
-                    );
-                    let malloc = self.malloc(size);
-                    self.assign(binding, malloc);
-                }
                 Statement::Return(value) => {
                     if !self.vir_func.is_main {
                         self.func
@@ -378,7 +368,6 @@ pub fn make_il(vir: &Program) -> String {
 
 fn extended_type(type_: &Type) -> qbe::Type<'static> {
     match &type_.base {
-        BaseType::Array(_) => Long,
         BaseType::I64 => Long,
         BaseType::I8 => Byte,
         BaseType::Bool => Byte,
@@ -392,7 +381,6 @@ fn extended_type(type_: &Type) -> qbe::Type<'static> {
 
 fn abi_type<'a>(type_: &Type, aggregates: &'a [qbe::TypeDef<'a>]) -> qbe::Type<'a> {
     match &type_.base {
-        BaseType::Array(_) => Long,
         BaseType::I64 => Long,
         BaseType::I8 => SignedByte,
         BaseType::Bool => UnsignedByte,
@@ -406,7 +394,6 @@ fn abi_type<'a>(type_: &Type, aggregates: &'a [qbe::TypeDef<'a>]) -> qbe::Type<'
 
 fn load_type(type_: &Type) -> qbe::Type<'static> {
     match &type_.base {
-        BaseType::Array(_) => Long,
         BaseType::I64 => Long,
         BaseType::I8 => SignedByte,
         BaseType::Bool => UnsignedByte,

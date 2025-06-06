@@ -2,6 +2,10 @@ struct string
     pointer ptr i8
     length int
 
+struct list(t type)
+    pointer ptr t
+    length int
+
 func virtue_add_str(left string, right string) string
     result = new string
     result.length = left.length + right.length

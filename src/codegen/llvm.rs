@@ -313,13 +313,6 @@ impl State<'_> {
                     ));
                 }
                 Statement::New(_, _) => {}
-                Statement::NewArray(binding, length) => {
-                    let array_type = &function.bindings[binding.id].type_;
-                    let element_type = convert_type(array_type.unwrap_list());
-                    let length = self.load(length);
-                    let result = self.temp(format!("alloca {element_type}, i64 {length}"));
-                    self.store(binding, result);
-                }
                 Statement::Return(binding) => {
                     if let Some(binding) = binding {
                         let type_ = convert_type(&function.return_type);
@@ -436,7 +429,7 @@ impl std::fmt::Display for Temporary {
 
 fn convert_type(type_: &Type) -> String {
     match &type_.base {
-        BaseType::Array(inner) | BaseType::Pointer(inner) => format!("{}*", convert_type(inner)),
+        BaseType::Pointer(inner) => format!("{}*", convert_type(inner)),
         BaseType::I64 => "i64".to_owned(),
         BaseType::I8 => "i8".to_owned(),
         BaseType::Bool => "i8".to_owned(),

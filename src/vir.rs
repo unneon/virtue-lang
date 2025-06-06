@@ -66,7 +66,6 @@ pub enum Statement {
     },
     Literal(Binding, i64),
     New(Binding, usize),
-    NewArray(Binding, Binding),
     Return(Option<Binding>),
     StringConstant(Binding, usize),
     Syscall(Binding, Vec<Binding>),
@@ -96,7 +95,6 @@ pub struct Type {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum BaseType {
-    Array(Box<Type>),
     I64,
     I8,
     Bool,
@@ -127,22 +125,40 @@ impl Type {
         base: BaseType::Bool,
     };
 
+    pub fn pointer(&self) -> Type {
+        Type {
+            predicates: self.predicates.clone(),
+            base: BaseType::Pointer(Box::new(self.clone())),
+        }
+    }
+
     pub fn substitute_types(&self, substitutions: &[Type]) -> Type {
         use BaseType::*;
         match &self.base {
-            Array(inner) => Type {
+            I64 | I8 | Bool => self.clone(),
+            Pointer(inner) => Type {
                 predicates: self.predicates.clone(),
-                base: Array(Box::new(inner.substitute_types(substitutions))),
+                base: Pointer(Box::new(inner.substitute_types(substitutions))),
             },
+            Struct(id, args) => Type {
+                predicates: self.predicates.clone(),
+                base: Struct(
+                    *id,
+                    args.iter()
+                        .map(|arg| arg.substitute_types(substitutions))
+                        .collect(),
+                ),
+            },
+            Void => self.clone(),
             TypeVariable(i) => substitutions[*i].clone(),
-            _ => self.clone(),
+            Error => self.clone(),
         }
     }
 
     pub fn is_fully_substituted(&self) -> bool {
         use BaseType::*;
         match &self.base {
-            Array(inner) | Pointer(inner) => inner.is_fully_substituted(),
+            Pointer(inner) => inner.is_fully_substituted(),
             I64 | I8 | Bool | Void => true,
             Struct(_, args) => args.iter().all(Type::is_fully_substituted),
             TypeVariable(_) | Error => false,
@@ -151,13 +167,6 @@ impl Type {
 
     pub fn is_error(&self) -> bool {
         matches!(self.base, BaseType::Error)
-    }
-
-    pub fn unwrap_list(&self) -> &Type {
-        match &self.base {
-            BaseType::Array(i) => i,
-            _ => panic!("expected array, got {self:?}"),
-        }
     }
 
     pub fn unwrap_struct(&self) -> usize {
@@ -169,14 +178,13 @@ impl Type {
 
     pub fn dereference(&self) -> Type {
         match &self.base {
-            BaseType::Array(inner) | BaseType::Pointer(inner) => inner.as_ref().clone(),
+            BaseType::Pointer(inner) => inner.as_ref().clone(),
             _ => panic!("expected pointer, got {self:?}"),
         }
     }
 
     pub fn byte_size(&self) -> usize {
         match &self.base {
-            BaseType::Array(_) => 8,
             BaseType::I64 => 8,
             BaseType::I8 => 1,
             BaseType::Bool => 1,

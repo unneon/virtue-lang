@@ -200,15 +200,6 @@ impl State<'_> {
                     self.write(format!("    _{binding_id} = {value};"));
                 }
                 Statement::New(_, _) => {}
-                Statement::NewArray(array, length) => {
-                    let array_id = array.id;
-                    let length_id = length.id;
-                    let size_temp = self.make_temporary();
-                    self.write(format!(
-                        "    long long tmp{size_temp} = _{length_id} * sizeof(*_{array_id});"
-                    ));
-                    self.malloc(array, Value::Temporary(size_temp));
-                }
                 Statement::Return(binding) => {
                     if !function.is_main {
                         if let Some(binding) = binding {
@@ -330,7 +321,7 @@ fn convert_type(type_: &Type) -> String {
         BaseType::I8 => "signed char".to_owned(),
         BaseType::I64 => "long long".to_owned(),
         BaseType::Bool => "signed char".to_owned(),
-        BaseType::Pointer(inner) | BaseType::Array(inner) => format!("{}*", convert_type(inner)),
+        BaseType::Pointer(inner) => format!("{}*", convert_type(inner)),
         BaseType::Struct(name, _) => format!("struct struct{name}"),
         BaseType::Void => "void".to_owned(),
         BaseType::TypeVariable(_) => unreachable!(),
