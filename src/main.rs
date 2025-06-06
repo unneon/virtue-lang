@@ -45,7 +45,7 @@ fn main() {
     let vir = match virtue::typecheck::typecheck(&ast) {
         Ok(vir) => vir,
         Err(errors) => {
-            eprintln!(
+            eprint!(
                 "{}",
                 format_errors(
                     &errors,
