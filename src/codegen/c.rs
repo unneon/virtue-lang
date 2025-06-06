@@ -34,7 +34,7 @@ impl State<'_> {
             self.write("};");
         }
         for function in &self.vir.functions {
-            if !function.is_instantiated {
+            if function.type_arg_substitutions.is_none() {
                 continue;
             }
             let signature = self.function_signature(function);
@@ -54,7 +54,10 @@ impl State<'_> {
 
     fn all_functions(&mut self) {
         for function_id in 0..self.vir.functions.len() {
-            if !self.vir.functions[function_id].is_instantiated {
+            if self.vir.functions[function_id]
+                .type_arg_substitutions
+                .is_none()
+            {
                 continue;
             }
             self.current_function = function_id;

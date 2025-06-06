@@ -14,7 +14,6 @@ pub struct Program<'a> {
 pub struct Function<'a> {
     pub exported: bool,
     pub is_main: bool,
-    pub is_instantiated: bool,
     pub name: Cow<'a, str>,
     pub value_args: Vec<Arg>,
     pub all_args: Vec<AnyArg>,
@@ -22,6 +21,7 @@ pub struct Function<'a> {
     pub bindings: Vec<BindingData>,
     pub binding_map: HashMap<&'a str, Binding>,
     pub type_arg_map: HashMap<&'a str, usize>,
+    pub type_arg_substitutions: Option<Vec<Type>>,
     pub blocks: Vec<Vec<Statement>>,
     pub ast_block: &'a [ast::Statement<'a>],
 }
@@ -71,7 +71,7 @@ pub enum Statement {
     UnaryOperator(Binding, UnaryOperator, Binding),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct Binding {
     pub id: usize,
 }
@@ -147,7 +147,8 @@ impl Type {
             Pointer(inner) => inner.is_fully_substituted(),
             I64 | I8 | Bool | Void => true,
             Struct(_, args) => args.iter().all(Type::is_fully_substituted),
-            TypeVariable(_) | Error => false,
+            TypeVariable(_) => false,
+            Error => true,
         }
     }
 
@@ -194,5 +195,12 @@ impl From<BaseType> for Type {
             predicates: Vec::new(),
             base,
         }
+    }
+}
+
+impl std::fmt::Debug for Binding {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let id = self.id;
+        write!(f, "_{id}")
     }
 }

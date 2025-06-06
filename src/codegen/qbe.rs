@@ -308,7 +308,7 @@ pub fn make_il(vir: &Program) -> String {
     }
 
     for function in &vir.functions {
-        if !function.is_instantiated {
+        if function.type_arg_substitutions.is_none() {
             continue;
         }
         let linkage = if function.exported {

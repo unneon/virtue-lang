@@ -1,0 +1,19 @@
+func list_concat(left list t, right list t, t type) list t
+    result = [left[0]; left.length + right.length]
+    for i from 0 to left.length - 1
+        result[i] = left[i]
+    for i from 0 to right.length - 1
+        result[left.length + i] = right[i]
+    return result
+
+xs = list_concat([1, 2], [3, 4, 5, 6], int)
+for i from 0 to xs.length - 1
+    x = xs[i]
+    print "{x}"
+
+# 1
+# 2
+# 3
+# 4
+# 5
+# 6

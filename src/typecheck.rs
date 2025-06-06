@@ -67,13 +67,17 @@ impl<'a> State<'a> {
         self.functions.push(vir::Function {
             exported: function.name == "main",
             is_main: function.name == "main",
-            is_instantiated: type_arg_map.is_empty(),
             name: Cow::Borrowed(function.name),
             value_args,
             all_args,
             return_type,
             bindings,
             binding_map,
+            type_arg_substitutions: if type_arg_map.is_empty() {
+                Some(Vec::new())
+            } else {
+                None
+            },
             type_arg_map,
             blocks: Vec::new(),
             ast_block: &function.body,
@@ -328,7 +332,22 @@ impl<'a> State<'a> {
                     let value_span = value.span;
                     let value_binding = self.process_expression(value);
                     let value_type = self.binding_type(value_binding);
-                    let return_type = self.functions[self.current_function].return_type.clone();
+                    let value_type = if let Some(type_arg_substitutions) =
+                        &self.functions[self.current_function].type_arg_substitutions
+                    {
+                        value_type.substitute_types(type_arg_substitutions)
+                    } else {
+                        value_type.clone()
+                    };
+                    let return_type = &self.functions[self.current_function].return_type;
+                    let return_type = if let Some(type_arg_substitutions) =
+                        &self.functions[self.current_function].type_arg_substitutions
+                    {
+                        return_type.substitute_types(type_arg_substitutions)
+                    } else {
+                        return_type.clone()
+                    };
+                    let return_type = self.resolve_type(&return_type);
                     self.check_type_compatible(&return_type, &value_type, value_span);
                     self.add_statement(vir::Statement::Return(Some(value_binding)));
                     return Fallthrough::Unreachable;
@@ -415,6 +434,15 @@ impl<'a> State<'a> {
 
                 let initial_binding = self.process_expression(initial);
                 let element_type = self.binding_type(initial_binding);
+                let element_type = if let Some(type_arg_substitutions) =
+                    &self.functions[self.current_function].type_arg_substitutions
+                {
+                    element_type.substitute_types(type_arg_substitutions)
+                } else {
+                    element_type.clone()
+                };
+                let element_type = self.resolve_type(&element_type);
+                if let vir::BaseType::Struct(0, _) = element_type.base {}
                 let pointer_type = element_type.pointer();
                 let list_struct_id = self.generic_struct_request(1, vec![element_type.clone()]);
                 let list_type = vir::BaseType::Struct(list_struct_id, Vec::new()).into();
@@ -596,15 +624,19 @@ impl<'a> State<'a> {
                 let callee = &self.functions[callee_id];
                 self.check_argument_count(callee.value_args.len(), value_args.len(), args_ast.span);
                 let callee = &self.functions[callee_id];
-                let callee_return_type = callee.return_type.clone();
+                let callee_return_type =
+                    self.resolve_type(&callee.return_type.substitute_types(&type_substitutions));
+                let callee = &self.functions[callee_id];
                 if callee.value_args.len() == value_args.len() {
                     for (arg_index, caller_arg_binding) in value_args.iter().enumerate() {
                         let caller_arg_type = self.binding_type(*caller_arg_binding);
                         let callee = &self.functions[callee_id];
                         let callee_arg = callee.value_args[arg_index].binding;
-                        let callee_arg_type = callee.bindings[callee_arg.id]
-                            .type_
-                            .substitute_types(&type_substitutions);
+                        let callee_arg_type = self.resolve_type(
+                            &callee.bindings[callee_arg.id]
+                                .type_
+                                .substitute_types(&type_substitutions),
+                        );
                         self.check_type_compatible(
                             &callee_arg_type,
                             &caller_arg_type,
@@ -671,6 +703,7 @@ impl<'a> State<'a> {
                     let pointer_type = &self.structs[array_struct_id].fields[0];
                     let element_type = pointer_type.dereference();
                     let pointer = self.make_temporary(pointer_type.clone());
+                    let element_type = self.resolve_type(&element_type);
                     let binding = self.make_temporary(element_type);
                     self.add_statement(vir::Statement::Field(pointer, array, 0));
                     self.add_statement(vir::Statement::Index(binding, pointer, index));
@@ -767,10 +800,29 @@ impl<'a> State<'a> {
                 }
             }
             ast::Expression::Variable(variable) => {
+                let src_type = self.resolve_type(&src_type);
                 let left_binding = self.make_variable(variable, src_type);
                 self.add_statement(vir::Statement::Assignment(left_binding, src));
             }
             _ => todo!("vir assignment unimplemented {src:?}"),
+        }
+    }
+
+    fn resolve_type(&mut self, type_: &vir::Type) -> vir::Type {
+        use vir::BaseType::*;
+        let base = match &type_.base {
+            I64 | I8 | Bool | Void | Error => type_.base.clone(),
+            Pointer(inner) => Pointer(Box::new(self.resolve_type(inner))),
+            Struct(struct_id, args) if !args.is_empty() => Struct(
+                self.generic_struct_request(*struct_id, args.clone()),
+                Vec::new(),
+            ),
+            Struct(_, _) => type_.base.clone(),
+            TypeVariable(_) => type_.base.clone(),
+        };
+        vir::Type {
+            predicates: type_.predicates.clone(),
+            base,
         }
     }
 
@@ -780,19 +832,26 @@ impl<'a> State<'a> {
             .entry((function_id, type_substitutions))
         {
             hash_map::Entry::Vacant(entry) => {
-                let type_substitutions = &entry.key().1;
+                let type_substitutions = entry.key().1.clone();
                 let substituted_id = self.functions.len();
-                let function_name = self.functions[function_id].name.as_ref();
+                entry.insert(substituted_id);
+                let function_name = self.functions[function_id].name.to_string();
                 let mut substituted_function = self.functions[function_id].clone();
-                substituted_function.is_instantiated = true;
                 substituted_function.name =
                     Cow::Owned(format!("g{substituted_id}_{function_name}"));
                 for arg in &mut substituted_function.value_args {
                     let old_arg_type = &substituted_function.bindings[arg.binding.id].type_;
-                    let new_arg_type = old_arg_type.substitute_types(type_substitutions);
+                    let new_arg_type_unresolved =
+                        old_arg_type.substitute_types(&type_substitutions);
+                    let new_arg_type = self.resolve_type(&new_arg_type_unresolved);
                     substituted_function.bindings[arg.binding.id].type_ = new_arg_type;
                 }
-                entry.insert(substituted_id);
+                substituted_function.return_type = self.resolve_type(
+                    &substituted_function
+                        .return_type
+                        .substitute_types(&type_substitutions),
+                );
+                substituted_function.type_arg_substitutions = Some(type_substitutions.clone());
                 self.functions.push(substituted_function);
                 substituted_id
             }
@@ -815,7 +874,9 @@ impl<'a> State<'a> {
                 let struct_name = self.structs[struct_id].name.as_ref();
                 let mut substituted_struct = self.structs[struct_id].clone();
                 substituted_struct.name = Cow::Owned(format!("g{substitution_id}_{struct_name}"));
-                substituted_struct.is_instantiated = true;
+                substituted_struct.is_instantiated = type_substitutions
+                    .iter()
+                    .all(|type_| type_.is_fully_substituted());
                 for field in &mut substituted_struct.fields {
                     *field = field.substitute_types(type_substitutions);
                 }
@@ -838,6 +899,9 @@ impl<'a> State<'a> {
                 binding
             }
             hash_map::Entry::Vacant(e) => {
+                if f.type_arg_substitutions.is_some() {
+                    assert!(type_.is_fully_substituted());
+                }
                 let binding = Binding { id: binding_count };
                 f.bindings.push(vir::BindingData { type_ });
                 *e.insert(binding)
@@ -847,6 +911,9 @@ impl<'a> State<'a> {
 
     fn make_temporary(&mut self, type_: vir::Type) -> Binding {
         let f = &mut self.functions[self.current_function];
+        if f.type_arg_substitutions.is_some() {
+            assert!(type_.is_fully_substituted());
+        }
         let binding = Binding {
             id: f.bindings.len(),
         };

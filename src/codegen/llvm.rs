@@ -3,6 +3,7 @@ mod subprocess;
 pub use subprocess::compile_ir;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
+use crate::typecheck::std::I64;
 use crate::vir::{BaseType, Binding, Program, Statement, Type};
 use std::fmt::Write;
 
@@ -13,6 +14,13 @@ struct State<'a> {
     temp_counter: usize,
 }
 
+enum Value {
+    Binding(Binding),
+    Constant(i64),
+    Temporary(Temporary, Type),
+}
+
+#[derive(Clone)]
 struct Temporary {
     id: usize,
 }
@@ -50,7 +58,10 @@ impl State<'_> {
 
     fn all_functions(&mut self) {
         for function_id in 0..self.vir.functions.len() {
-            if !self.vir.functions[function_id].is_instantiated {
+            if self.vir.functions[function_id]
+                .type_arg_substitutions
+                .is_none()
+            {
                 continue;
             }
             self.current_function = function_id;
@@ -69,7 +80,7 @@ impl State<'_> {
 
     fn function_declaration(&mut self) {
         let function = &self.vir.functions[self.current_function];
-        if !function.is_instantiated {
+        if function.type_arg_substitutions.is_none() {
             return;
         }
         let return_type = convert_type(&function.return_type);
@@ -135,10 +146,22 @@ impl State<'_> {
             self.write(format!("; statement_id={statement_id} {statement:?}"));
             match statement {
                 Statement::Alloc(binding, count) => {
-                    let type_ = convert_type(&function.bindings[binding.id].type_.dereference());
+                    let element_type = function.bindings[binding.id].type_.dereference();
+                    let element_byte_size = element_type.byte_size();
                     let count = self.load(count);
-                    let pointer = self.temp(format!("alloca {type_}, i64 {count}"));
-                    self.store(binding, pointer);
+                    let size = self.temp(format!("mul i64 {count}, {element_byte_size}"));
+                    self.syscall(
+                        Some(binding),
+                        &[
+                            Value::Constant(9),
+                            Value::Constant(0),
+                            Value::Temporary(size, I64),
+                            Value::Constant(0x3),
+                            Value::Constant(0x22),
+                            Value::Constant(-1),
+                            Value::Constant(0),
+                        ],
+                    );
                 }
                 Statement::Assignment(left, right) => {
                     let right = self.load(right);
@@ -320,7 +343,13 @@ impl State<'_> {
                         if !function.is_main {
                             self.write(format!("ret {type_} {value}"));
                         } else {
-                            self.write(format!("call void asm sideeffect \"syscall\", \"{{rax}},{{rdi}}\" (i64 60, {type_} {value})"));
+                            self.syscall(
+                                None,
+                                &[
+                                    Value::Constant(60),
+                                    Value::Temporary(value, function.return_type.clone()),
+                                ],
+                            );
                             self.write("unreachable");
                         }
                     } else {
@@ -334,22 +363,14 @@ impl State<'_> {
                     self.store(binding, pointer);
                 }
                 Statement::Syscall(binding, arg_bindings) => {
-                    let registers = ["{rax}", "{rdi}", "{rsi}", "{rdx}", "{r10}", "{r8}", "{r9}"]
-                        [..arg_bindings.len()]
-                        .join(",");
-                    let mut args = String::new();
-                    for (arg_index, arg_binding) in arg_bindings.iter().enumerate() {
-                        if arg_index > 0 {
-                            args.push_str(", ");
-                        }
-                        let type_ = convert_type(&function.bindings[arg_binding.id].type_);
-                        let temp = self.load(arg_binding);
-                        write!(&mut args, "{type_} {temp}").unwrap();
-                    }
-                    let result = self.temp(format!(
-                        "call i64 asm sideeffect \"syscall\", \"=r,{registers}\" ({args})"
-                    ));
-                    self.store(binding, result);
+                    self.syscall(
+                        Some(binding),
+                        arg_bindings
+                            .iter()
+                            .map(|binding| Value::Binding(*binding))
+                            .collect::<Vec<_>>()
+                            .as_slice(),
+                    );
                 }
                 Statement::UnaryOperator(binding, op, arg) => {
                     let (instr, helper_arg, type_) = match op {
@@ -367,6 +388,41 @@ impl State<'_> {
 
     fn function_epilogue(&mut self) {
         self.write("}");
+    }
+
+    fn syscall(&mut self, return_binding: Option<&Binding>, arg_values: &[Value]) {
+        let registers = ["{rax}", "{rdi}", "{rsi}", "{rdx}", "{r10}", "{r8}", "{r9}"]
+            [..arg_values.len()]
+            .join(",");
+        let mut args = String::new();
+        for (arg_index, arg_value) in arg_values.iter().enumerate() {
+            if arg_index > 0 {
+                args.push_str(", ");
+            }
+            let (temp, type_) = match arg_value {
+                Value::Binding(binding) => {
+                    let type_ =
+                        &self.vir.functions[self.current_function].bindings[binding.id].type_;
+                    (self.load(binding).to_string(), convert_type(type_))
+                }
+                Value::Constant(constant) => (constant.to_string(), "i64".to_owned()),
+                Value::Temporary(temp, type_) => (temp.to_string(), convert_type(type_)),
+            };
+            write!(&mut args, "{type_} {temp}").unwrap();
+        }
+        if let Some(return_binding) = return_binding {
+            let return_type = convert_type(
+                &self.vir.functions[self.current_function].bindings[return_binding.id].type_,
+            );
+            let result = self.temp(format!(
+                "call {return_type} asm sideeffect \"syscall\", \"=r,{registers}\" ({args})"
+            ));
+            self.store(return_binding, result);
+        } else {
+            self.write(format!(
+                "call void asm sideeffect \"syscall\", \"{registers}\" ({args})"
+            ));
+        }
     }
 
     fn load(&mut self, source: &Binding) -> Temporary {
