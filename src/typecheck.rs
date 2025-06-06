@@ -516,8 +516,8 @@ impl<'a> State<'a> {
                         vir::BaseType::I64,
                         vir::BaseType::I64,
                     ) => vir::Type::I64,
-                    (Add | Subtract, vir::BaseType::PointerI8, vir::BaseType::I64) => {
-                        vir::BaseType::PointerI8.into()
+                    (Add | Subtract, vir::BaseType::Pointer(inner), vir::BaseType::I64) => {
+                        vir::BaseType::Pointer(inner.clone()).into()
                     }
                     (Add, vir::BaseType::Struct(0, _), vir::BaseType::Struct(0, _)) => {
                         let binding = self.make_temporary(STRING_TYPE);
@@ -570,8 +570,14 @@ impl<'a> State<'a> {
                 if **callee_name == "alloc" {
                     let count = self.process_expression(&args_ast[0]);
                     let type_ = match &*args_ast[1] {
-                        ast::Expression::Variable(name) if **name == "i8" => {
-                            vir::BaseType::PointerI8.into()
+                        ast::Expression::Variable(name) => {
+                            let inner = self
+                                .convert_type_impl(
+                                    &[*name],
+                                    TypeSubstitutionContext::CurrentFunction,
+                                )
+                                .0;
+                            vir::BaseType::Pointer(Box::new(inner)).into()
                         }
                         _ => todo!(),
                     };
@@ -687,7 +693,9 @@ impl<'a> State<'a> {
                 let index = self.process_expression(index);
                 if self.binding_type(array).base == STRING_TYPE.base {
                     let string = array;
-                    let string_pointer = self.make_temporary(vir::BaseType::PointerI8.into());
+                    let string_pointer = self.make_temporary(
+                        vir::BaseType::Pointer(Box::new(vir::BaseType::I8.into())).into(),
+                    );
                     let binding = self.make_temporary(vir::BaseType::I8.into());
                     self.add_statement(vir::Statement::Field(string_pointer, string, 0));
                     self.add_statement(vir::Statement::Index(binding, string_pointer, index));
@@ -774,7 +782,9 @@ impl<'a> State<'a> {
                 let index = self.process_expression(index);
                 if self.binding_type(array).base == STRING_TYPE.base {
                     let string = array;
-                    let string_pointer = self.make_temporary(vir::BaseType::PointerI8.into());
+                    let string_pointer = self.make_temporary(
+                        vir::BaseType::Pointer(Box::new(vir::BaseType::I8.into())).into(),
+                    );
                     self.add_statement(vir::Statement::Field(string_pointer, string, 0));
                     self.add_statement(vir::Statement::AssignmentIndex(string_pointer, index, src));
                 } else {
@@ -927,7 +937,10 @@ impl<'a> State<'a> {
             ("int", []) => return (vir::Type::I64, &[]),
             ("i8", []) => return (vir::Type::I8, &[]),
             ("bool", []) => return (vir::Type::BOOL, &[]),
-            ("pointer_i8", []) => return (vir::Type::POINTER_I8, &[]),
+            ("ptr", tail) => {
+                let (inner, tail) = self.convert_type_impl(tail, ctx);
+                return (vir::BaseType::Pointer(Box::new(inner)).into(), tail);
+            }
             _ => {}
         }
         if let Some(&function_id) = self.function_map.get(**head) {
@@ -1034,7 +1047,7 @@ impl<'a> State<'a> {
             vir::BaseType::I64 => "int".to_owned(),
             vir::BaseType::I8 => "i8".to_owned(),
             vir::BaseType::Bool => "bool".to_owned(),
-            vir::BaseType::PointerI8 => "pointer_i8".to_owned(),
+            vir::BaseType::Pointer(inner) => format!("ptr {}", self.format_type(inner)),
             vir::BaseType::Struct(struct_id, args) => {
                 let struct_name = self.structs[*struct_id].name.as_ref();
                 let args: String = args

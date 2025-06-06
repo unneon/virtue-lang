@@ -51,6 +51,9 @@ impl Error {
             note,
             note_span,
         } = self;
+        if note_span.end > source.len() {
+            return format!("standard library error {self:?}");
+        }
         let Colors {
             red,
             blue,

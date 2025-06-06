@@ -100,7 +100,7 @@ pub enum BaseType {
     I64,
     I8,
     Bool,
-    PointerI8,
+    Pointer(Box<Type>),
     Struct(usize, Vec<Type>),
     Void,
     TypeVariable(usize),
@@ -126,10 +126,6 @@ impl Type {
         predicates: Vec::new(),
         base: BaseType::Bool,
     };
-    pub const POINTER_I8: Type = Type {
-        predicates: Vec::new(),
-        base: BaseType::PointerI8,
-    };
 
     pub fn substitute_types(&self, substitutions: &[Type]) -> Type {
         use BaseType::*;
@@ -146,8 +142,8 @@ impl Type {
     pub fn is_fully_substituted(&self) -> bool {
         use BaseType::*;
         match &self.base {
-            Array(inner) => inner.is_fully_substituted(),
-            I64 | I8 | Bool | PointerI8 | Void => true,
+            Array(inner) | Pointer(inner) => inner.is_fully_substituted(),
+            I64 | I8 | Bool | Void => true,
             Struct(_, args) => args.iter().all(Type::is_fully_substituted),
             TypeVariable(_) | Error => false,
         }
@@ -173,8 +169,7 @@ impl Type {
 
     pub fn dereference(&self) -> Type {
         match &self.base {
-            BaseType::PointerI8 => BaseType::I8.into(),
-            BaseType::Array(element_type) => element_type.as_ref().clone(),
+            BaseType::Array(inner) | BaseType::Pointer(inner) => inner.as_ref().clone(),
             _ => panic!("expected pointer, got {self:?}"),
         }
     }
@@ -185,7 +180,7 @@ impl Type {
             BaseType::I64 => 8,
             BaseType::I8 => 1,
             BaseType::Bool => 1,
-            BaseType::PointerI8 => 8,
+            BaseType::Pointer(_) => 8,
             // TODO: QBE and LLVM work differently here.
             BaseType::Struct(_, _) => 8,
             BaseType::Void => 0,

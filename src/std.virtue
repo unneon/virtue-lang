@@ -1,5 +1,5 @@
 struct string
-    pointer pointer_i8
+    pointer ptr i8
     length int
 
 func virtue_add_str(left string, right string) string
@@ -12,7 +12,7 @@ func virtue_add_str(left string, right string) string
         result[left.length + i] = right[i]
     return result
 
-func virtue_print_raw(pointer pointer_i8, length int)
+func virtue_print_raw(pointer ptr i8, length int)
     syscall(1, 1, pointer, length)
 
 func virtue_print_str(s string)
