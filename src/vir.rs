@@ -105,16 +105,40 @@ pub enum BaseType {
 }
 
 impl Program<'_> {
+    pub fn struct_byte_size(&self, id: usize) -> usize {
+        self.structs[id]
+            .fields
+            .iter()
+            .map(|type_| match type_.base {
+                BaseType::Struct(id, _) => self.struct_byte_size(id),
+                _ => type_.byte_size(),
+            })
+            .sum()
+    }
+
     pub fn string_len(&self, id: usize) -> usize {
         self.strings[id].iter().map(|s| s.len()).sum()
+    }
+}
+
+impl Struct<'_> {
+    pub fn field_offset(&self, field: usize) -> usize {
+        self.fields[..field].iter().map(Type::byte_size).sum()
     }
 }
 
 impl Type {
     pub fn pointer(&self) -> Type {
         Type {
-            predicates: self.predicates.clone(),
+            predicates: Vec::new(),
             base: BaseType::Pointer(Box::new(self.clone())),
+        }
+    }
+
+    pub fn list(&self) -> Type {
+        Type {
+            predicates: Vec::new(),
+            base: BaseType::Struct(1, vec![self.clone()]),
         }
     }
 
@@ -180,8 +204,7 @@ impl Type {
             BaseType::I8 => 1,
             BaseType::Bool => 1,
             BaseType::Pointer(_) => 8,
-            // TODO: QBE and LLVM work differently here.
-            BaseType::Struct(_, _) => 8,
+            BaseType::Struct(_, _) => unreachable!(),
             BaseType::Void => 0,
             BaseType::TypeVariable(_) => unreachable!(),
             BaseType::Error => unreachable!(),

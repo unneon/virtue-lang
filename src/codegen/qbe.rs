@@ -4,7 +4,7 @@ pub use subprocess::compile_il;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::vir::{BaseType, Binding, Function, Program, Statement, Type};
-use qbe::Type::{Byte, Long, SignedByte, UnsignedByte, Word};
+use qbe::Type::{Byte, Long, SignedByte, UnsignedByte};
 use qbe::{Cmp, DataDef, DataItem, Instr, Linkage, Value};
 
 struct State<'a> {
@@ -20,53 +20,59 @@ impl<'a> State<'a> {
     fn block(&mut self, statements: &'a [Statement]) {
         for statement in statements {
             match statement {
-                Statement::Alloc(binding, count) => {
-                    let element_type = self.vir_func.bindings[binding.id].type_.dereference();
-                    let size = self.make_temporary();
+                Statement::Alloc(pointer, count) => {
+                    let element_type = self.vir_func.bindings[pointer.id].type_.dereference();
+                    let size = self.temp(Instr::Mul(
+                        count.into(),
+                        Value::Const(self.byte_size(&element_type) as u64),
+                    ));
                     self.assign(
-                        size.clone(),
-                        Instr::Mul(count.into(), Value::Const(element_type.byte_size() as u64)),
+                        pointer,
+                        Instr::Call(
+                            "syscall".to_owned(),
+                            vec![
+                                (Long, Value::Const(9)),
+                                (Long, Value::Const(0)),
+                                (Long, size),
+                                (Long, Value::Const(0x3)),
+                                (Long, Value::Const(0x22)),
+                                (Long, Value::Const(u64::MAX)),
+                                (Long, Value::Const(0)),
+                            ],
+                            None,
+                        ),
                     );
-                    let malloc = self.malloc(size);
-                    self.assign(binding, malloc);
                 }
                 Statement::Assignment(left, right) => {
                     self.assign(left, Instr::Copy(right.into()));
                 }
-                Statement::AssignmentField(object_binding, field, value) => {
-                    let field_offset = 8 * field;
-                    let field_binding = self.make_temporary();
-                    let field_address =
-                        Instr::Add(object_binding.into(), Value::Const(field_offset as u64));
-                    self.assign(field_binding.clone(), field_address);
-                    self.func
-                        .add_instr(Instr::Store(Long, field_binding, value.into()));
+                Statement::AssignmentField(struct_, field, value) => {
+                    let struct_type = &self.vir_func.bindings[struct_.id].type_;
+                    let struct_id = struct_type.unwrap_struct();
+                    let field_offset = self.vir.structs[struct_id].field_offset(*field);
+                    let field_pointer = self.temp(Instr::Add(
+                        struct_.into(),
+                        Value::Const(field_offset as u64),
+                    ));
+                    self.execute(Instr::Store(Long, field_pointer, value.into()));
                 }
-                Statement::AssignmentIndex(array_binding, index_binding, right_binding) => {
-                    let element_type = self.vir_func.bindings[array_binding.id].type_.dereference();
-                    let offset_binding = self.make_temporary();
-                    let left_binding = self.make_temporary();
-                    self.assign(
-                        offset_binding.clone(),
-                        Instr::Mul(
-                            index_binding.into(),
-                            Value::Const(element_type.byte_size() as u64),
-                        ),
-                    );
-                    self.assign(
-                        left_binding.clone(),
-                        Instr::Add(array_binding.into(), offset_binding),
-                    );
-                    self.func.add_instr(Instr::Store(
+                Statement::AssignmentIndex(list, index, right) => {
+                    let element_type = self.vir_func.bindings[list.id].type_.dereference();
+                    let offset = self.temp(Instr::Mul(
+                        index.into(),
+                        Value::Const(self.byte_size(&element_type) as u64),
+                    ));
+                    let left = self.temp(Instr::Add(list.into(), offset));
+                    self.execute(Instr::Store(
                         extended_type(&element_type),
-                        left_binding,
-                        right_binding.into(),
+                        left,
+                        right.into(),
                     ));
                 }
-                Statement::BinaryOperator(result_binding, op, left, right) => {
+                Statement::BinaryOperator(result, op, left, right) => {
                     let left = left.into();
                     let right = right.into();
-                    let result = match op {
+                    let instr = match op {
                         BinaryOperator::Add => Instr::Add(left, right),
                         BinaryOperator::Subtract => Instr::Sub(left, right),
                         BinaryOperator::Multiply => Instr::Mul(left, right),
@@ -86,10 +92,10 @@ impl<'a> State<'a> {
                         BinaryOperator::LogicAnd => Instr::And(left, right),
                         BinaryOperator::LogicOr => Instr::Or(left, right),
                     };
-                    self.assign(result_binding, result);
+                    self.assign(result, instr);
                 }
                 Statement::Call {
-                    return_,
+                    return_: result,
                     function,
                     args,
                     ..
@@ -104,43 +110,34 @@ impl<'a> State<'a> {
                             )
                         })
                         .collect();
-                    let call = Instr::Call(function_name.to_string(), args, None);
-                    if let Some(return_binding) = return_ {
-                        self.assign(return_binding, call)
+                    let instr = Instr::Call(function_name.to_string(), args, None);
+                    if let Some(result) = result {
+                        self.assign(result, instr)
                     } else {
-                        self.func.add_instr(call);
+                        self.execute(instr);
                     }
                 }
-                Statement::Field(binding, object_binding, field) => {
-                    let field_offset = 8 * field;
-                    let field_binding = self.make_temporary();
-                    let field_address =
-                        Instr::Add(object_binding.into(), Value::Const(field_offset as u64));
-                    self.assign(field_binding.clone(), field_address);
-                    self.assign(binding, Instr::Load(Long, field_binding));
+                Statement::Field(value, struct_, field) => {
+                    let struct_type = &self.vir_func.bindings[struct_.id].type_;
+                    let struct_id = struct_type.unwrap_struct();
+                    let field_offset = self.vir.structs[struct_id].field_offset(*field);
+                    let field_pointer = self.temp(Instr::Add(
+                        struct_.into(),
+                        Value::Const(field_offset as u64),
+                    ));
+                    self.assign(value, Instr::Load(Long, field_pointer));
                 }
-                Statement::Index(binding, array_binding, index_binding) => {
-                    let element_type = self.vir_func.bindings[array_binding.id].type_.dereference();
-                    let offset_binding = self.make_temporary();
-                    let right_binding = self.make_temporary();
-                    self.assign(
-                        offset_binding.clone(),
-                        Instr::Mul(
-                            index_binding.into(),
-                            Value::Const(element_type.byte_size() as u64),
-                        ),
-                    );
-                    self.assign(
-                        right_binding.clone(),
-                        Instr::Add(array_binding.into(), offset_binding),
-                    );
-                    self.assign(
-                        binding,
-                        Instr::Load(load_type(&element_type), right_binding),
-                    );
+                Statement::Index(element, list, index) => {
+                    let element_type = self.vir_func.bindings[list.id].type_.dereference();
+                    let offset = self.temp(Instr::Mul(
+                        index.into(),
+                        Value::Const(self.byte_size(&element_type) as u64),
+                    ));
+                    let right = self.temp(Instr::Add(list.into(), offset));
+                    self.assign(element, Instr::Load(load_type(&element_type), right));
                 }
                 Statement::JumpAlways(block) => {
-                    self.func.add_instr(Instr::Jmp(format!("_{block}")));
+                    self.execute(Instr::Jmp(format!("_{block}")));
                     return;
                 }
                 Statement::JumpConditional {
@@ -148,43 +145,41 @@ impl<'a> State<'a> {
                     true_block,
                     false_block,
                 } => {
-                    self.func.add_instr(Instr::Jnz(
+                    self.execute(Instr::Jnz(
                         condition.into(),
                         format!("_{true_block}"),
                         format!("_{false_block}"),
                     ));
                     return;
                 }
-                Statement::Literal(binding, literal) => {
-                    self.assign(binding, Instr::Copy(Value::Const(*literal as u64)));
+                Statement::Literal(literal, value) => {
+                    self.assign(literal, Instr::Copy(Value::Const(*value as u64)));
                 }
-                Statement::New(binding, struct_id) => {
-                    let field_count = self.vir.structs[*struct_id].fields.len();
-                    let struct_size = 8 * field_count;
-                    self.assign(binding, Instr::Alloc8(struct_size as u64));
+                Statement::New(pointer, struct_id) => {
+                    let struct_size = self.vir.struct_byte_size(*struct_id);
+                    self.assign(pointer, Instr::Alloc8(struct_size as u64));
                 }
-                Statement::Return(value) => {
+                Statement::Return(result) => {
                     if !self.vir_func.is_main {
-                        self.func
-                            .add_instr(Instr::Ret(value.as_ref().map(From::from)));
+                        self.execute(Instr::Ret(result.as_ref().map(From::from)));
                     } else {
-                        self.func.add_instr(Instr::Call(
+                        self.execute(Instr::Call(
                             "syscall".to_owned(),
-                            vec![(Long, Value::Const(60)), (Long, (&value.unwrap()).into())],
+                            vec![(Long, Value::Const(60)), (Long, (&result.unwrap()).into())],
                             None,
                         ));
-                        self.func.add_instr(Instr::Hlt);
+                        self.execute(Instr::Hlt);
                     }
                     return;
                 }
-                Statement::StringConstant(binding, string) => {
+                Statement::StringConstant(pointer, string_id) => {
                     self.assign(
-                        binding,
-                        Instr::Copy(Value::Global(format!("string_{string}"))),
+                        pointer,
+                        Instr::Copy(Value::Global(format!("string_{string_id}"))),
                     );
                 }
-                Statement::Syscall(binding, arg_bindings) => {
-                    let args = arg_bindings
+                Statement::Syscall(result, args) => {
+                    let args = args
                         .iter()
                         .map(|arg| {
                             (
@@ -193,11 +188,11 @@ impl<'a> State<'a> {
                             )
                         })
                         .collect();
-                    self.assign(binding, Instr::Call("syscall".to_owned(), args, None));
+                    self.assign(result, Instr::Call("syscall".to_owned(), args, None));
                 }
-                Statement::UnaryOperator(binding, op, arg) => {
+                Statement::UnaryOperator(result, op, arg) => {
                     self.assign(
-                        binding,
+                        result,
                         match op {
                             UnaryOperator::Negate => Instr::Sub(Value::Const(0), arg.into()),
                             UnaryOperator::BitNot => Instr::Xor(arg.into(), Value::Const(u64::MAX)),
@@ -209,20 +204,10 @@ impl<'a> State<'a> {
         }
     }
 
-    fn malloc(&mut self, size: impl Into<Value> + 'static) -> Instr<'static> {
-        Instr::Call(
-            "syscall".to_owned(),
-            vec![
-                (Long, Value::Const(9)),
-                (Long, Value::Const(0)),
-                (Long, size.into()),
-                (Long, Value::Const(0x3)),
-                (Long, Value::Const(0x22)),
-                (Long, Value::Const(u64::MAX)),
-                (Long, Value::Const(0)),
-            ],
-            None,
-        )
+    fn temp(&mut self, instr: Instr<'a>) -> Value {
+        let temp = self.make_temporary();
+        self.assign(temp.clone(), instr);
+        temp
     }
 
     fn assign(&mut self, left: impl Into<Value>, right: Instr<'a>) {
@@ -253,10 +238,21 @@ impl<'a> State<'a> {
         }
     }
 
+    fn execute(&mut self, instr: Instr<'a>) {
+        self.func.add_instr(instr);
+    }
+
     fn make_temporary(&mut self) -> Value {
         let temp_id = self.temp_counter;
         self.temp_counter += 1;
         Value::Temporary(format!("tmp_{temp_id}"))
+    }
+
+    fn byte_size(&self, type_: &Type) -> usize {
+        match type_.base {
+            BaseType::Struct(struct_id, _) => self.vir.struct_byte_size(struct_id),
+            _ => type_.byte_size(),
+        }
     }
 }
 
@@ -287,7 +283,7 @@ pub fn make_il(vir: &Program) -> String {
         vir_func: &vir.functions[0],
         il: qbe::Module::new(),
         aggregates: &aggregates,
-        func: qbe::Function::new(Linkage::public(), "main", Vec::new(), Some(Word)),
+        func: qbe::Function::default(),
         temp_counter: 0,
     };
 

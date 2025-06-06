@@ -146,10 +146,12 @@ impl State<'_> {
             self.write(format!("; statement_id={statement_id} {statement:?}"));
             match statement {
                 Statement::Alloc(binding, count) => {
-                    let element_type = function.bindings[binding.id].type_.dereference();
-                    let element_byte_size = element_type.byte_size();
+                    let pointer_type = convert_type(&function.bindings[binding.id].type_);
                     let count = self.load(count);
-                    let size = self.temp(format!("mul i64 {count}, {element_byte_size}"));
+                    let element_size =
+                        self.temp(format!("getelementptr {pointer_type}, ptr null, i64 1"));
+                    let element_size = self.temp(format!("ptrtoint ptr {element_size} to i64"));
+                    let size = self.temp(format!("mul i64 {count}, {element_size}"));
                     self.syscall(
                         Some(binding),
                         &[

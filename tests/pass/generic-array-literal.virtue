@@ -1,0 +1,12 @@
+func f(x t, t type) list t
+    return [x, x, x, x]
+xs = f("nya", string)
+ys = f(123, int)
+x = xs[2]
+y = ys[2]
+xl = xs.length
+yl = ys.length
+print "{x} {y} {xl} {yl}"
+
+# ignore-qbe
+# nya 123 4 4
