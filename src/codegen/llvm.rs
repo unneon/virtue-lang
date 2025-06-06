@@ -13,6 +13,10 @@ struct State<'a> {
     temp_counter: usize,
 }
 
+struct Temporary {
+    id: usize,
+}
+
 impl State<'_> {
     fn prologue_structs(&mut self) {
         for (struct_id, struct_) in self.vir.structs.iter().enumerate() {
@@ -44,6 +48,7 @@ impl State<'_> {
     fn all_functions(&mut self) {
         for function_id in 0..self.vir.functions.len() {
             self.current_function = function_id;
+            self.temp_counter = 0;
             self.function();
         }
     }
@@ -121,59 +126,41 @@ impl State<'_> {
             match statement {
                 Statement::Alloc(binding, count) => {
                     let type_ = convert_type(&function.bindings[binding.id].type_.dereference());
-                    let temp = self.make_temporary();
-                    let count_temp = self.make_temporary();
-                    self.load(count_temp, count);
-                    self.write(format!(
-                        "%temp_{temp} = alloca {type_}, i64 %temp_{count_temp}"
-                    ));
-                    self.store(binding, temp);
+                    let count = self.load(count);
+                    let pointer = self.temp(format!("alloca {type_}, i64 {count}"));
+                    self.store(binding, pointer);
                 }
                 Statement::Assignment(left, right) => {
-                    let temp = self.make_temporary();
-                    self.load(temp, right);
-                    self.store(left, temp);
+                    let right = self.load(right);
+                    self.store(left, right);
                 }
                 Statement::AssignmentField(object_binding, field_id, value_binding) => {
                     let object_binding_id = object_binding.id;
                     let struct_id = function.bindings[object_binding.id].type_.unwrap_struct();
                     let field_type = convert_type(&self.vir.structs[struct_id].fields[*field_id]);
-                    let value_temp = self.make_temporary();
-                    let field_temp = self.make_temporary();
-                    self.load(value_temp, value_binding);
-                    self.write(format!(
-                        "%temp_{field_temp} = getelementptr inbounds %struct_{struct_id}, ptr %stack_{object_binding_id}, i32 0, i32 {field_id}"
+                    let value = self.load(value_binding);
+                    let field = self.temp(format!(
+                        "getelementptr inbounds %struct_{struct_id}, ptr %stack_{object_binding_id}, i32 0, i32 {field_id}"
                     ));
-                    self.write(format!(
-                        "store {field_type} %temp_{value_temp}, {field_type}* %temp_{field_temp}"
-                    ));
+                    self.write(format!("store {field_type} {value}, {field_type}* {field}"));
                 }
                 Statement::AssignmentIndex(array_binding, index_binding, value_binding) => {
                     let value_type = convert_type(&function.bindings[value_binding.id].type_);
                     let element_type =
                         convert_type(&function.bindings[array_binding.id].type_.dereference());
-                    let value_temp = self.make_temporary();
-                    let array_temp = self.make_temporary();
-                    let index_temp = self.make_temporary();
-                    let field_temp = self.make_temporary();
-                    self.load(value_temp, value_binding);
-                    self.load(array_temp, array_binding);
-                    self.load(index_temp, index_binding);
-                    self.write(format!(
-                        "%temp_{field_temp} = getelementptr {element_type}, ptr %temp_{array_temp}, i64 %temp_{index_temp}"
+                    let value = self.load(value_binding);
+                    let array = self.load(array_binding);
+                    let index = self.load(index_binding);
+                    let field = self.temp(format!(
+                        "getelementptr {element_type}, ptr {array}, i64 {index}"
                     ));
                     if value_type == element_type {
                         self.write(format!(
-                            "store {value_type} %temp_{value_temp}, {element_type}* %temp_{field_temp}"
+                            "store {value_type} {value}, {element_type}* {field}"
                         ));
                     } else if value_type == "i64" && element_type == "i8" {
-                        let trunc_temp = self.make_temporary();
-                        self.write(format!(
-                            "%temp_{trunc_temp} = trunc i64 %temp_{value_temp} to i8"
-                        ));
-                        self.write(format!(
-                            "store i8 %temp_{trunc_temp}, i8* %temp_{field_temp}"
-                        ));
+                        let trunc = self.temp(format!("trunc i64 {value} to i8"));
+                        self.write(format!("store i8 {trunc}, i8* {field}"));
                     } else {
                         todo!()
                     }
@@ -209,42 +196,31 @@ impl State<'_> {
                             | BinaryOperator::Equal
                             | BinaryOperator::NotEqual
                     );
-                    let temp_left = self.make_temporary();
-                    let temp_right = self.make_temporary();
-                    let temp_result = self.make_temporary();
-                    self.load(temp_left, left);
-                    self.load(temp_right, right);
-                    if left_type == "i8*" && instr == "add" {
+                    let left_val = self.load(left);
+                    let right_val = self.load(right);
+                    let result = if left_type == "i8*" && instr == "add" {
                         let element_type =
                             convert_type(&function.bindings[left.id].type_.dereference());
                         let right_type = convert_type(&function.bindings[right.id].type_);
-                        self.write(format!(
-                            "%temp_{temp_result} = getelementptr {element_type}, ptr %temp_{temp_left}, {right_type} %temp_{temp_right}"
-                        ));
+                        self.temp(format!(
+                            "getelementptr {element_type}, ptr {left_val}, {right_type} {right_val}"
+                        ))
                     } else if left_type == "i8*" && instr == "sub" {
                         let element_type =
                             convert_type(&function.bindings[left.id].type_.dereference());
-                        let temp_minus_right = self.make_temporary();
                         let right_type = convert_type(&function.bindings[right.id].type_);
-                        self.write(format!(
-                            "%temp_{temp_minus_right} = sub {right_type} 0, %temp_{temp_right}"
-                        ));
-                        self.write(format!(
-                                "%temp_{temp_result} = getelementptr {element_type}, ptr %temp_{temp_left}, {right_type} %temp_{temp_minus_right}"
-                            ));
+                        let minus_right = self.temp(format!("sub {right_type} 0, {right_val}"));
+                        self.temp(format!(
+                            "getelementptr {element_type}, ptr {left_val}, {right_type} {minus_right}"
+                        ))
                     } else {
-                        self.write(format!(
-                            "%temp_{temp_result} = {instr} {left_type} %temp_{temp_left}, %temp_{temp_right}"
-                        ));
-                    }
+                        self.temp(format!("{instr} {left_type} {left_val}, {right_val}"))
+                    };
                     if returns_bool {
-                        let temp_zext = self.make_temporary();
-                        self.write(format!(
-                            "%temp_{temp_zext} = zext i1 %temp_{temp_result} to i8"
-                        ));
-                        self.store(binding, temp_zext);
+                        let zext = self.temp(format!("zext i1 {result} to i8"));
+                        self.store(binding, zext);
                     } else {
-                        self.store(binding, temp_result);
+                        self.store(binding, result);
                     }
                 }
                 Statement::Call(return_binding, callee_id, arg_bindings) => {
@@ -256,23 +232,21 @@ impl State<'_> {
                             signature.push_str(", ");
                         }
                         signature.push_str(&type_);
-                        let temp = self.make_temporary();
-                        self.load(temp, arg_binding);
+                        let arg_val = self.load(arg_binding);
                         if arg_index > 0 {
                             args.push_str(", ");
                         }
-                        write!(&mut args, "{type_} %temp_{temp}").unwrap();
+                        write!(&mut args, "{type_} {arg_val}").unwrap();
                     }
                     let callee_name = self.vir.functions[*callee_id].name;
                     if let Some(return_binding) = return_binding
                         && function.bindings[return_binding.id].type_.base != BaseType::Void
                     {
                         let return_type = convert_type(&self.vir.functions[*callee_id].return_type);
-                        let temp_return = self.make_temporary();
-                        self.write(format!(
-                            "%temp_{temp_return} = call {return_type} ({signature}) @{callee_name}({args})"
+                        let result = self.temp(format!(
+                            "call {return_type} ({signature}) @{callee_name}({args})"
                         ));
-                        self.store(return_binding, temp_return);
+                        self.store(return_binding, result);
                     } else {
                         self.write(format!("call void ({signature}) @{callee_name}({args})"));
                     }
@@ -281,32 +255,22 @@ impl State<'_> {
                     let object_binding_id = object_binding.id;
                     let struct_id = function.bindings[object_binding.id].type_.unwrap_struct();
                     let field_type = convert_type(&self.vir.structs[struct_id].fields[*field_id]);
-                    let result_temp = self.make_temporary();
-                    let field_temp = self.make_temporary();
-                    self.write(format!(
-                        "%temp_{field_temp} = getelementptr inbounds %struct_{struct_id}, ptr %stack_{object_binding_id}, i32 0, i32 {field_id}"
+                    let field = self.temp(format!(
+                        "getelementptr inbounds %struct_{struct_id}, ptr %stack_{object_binding_id}, i32 0, i32 {field_id}"
                     ));
-                    self.write(format!(
-                        "%temp_{result_temp} = load {field_type}, {field_type}* %temp_{field_temp}"
-                    ));
-                    self.store(result_binding, result_temp);
+                    let result = self.temp(format!("load {field_type}, {field_type}* {field}"));
+                    self.store(result_binding, result);
                 }
                 Statement::Index(result_binding, array_binding, index_binding) => {
                     let value_type =
                         convert_type(&function.bindings[array_binding.id].type_.dereference());
-                    let array_temp = self.make_temporary();
-                    let index_temp = self.make_temporary();
-                    let field_temp = self.make_temporary();
-                    let result_temp = self.make_temporary();
-                    self.load(array_temp, array_binding);
-                    self.load(index_temp, index_binding);
-                    self.write(format!(
-                        "%temp_{field_temp} = getelementptr {value_type}, ptr %temp_{array_temp}, i64 %temp_{index_temp}"
+                    let array = self.load(array_binding);
+                    let index = self.load(index_binding);
+                    let field = self.temp(format!(
+                        "getelementptr {value_type}, ptr {array}, i64 {index}"
                     ));
-                    self.write(format!(
-                        "%temp_{result_temp} = load {value_type}, {value_type}* %temp_{field_temp}"
-                    ));
-                    self.store(result_binding, result_temp);
+                    let result = self.temp(format!("load {value_type}, {value_type}* {field}"));
+                    self.store(result_binding, result);
                 }
                 Statement::JumpAlways(block) => {
                     self.write(format!(
@@ -319,12 +283,10 @@ impl State<'_> {
                     true_block,
                     false_block,
                 } => {
-                    let temp_i64 = self.make_temporary();
-                    let temp_i1 = self.make_temporary();
-                    self.load(temp_i64, condition);
-                    self.write(format!("%temp_{temp_i1} = trunc i8 %temp_{temp_i64} to i1"));
+                    let cond_val = self.load(condition);
+                    let cond_i1 = self.temp(format!("trunc i8 {cond_val} to i1"));
                     self.write(format!(
-                        "br i1 %temp_{temp_i1}, label %block_{true_block}, label %block_{false_block}"
+                        "br i1 {cond_i1}, label %block_{true_block}, label %block_{false_block}"
                     ));
                     return;
                 }
@@ -339,23 +301,18 @@ impl State<'_> {
                 Statement::NewArray(binding, length) => {
                     let array_type = &function.bindings[binding.id].type_;
                     let element_type = convert_type(array_type.unwrap_list());
-                    let length_temp = self.make_temporary();
-                    let result_temp = self.make_temporary();
-                    self.load(length_temp, length);
-                    self.write(format!(
-                        "%temp_{result_temp} = alloca {element_type}, i64 %temp_{length_temp}"
-                    ));
-                    self.store(binding, result_temp);
+                    let length = self.load(length);
+                    let result = self.temp(format!("alloca {element_type}, i64 {length}"));
+                    self.store(binding, result);
                 }
                 Statement::Return(binding) => {
                     if let Some(binding) = binding {
                         let type_ = convert_type(&function.return_type);
-                        let temp = self.make_temporary();
-                        self.load(temp, binding);
+                        let value = self.load(binding);
                         if !function.is_main {
-                            self.write(format!("ret {type_} %temp_{temp}"));
+                            self.write(format!("ret {type_} {value}"));
                         } else {
-                            self.write(format!("call void asm sideeffect \"syscall\", \"{{rax}},{{rdi}}\" (i64 60, {type_} %temp_{temp})"));
+                            self.write(format!("call void asm sideeffect \"syscall\", \"{{rax}},{{rdi}}\" (i64 60, {type_} {value})"));
                             self.write("unreachable");
                         }
                     } else {
@@ -365,19 +322,16 @@ impl State<'_> {
                 }
                 Statement::StringConstant(binding, string_id) => {
                     let binding_id = binding.id;
-                    let pointer_temp = self.make_temporary();
-                    let pointer_field_temp = self.make_temporary();
-                    let length_field_temp = self.make_temporary();
                     let length = self.vir.string_len(*string_id);
-                    self.write(format!("%temp_{pointer_temp} = getelementptr [{length} x i8], [{length} x i8]* @string_{string_id}, i32 0, i32 0"));
-                    self.write(format!("%temp_{pointer_field_temp} = getelementptr %struct_0, ptr %stack_{binding_id}, i32 0, i32 0"));
-                    self.write(format!("%temp_{length_field_temp} = getelementptr %struct_0, ptr %stack_{binding_id}, i32 0, i32 1"));
-                    self.write(format!(
-                        "store i8* %temp_{pointer_temp}, i8** %temp_{pointer_field_temp}"
+                    let literal_pointer = self.temp(format!("getelementptr [{length} x i8], [{length} x i8]* @string_{string_id}, i32 0, i32 0"));
+                    let pointer_field = self.temp(format!(
+                        "getelementptr %struct_0, ptr %stack_{binding_id}, i32 0, i32 0"
                     ));
-                    self.write(format!(
-                        "store i64 {length}, i64* %temp_{length_field_temp}"
+                    let length_field = self.temp(format!(
+                        "getelementptr %struct_0, ptr %stack_{binding_id}, i32 0, i32 1"
                     ));
+                    self.write(format!("store i8* {literal_pointer}, i8** {pointer_field}"));
+                    self.write(format!("store i64 {length}, i64* {length_field}"));
                 }
                 Statement::Syscall(binding, arg_bindings) => {
                     let registers = ["{rax}", "{rdi}", "{rsi}", "{rdx}", "{r10}", "{r8}", "{r9}"]
@@ -389,13 +343,13 @@ impl State<'_> {
                             args.push_str(", ");
                         }
                         let type_ = convert_type(&function.bindings[arg_binding.id].type_);
-                        let temp = self.make_temporary();
-                        self.load(temp, arg_binding);
-                        write!(&mut args, "{type_} %temp_{temp}").unwrap();
+                        let temp = self.load(arg_binding);
+                        write!(&mut args, "{type_} {temp}").unwrap();
                     }
-                    let result_temp = self.make_temporary();
-                    self.write(format!("%temp_{result_temp} = call i64 asm sideeffect \"syscall\", \"=r,{registers}\" ({args})"));
-                    self.store(binding, result_temp);
+                    let result = self.temp(format!(
+                        "call i64 asm sideeffect \"syscall\", \"=r,{registers}\" ({args})"
+                    ));
+                    self.store(binding, result);
                 }
                 Statement::UnaryOperator(binding, op, arg) => {
                     let (instr, helper_arg, type_) = match op {
@@ -403,13 +357,9 @@ impl State<'_> {
                         UnaryOperator::BitNot => ("xor", "-1", "i64"),
                         UnaryOperator::LogicNot => ("xor", "1", "i8"),
                     };
-                    let arg_temp = self.make_temporary();
-                    let binding_temp = self.make_temporary();
-                    self.load(arg_temp, arg);
-                    self.write(format!(
-                        "%temp_{binding_temp} = {instr} {type_} {helper_arg}, %temp_{arg_temp}"
-                    ));
-                    self.store(binding, binding_temp);
+                    let input = self.load(arg);
+                    let output = self.temp(format!("{instr} {type_} {helper_arg}, {input}"));
+                    self.store(binding, output);
                 }
             }
         }
@@ -419,22 +369,26 @@ impl State<'_> {
         self.write("}");
     }
 
-    fn load(&mut self, dest: usize, source: &Binding) {
+    fn load(&mut self, source: &Binding) -> Temporary {
         let source_id = source.id;
         let type_ =
             convert_type(&self.vir.functions[self.current_function].bindings[source.id].type_);
-        self.write(format!(
-            "%temp_{dest} = load {type_}, {type_}* %stack_{source_id}"
-        ));
+        self.temp(format!("load {type_}, {type_}* %stack_{source_id}"))
     }
 
-    fn store(&mut self, dest: &Binding, source: usize) {
+    fn store(&mut self, dest: &Binding, source: Temporary) {
         let dest_id = dest.id;
         let type_ =
             convert_type(&self.vir.functions[self.current_function].bindings[dest.id].type_);
-        self.write(format!(
-            "store {type_} %temp_{source}, {type_}* %stack_{dest_id}"
-        ));
+        self.write(format!("store {type_} {source}, {type_}* %stack_{dest_id}"));
+    }
+
+    fn temp(&mut self, value: impl AsRef<str>) -> Temporary {
+        let id = self.make_temporary();
+        let temp = Temporary { id };
+        let value = value.as_ref();
+        self.write(format!("{temp} = {value}"));
+        temp
     }
 
     fn write(&mut self, line: impl AsRef<str>) {
@@ -455,6 +409,13 @@ impl State<'_> {
         let temp = self.temp_counter;
         self.temp_counter += 1;
         temp
+    }
+}
+
+impl std::fmt::Display for Temporary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let id = self.id;
+        write!(f, "%temp_{id}")
     }
 }
 
