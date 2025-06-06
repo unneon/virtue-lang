@@ -27,9 +27,8 @@ func virtue_print_int(n int)
     if is_negative
         n = -n
     s = new string
-    s.pointer = alloc(21, i8)
+    s.pointer = alloc(20, i8)
     s.length = 20
-    s[20] = 0
     i = 0
     while n > 0
         s[s.length - i - 1] = 48 + n % 10
