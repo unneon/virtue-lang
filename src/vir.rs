@@ -96,7 +96,6 @@ pub struct Type {
 pub enum BaseType {
     Array(Box<Type>),
     I64,
-    I32,
     I8,
     Bool,
     PointerI8,
@@ -117,10 +116,6 @@ impl Type {
         predicates: Vec::new(),
         base: BaseType::I64,
     };
-    pub const I32: Type = Type {
-        predicates: Vec::new(),
-        base: BaseType::I32,
-    };
 
     pub fn substitute_types(&self, substitutions: &[Type]) -> Type {
         use BaseType::*;
@@ -138,7 +133,7 @@ impl Type {
         use BaseType::*;
         match &self.base {
             Array(inner) => inner.is_fully_substituted(),
-            I64 | I32 | I8 | Bool | PointerI8 | Struct(_) | Void => true,
+            I64 | I8 | Bool | PointerI8 | Struct(_) | Void => true,
             TypeVariable(_) | Error => false,
         }
     }
@@ -173,7 +168,6 @@ impl Type {
         match &self.base {
             BaseType::Array(_) => 8,
             BaseType::I64 => 8,
-            BaseType::I32 => 4,
             BaseType::I8 => 1,
             BaseType::Bool => 1,
             BaseType::PointerI8 => 8,

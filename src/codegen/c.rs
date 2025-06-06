@@ -325,7 +325,6 @@ impl State<'_> {
 fn convert_type(type_: &Type) -> String {
     match &type_.base {
         BaseType::I8 => "signed char".to_owned(),
-        BaseType::I32 => "int".to_owned(),
         BaseType::I64 => "long long".to_owned(),
         BaseType::Bool => "signed char".to_owned(),
         BaseType::PointerI8 => "signed char*".to_owned(),

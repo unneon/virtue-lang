@@ -949,7 +949,6 @@ impl<'a> State<'a> {
                 format!("list {inner}")
             }
             vir::BaseType::I64 => "int".to_owned(),
-            vir::BaseType::I32 => "i32".to_owned(),
             vir::BaseType::I8 => "i8".to_owned(),
             vir::BaseType::Bool => "bool".to_owned(),
             vir::BaseType::PointerI8 => "pointer_i8".to_owned(),

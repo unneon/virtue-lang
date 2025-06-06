@@ -380,7 +380,6 @@ fn extended_type(type_: &Type) -> qbe::Type<'static> {
     match &type_.base {
         BaseType::Array(_) => Long,
         BaseType::I64 => Long,
-        BaseType::I32 => Word,
         BaseType::I8 => Byte,
         BaseType::Bool => Byte,
         BaseType::PointerI8 => Long,
@@ -395,7 +394,6 @@ fn abi_type<'a>(type_: &Type, aggregates: &'a [qbe::TypeDef<'a>]) -> qbe::Type<'
     match &type_.base {
         BaseType::Array(_) => Long,
         BaseType::I64 => Long,
-        BaseType::I32 => Word,
         BaseType::I8 => SignedByte,
         BaseType::Bool => UnsignedByte,
         BaseType::PointerI8 => Long,
@@ -410,7 +408,6 @@ fn load_type(type_: &Type) -> qbe::Type<'static> {
     match &type_.base {
         BaseType::Array(_) => Long,
         BaseType::I64 => Long,
-        BaseType::I32 => Word,
         BaseType::I8 => SignedByte,
         BaseType::Bool => UnsignedByte,
         BaseType::PointerI8 => Long,

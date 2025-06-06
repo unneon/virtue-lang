@@ -435,7 +435,6 @@ fn convert_type(type_: &Type) -> String {
     match &type_.base {
         BaseType::Array(inner) => format!("{}*", convert_type(inner)),
         BaseType::I64 => "i64".to_owned(),
-        BaseType::I32 => "i32".to_owned(),
         BaseType::I8 => "i8".to_owned(),
         BaseType::Bool => "i8".to_owned(),
         BaseType::PointerI8 => "i8*".to_owned(),
