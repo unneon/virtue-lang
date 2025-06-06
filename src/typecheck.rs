@@ -14,6 +14,7 @@ struct State<'a> {
     structs: Vec<vir::Struct<'a>>,
     struct_map: HashMap<&'a str, usize>,
     generic_function_map: HashMap<(usize, Vec<vir::Type>), usize>,
+    generic_struct_map: HashMap<(usize, Vec<vir::Type>), usize>,
     strings: Vec<&'a [&'a str]>,
     errors: Vec<Error>,
     current_function: usize,
@@ -26,11 +27,17 @@ enum Fallthrough {
     Reachable,
 }
 
+#[derive(Clone, Copy)]
+enum TypeSubstitutionContext<'a> {
+    CurrentFunction,
+    Custom(&'a HashMap<&'a str, usize>),
+}
+
 static STD_AST: LazyLock<ast::Module> =
     LazyLock::new(|| parse(include_str!("std.virtue")).unwrap());
 
 const STRING_TYPE: vir::Type = vir::Type {
-    base: vir::BaseType::Struct(0),
+    base: vir::BaseType::Struct(0, Vec::new()),
     predicates: Vec::new(),
 };
 
@@ -55,14 +62,10 @@ impl<'a> State<'a> {
             }
         }
         for (name, type_) in ast_args {
-            let core_type = **type_.segments.last().unwrap();
-            if core_type != "type" {
+            if **type_.segments.last().unwrap() != "type" {
                 let binding = Binding { id: bindings.len() };
-                let type_ = if let Some(type_variable) = type_variable_map.get(core_type) {
-                    vir::BaseType::TypeVariable(*type_variable).into()
-                } else {
-                    self.convert_type(type_)
-                };
+                let type_ =
+                    self.convert_type(type_, TypeSubstitutionContext::Custom(&type_variable_map));
                 value_args.push(vir::Arg { binding });
                 bindings.push(vir::BindingData { type_ });
                 binding_map.insert(*name, binding);
@@ -77,7 +80,10 @@ impl<'a> State<'a> {
             }
         }
         let return_type = match return_type {
-            Some(return_type) => self.convert_type(return_type),
+            Some(return_type) => self.convert_type(
+                return_type,
+                TypeSubstitutionContext::Custom(&type_variable_map),
+            ),
             None => vir::BaseType::Void.into(),
         };
         self.functions.push(vir::Function {
@@ -124,20 +130,34 @@ impl<'a> State<'a> {
                 ast::Statement::Return { .. } => {}
                 ast::Statement::Struct {
                     name,
-                    args: _,
+                    args: ast_args,
                     fields: ast_fields,
                 } => {
+                    let mut type_variable_map = HashMap::new();
+                    if let Some(ast_args) = ast_args {
+                        for (name, type_) in ast_args {
+                            if **type_.segments.last().unwrap() == "type" {
+                                type_variable_map.insert(**name, type_variable_map.len());
+                            }
+                        }
+                    }
+
+                    let struct_id = self.structs.len();
                     let mut fields = Vec::new();
                     let mut field_map = HashMap::new();
                     for (name, type_) in ast_fields {
-                        fields.push(self.convert_type(type_));
+                        fields.push(self.convert_type(
+                            type_,
+                            TypeSubstitutionContext::Custom(&type_variable_map),
+                        ));
                         field_map.insert(*name, fields.len() - 1);
                     }
-                    let struct_id = self.structs.len();
                     let struct_ = vir::Struct {
-                        name,
+                        name: Cow::Borrowed(name),
                         fields,
                         field_map,
+                        is_fully_substituted: type_variable_map.is_empty(),
+                        type_variable_map,
                     };
                     self.structs.push(struct_);
                     self.struct_map.insert(name, struct_id);
@@ -174,7 +194,8 @@ impl<'a> State<'a> {
                     let right_span = right.span;
                     let right = self.process_expression(right);
                     if let Some(type_) = type_ {
-                        let type_ = self.convert_type(type_);
+                        let type_ =
+                            self.convert_type(type_, TypeSubstitutionContext::CurrentFunction);
                         self.check_type_compatible(&type_, &self.binding_type(right), right_span);
                     }
                     self.process_assignment(left, right);
@@ -305,8 +326,7 @@ impl<'a> State<'a> {
                             FormatSegment::Text(text) => {
                                 let function = self.function_map["virtue_print_str"];
                                 let text = self.make_string(text);
-                                let text_binding =
-                                    self.make_temporary(vir::BaseType::Struct(0).into());
+                                let text_binding = self.make_temporary(STRING_TYPE);
                                 self.add_statement(vir::Statement::StringConstant(
                                     text_binding,
                                     text,
@@ -324,7 +344,7 @@ impl<'a> State<'a> {
                                 let function = match var_type.base {
                                     vir::BaseType::I64 => self.function_map["virtue_print_int"],
                                     vir::BaseType::Bool => self.function_map["virtue_print_bool"],
-                                    vir::BaseType::Struct(0) => {
+                                    vir::BaseType::Struct(0, _) => {
                                         self.function_map["virtue_print_str"]
                                     }
                                     vir::BaseType::Void => continue,
@@ -342,7 +362,7 @@ impl<'a> State<'a> {
                         }
                     }
                     let newline_text = self.make_string(&["\n"]);
-                    let newline_binding = self.make_temporary(vir::BaseType::Struct(0).into());
+                    let newline_binding = self.make_temporary(STRING_TYPE);
                     self.add_statement(vir::Statement::StringConstant(
                         newline_binding,
                         newline_text,
@@ -499,8 +519,8 @@ impl<'a> State<'a> {
                     (Add | Subtract, vir::BaseType::PointerI8, vir::BaseType::I64) => {
                         vir::BaseType::PointerI8.into()
                     }
-                    (Add, vir::BaseType::Struct(0), vir::BaseType::Struct(0)) => {
-                        let binding = self.make_temporary(vir::BaseType::Struct(0).into());
+                    (Add, vir::BaseType::Struct(0, _), vir::BaseType::Struct(0, _)) => {
+                        let binding = self.make_temporary(STRING_TYPE);
                         self.add_statement(vir::Statement::Call {
                             return_: Some(binding),
                             function: self.function_map["virtue_add_str"],
@@ -589,7 +609,10 @@ impl<'a> State<'a> {
                             let caller_ast_type = ast::Type {
                                 segments: vec![*name],
                             };
-                            type_substitutions.push(self.convert_type(&caller_ast_type));
+                            type_substitutions.push(self.convert_type(
+                                &caller_ast_type,
+                                TypeSubstitutionContext::CurrentFunction,
+                            ));
                         }
                         None => value_arguments.push(self.process_expression(arg_ast)),
                     }
@@ -662,7 +685,7 @@ impl<'a> State<'a> {
                 let (array, index) = indexing.as_ref();
                 let array = self.process_expression(array);
                 let index = self.process_expression(index);
-                if self.binding_type(array).base == vir::BaseType::Struct(0) {
+                if self.binding_type(array).base == STRING_TYPE.base {
                     let string = array;
                     let string_pointer = self.make_temporary(vir::BaseType::PointerI8.into());
                     let binding = self.make_temporary(vir::BaseType::I8.into());
@@ -682,11 +705,25 @@ impl<'a> State<'a> {
                 binding
             }
             ast::Expression::New(struct_name) => {
-                let struct_type = self.convert_type(struct_name);
+                let struct_type =
+                    self.convert_type(struct_name, TypeSubstitutionContext::CurrentFunction);
                 if struct_type.is_error() {
                     return self.error_binding();
                 }
-                let struct_id = struct_type.unwrap_struct();
+                let vir::BaseType::Struct(struct_id, struct_args) = struct_type.base else {
+                    unreachable!()
+                };
+                let struct_id = if !struct_args.is_empty()
+                    && struct_args.iter().all(vir::Type::is_fully_substituted)
+                {
+                    self.generic_struct_request(struct_id, struct_args.clone())
+                } else {
+                    struct_id
+                };
+                let struct_type = vir::Type {
+                    predicates: struct_type.predicates,
+                    base: vir::BaseType::Struct(struct_id, Vec::new()),
+                };
                 let binding = self.make_temporary(struct_type);
                 self.add_statement(vir::Statement::New(binding, struct_id));
                 binding
@@ -735,7 +772,7 @@ impl<'a> State<'a> {
                 let (array, index) = indexing.as_ref();
                 let array = self.process_expression(array);
                 let index = self.process_expression(index);
-                if self.binding_type(array).base == vir::BaseType::Struct(0) {
+                if self.binding_type(array).base == STRING_TYPE.base {
                     let string = array;
                     let string_pointer = self.make_temporary(vir::BaseType::PointerI8.into());
                     self.add_statement(vir::Statement::Field(string_pointer, string, 0));
@@ -773,6 +810,33 @@ impl<'a> State<'a> {
                 entry.insert(substituted_id);
                 self.functions.push(substituted_function);
                 substituted_id
+            }
+            hash_map::Entry::Occupied(entry) => *entry.get(),
+        }
+    }
+
+    fn generic_struct_request(
+        &mut self,
+        struct_id: usize,
+        type_substitutions: Vec<vir::Type>,
+    ) -> usize {
+        match self
+            .generic_struct_map
+            .entry((struct_id, type_substitutions))
+        {
+            hash_map::Entry::Vacant(entry) => {
+                let type_substitutions = &entry.key().1;
+                let substitution_id = self.structs.len();
+                let struct_name = self.structs[struct_id].name.as_ref();
+                let mut substituted_struct = self.structs[struct_id].clone();
+                substituted_struct.name = Cow::Owned(format!("g{substitution_id}_{struct_name}"));
+                substituted_struct.is_fully_substituted = true;
+                for field in &mut substituted_struct.fields {
+                    *field = field.substitute_types(type_substitutions);
+                }
+                entry.insert(substitution_id);
+                self.structs.push(substituted_struct);
+                substitution_id
             }
             hash_map::Entry::Occupied(entry) => *entry.get(),
         }
@@ -849,25 +913,38 @@ impl<'a> State<'a> {
         }
     }
 
-    fn convert_type(&mut self, type_: &ast::Type) -> vir::Type {
-        self.convert_type_impl(&type_.segments)
+    fn convert_type(&mut self, type_: &ast::Type<'a>, ctx: TypeSubstitutionContext) -> vir::Type {
+        self.convert_type_impl(&type_.segments, ctx).0
     }
 
-    fn convert_type_impl(&mut self, segments: &[Spanned<&str>]) -> vir::Type {
+    fn convert_type_impl<'b>(
+        &mut self,
+        segments: &'b [Spanned<&'a str>],
+        ctx: TypeSubstitutionContext,
+    ) -> (vir::Type, &'b [Spanned<&'a str>]) {
         let (head, tail) = segments.split_first().unwrap();
         match (**head, tail) {
-            ("int", []) => return vir::Type::I64,
-            ("i8", []) => return vir::BaseType::I8.into(),
-            ("bool", []) => return vir::BaseType::Bool.into(),
-            ("pointer_i8", []) => return vir::BaseType::PointerI8.into(),
+            ("int", []) => return (vir::Type::I64, &[]),
+            ("i8", []) => return (vir::Type::I8, &[]),
+            ("bool", []) => return (vir::Type::BOOL, &[]),
+            ("pointer_i8", []) => return (vir::Type::POINTER_I8, &[]),
             _ => {}
         }
         if let Some(&function_id) = self.function_map.get(**head) {
-            let mut tail = self.convert_type_impl(tail);
-            tail.predicates.push(function_id);
-            return tail;
+            let (mut type_, tail) = self.convert_type_impl(tail, ctx);
+            type_.predicates.push(function_id);
+            return (type_, tail);
         }
-        self.struct_by_name(*head)
+        let mut type_ = self.struct_by_name(*head, ctx);
+        if let vir::BaseType::Struct(struct_id, struct_args) = &mut type_.base {
+            let mut tail = tail;
+            for _ in 0..self.structs[*struct_id].type_variable_map.len() {
+                let (arg, new_tail) = self.convert_type_impl(tail, ctx);
+                struct_args.push(arg);
+                tail = new_tail;
+            }
+        }
+        (type_, tail)
     }
 
     fn variable_binding(&self, variable: &str) -> Binding {
@@ -894,8 +971,8 @@ impl<'a> State<'a> {
         }
     }
 
-    fn struct_by_name(&mut self, name: Spanned<&str>) -> vir::Type {
-        match self.try_struct_by_name(name) {
+    fn struct_by_name(&mut self, name: Spanned<&str>, ctx: TypeSubstitutionContext) -> vir::Type {
+        match self.try_struct_by_name(name, ctx) {
             Some(type_) => type_,
             None => {
                 self.errors.push(Error {
@@ -908,24 +985,30 @@ impl<'a> State<'a> {
         }
     }
 
-    fn try_struct_by_name(&mut self, name: Spanned<&str>) -> Option<vir::Type> {
-        if self.current_function < self.functions.len()
-            && let Some(type_variable) = self.functions[self.current_function]
-                .type_variable_map
-                .get(*name)
-        {
+    fn try_struct_by_name(
+        &mut self,
+        name: Spanned<&str>,
+        ctx: TypeSubstitutionContext,
+    ) -> Option<vir::Type> {
+        let type_variable_map = match ctx {
+            TypeSubstitutionContext::CurrentFunction => {
+                &self.functions[self.current_function].type_variable_map
+            }
+            TypeSubstitutionContext::Custom(custom) => custom,
+        };
+        if let Some(type_variable) = type_variable_map.get(*name) {
             return Some(vir::BaseType::TypeVariable(*type_variable).into());
         }
         self.struct_map
             .get(*name)
-            .map(|id| vir::BaseType::Struct(*id).into())
+            .map(|id| vir::BaseType::Struct(*id, Vec::new()).into())
     }
 
     fn struct_field(&mut self, struct_id: usize, field_name: Spanned<&str>) -> Result<usize, ()> {
         match self.structs[struct_id].field_map.get(*field_name) {
             Some(id) => Ok(*id),
             None => {
-                let struct_name = self.structs[struct_id].name;
+                let struct_name = self.structs[struct_id].name.as_ref();
                 self.errors.push(Error {
                     message: "field does not exist",
                     note: format!("struct {struct_name} does not have this field"),
@@ -952,7 +1035,14 @@ impl<'a> State<'a> {
             vir::BaseType::I8 => "i8".to_owned(),
             vir::BaseType::Bool => "bool".to_owned(),
             vir::BaseType::PointerI8 => "pointer_i8".to_owned(),
-            vir::BaseType::Struct(struct_id) => self.structs[*struct_id].name.to_owned(),
+            vir::BaseType::Struct(struct_id, args) => {
+                let struct_name = self.structs[*struct_id].name.as_ref();
+                let args: String = args
+                    .iter()
+                    .flat_map(|arg| format!(" {}", self.format_type(arg)).into_chars())
+                    .collect();
+                format!("{struct_name}{args}")
+            }
             vir::BaseType::Void => "void".to_owned(),
             vir::BaseType::TypeVariable(id) => format!("(type variable {id})"),
             vir::BaseType::Error => "(type error)".to_owned(),
@@ -968,6 +1058,7 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> Result<vir::Program<'a>, Vec<E
         structs: Vec::new(),
         struct_map: HashMap::new(),
         generic_function_map: HashMap::new(),
+        generic_struct_map: HashMap::new(),
         strings: vec![&["\n"]],
         errors: Vec::new(),
         current_function: usize::MAX,

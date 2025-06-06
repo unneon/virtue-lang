@@ -12,5 +12,4 @@ s = strings.field
 
 print "{i} {s}"
 
-# ignore
 # 42 Hi

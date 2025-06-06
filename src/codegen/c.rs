@@ -23,6 +23,9 @@ enum Value {
 impl State<'_> {
     fn prologue(&mut self) {
         for (struct_id, struct_) in self.vir.structs.iter().enumerate() {
+            if !struct_.is_fully_substituted {
+                continue;
+            }
             self.write(format!("struct struct{struct_id} {{"));
             for (field_id, field_type) in struct_.fields.iter().enumerate() {
                 let field_type = convert_type(field_type);
@@ -329,7 +332,7 @@ fn convert_type(type_: &Type) -> String {
         BaseType::Bool => "signed char".to_owned(),
         BaseType::PointerI8 => "signed char*".to_owned(),
         BaseType::Array(element_type) => format!("{}*", convert_type(element_type)),
-        BaseType::Struct(name) => format!("struct struct{name}"),
+        BaseType::Struct(name, _) => format!("struct struct{name}"),
         BaseType::Void => "void".to_owned(),
         BaseType::TypeVariable(_) => unreachable!(),
         BaseType::Error => unreachable!(),

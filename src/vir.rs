@@ -78,11 +78,13 @@ pub struct Binding {
     pub id: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Struct<'a> {
-    pub name: &'a str,
+    pub name: Cow<'a, str>,
     pub fields: Vec<Type>,
     pub field_map: HashMap<&'a str, usize>,
+    pub type_variable_map: HashMap<&'a str, usize>,
+    pub is_fully_substituted: bool,
 }
 
 // TODO: Sort predicates or make comparisons order independent.
@@ -99,7 +101,7 @@ pub enum BaseType {
     I8,
     Bool,
     PointerI8,
-    Struct(usize),
+    Struct(usize, Vec<Type>),
     Void,
     TypeVariable(usize),
     Error,
@@ -115,6 +117,18 @@ impl Type {
     pub const I64: Type = Type {
         predicates: Vec::new(),
         base: BaseType::I64,
+    };
+    pub const I8: Type = Type {
+        predicates: Vec::new(),
+        base: BaseType::I8,
+    };
+    pub const BOOL: Type = Type {
+        predicates: Vec::new(),
+        base: BaseType::Bool,
+    };
+    pub const POINTER_I8: Type = Type {
+        predicates: Vec::new(),
+        base: BaseType::PointerI8,
     };
 
     pub fn substitute_types(&self, substitutions: &[Type]) -> Type {
@@ -133,7 +147,8 @@ impl Type {
         use BaseType::*;
         match &self.base {
             Array(inner) => inner.is_fully_substituted(),
-            I64 | I8 | Bool | PointerI8 | Struct(_) | Void => true,
+            I64 | I8 | Bool | PointerI8 | Void => true,
+            Struct(_, args) => args.iter().all(Type::is_fully_substituted),
             TypeVariable(_) | Error => false,
         }
     }
@@ -151,7 +166,7 @@ impl Type {
 
     pub fn unwrap_struct(&self) -> usize {
         match &self.base {
-            BaseType::Struct(i) => *i,
+            BaseType::Struct(i, _) => *i,
             _ => panic!("expected struct, got {self:?}"),
         }
     }
@@ -172,7 +187,7 @@ impl Type {
             BaseType::Bool => 1,
             BaseType::PointerI8 => 8,
             // TODO: QBE and LLVM work differently here.
-            BaseType::Struct(_) => 8,
+            BaseType::Struct(_, _) => 8,
             BaseType::Void => 0,
             BaseType::TypeVariable(_) => unreachable!(),
             BaseType::Error => unreachable!(),

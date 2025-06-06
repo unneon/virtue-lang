@@ -20,6 +20,9 @@ struct Temporary {
 impl State<'_> {
     fn prologue_structs(&mut self) {
         for (struct_id, struct_) in self.vir.structs.iter().enumerate() {
+            if !struct_.is_fully_substituted {
+                continue;
+            }
             let mut fields = String::new();
             for (field_id, field) in struct_.fields.iter().enumerate() {
                 if field_id > 0 {
@@ -438,7 +441,7 @@ fn convert_type(type_: &Type) -> String {
         BaseType::I8 => "i8".to_owned(),
         BaseType::Bool => "i8".to_owned(),
         BaseType::PointerI8 => "i8*".to_owned(),
-        BaseType::Struct(id) => format!("%struct_{id}"),
+        BaseType::Struct(id, _) => format!("%struct_{id}"),
         BaseType::Void => "void".to_owned(),
         BaseType::TypeVariable(_) => unreachable!(),
         BaseType::Error => unreachable!(),
