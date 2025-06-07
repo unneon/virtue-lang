@@ -19,6 +19,11 @@ struct State<'a> {
 impl<'a> State<'a> {
     fn block(&mut self, statements: &'a [Statement]) {
         for statement in statements {
+            self.func
+                .blocks
+                .last_mut()
+                .unwrap()
+                .add_comment(format!("################### {statement:?}"));
             match statement {
                 Statement::Alloc(pointer, count) => {
                     let element_type = self.vir_func.bindings[pointer.id].type_.dereference();
@@ -44,17 +49,24 @@ impl<'a> State<'a> {
                     );
                 }
                 Statement::Assignment(left, right) => {
-                    self.assign(left, Instr::Copy(right.into()));
+                    let right_type = &self.vir_func.bindings[right.id].type_;
+                    if let Some(struct_id) = right_type.get_struct() {
+                        let byte_size = self.vir.struct_byte_size(struct_id);
+                        self.execute(Instr::Blit(right.into(), left.into(), byte_size as u64));
+                    } else {
+                        self.assign(left, Instr::Copy(right.into()));
+                    }
                 }
                 Statement::AssignmentField(struct_, field, value) => {
                     let struct_type = &self.vir_func.bindings[struct_.id].type_;
                     let struct_id = struct_type.unwrap_struct();
+                    let field_type = &self.vir.structs[struct_id].fields[*field];
                     let field_offset = self.vir.structs[struct_id].field_offset(*field);
                     let field_pointer = self.temp(Instr::Add(
                         struct_.into(),
                         Value::Const(field_offset as u64),
                     ));
-                    self.execute(Instr::Store(Long, field_pointer, value.into()));
+                    self.store(field_pointer, value, field_type);
                 }
                 Statement::AssignmentIndex(list, index, right) => {
                     let element_type = self.vir_func.bindings[list.id].type_.dereference();
@@ -62,12 +74,8 @@ impl<'a> State<'a> {
                         index.into(),
                         Value::Const(self.byte_size(&element_type) as u64),
                     ));
-                    let left = self.temp(Instr::Add(list.into(), offset));
-                    self.execute(Instr::Store(
-                        extended_type(&element_type),
-                        left,
-                        right.into(),
-                    ));
+                    let pointer = self.temp(Instr::Add(list.into(), offset));
+                    self.store(pointer, right, &element_type);
                 }
                 Statement::BinaryOperator(result, op, left, right) => {
                     let left = left.into();
@@ -112,7 +120,24 @@ impl<'a> State<'a> {
                         .collect();
                     let instr = Instr::Call(function_name.to_string(), args, None);
                     if let Some(result) = result {
-                        self.assign(result, instr)
+                        let right_type = &self.vir_func.bindings[result.id].type_;
+                        if let Some(struct_id) = right_type.get_struct() {
+                            let byte_size = self.vir.struct_byte_size(struct_id);
+                            // The Rust qbe library converts the type to base type instead of ABI types, though I'm
+                            // not sure if this isn't an exception in QBE made for struct-returning functions.
+                            // TODO: Make a bug report?
+                            let temp = self.make_temporary();
+                            self.func.blocks.last_mut().unwrap().items.push(
+                                qbe::BlockItem::Statement(qbe::Statement::Assign(
+                                    temp.clone(),
+                                    abi_type(right_type, self.aggregates),
+                                    instr,
+                                )),
+                            );
+                            self.execute(Instr::Blit(temp, result.into(), byte_size as u64));
+                        } else {
+                            self.assign(result, instr);
+                        }
                     } else {
                         self.execute(instr);
                     }
@@ -120,12 +145,13 @@ impl<'a> State<'a> {
                 Statement::Field(value, struct_, field) => {
                     let struct_type = &self.vir_func.bindings[struct_.id].type_;
                     let struct_id = struct_type.unwrap_struct();
+                    let field_type = &self.vir.structs[struct_id].fields[*field];
                     let field_offset = self.vir.structs[struct_id].field_offset(*field);
                     let field_pointer = self.temp(Instr::Add(
                         struct_.into(),
                         Value::Const(field_offset as u64),
                     ));
-                    self.assign(value, Instr::Load(Long, field_pointer));
+                    self.load(value, field_pointer, field_type);
                 }
                 Statement::Index(element, list, index) => {
                     let element_type = self.vir_func.bindings[list.id].type_.dereference();
@@ -133,8 +159,8 @@ impl<'a> State<'a> {
                         index.into(),
                         Value::Const(self.byte_size(&element_type) as u64),
                     ));
-                    let right = self.temp(Instr::Add(list.into(), offset));
-                    self.assign(element, Instr::Load(load_type(&element_type), right));
+                    let pointer = self.temp(Instr::Add(list.into(), offset));
+                    self.load(element, pointer, &element_type);
                 }
                 Statement::JumpAlways(block) => {
                     self.execute(Instr::Jmp(format!("_{block}")));
@@ -154,10 +180,6 @@ impl<'a> State<'a> {
                 }
                 Statement::Literal(literal, value) => {
                     self.assign(literal, Instr::Copy(Value::Const(*value as u64)));
-                }
-                Statement::New(pointer, struct_id) => {
-                    let struct_size = self.vir.struct_byte_size(*struct_id);
-                    self.assign(pointer, Instr::Alloc8(struct_size as u64));
                 }
                 Statement::Return(result) => {
                     if !self.vir_func.is_main {
@@ -204,6 +226,24 @@ impl<'a> State<'a> {
         }
     }
 
+    fn store(&mut self, pointer: Value, value: &Binding, type_: &Type) {
+        if let Some(struct_id) = type_.get_struct() {
+            let byte_size = self.vir.struct_byte_size(struct_id);
+            self.execute(Instr::Blit(value.into(), pointer, byte_size as u64));
+        } else {
+            self.execute(Instr::Store(extended_type(type_), pointer, value.into()))
+        }
+    }
+
+    fn load(&mut self, result: &Binding, pointer: Value, type_: &Type) {
+        if let Some(struct_id) = type_.get_struct() {
+            let byte_size = self.vir.struct_byte_size(struct_id);
+            self.execute(Instr::Blit(pointer, result.into(), byte_size as u64));
+        } else {
+            self.assign(result, Instr::Load(load_type(type_), pointer));
+        }
+    }
+
     fn temp(&mut self, instr: Instr<'a>) -> Value {
         let temp = self.make_temporary();
         self.assign(temp.clone(), instr);
@@ -221,21 +261,7 @@ impl<'a> State<'a> {
         } else {
             Long
         };
-        if matches!(right, Instr::Call(_, _, _)) {
-            // The Rust qbe library converts the type to base type instead of ABI types, though I'm
-            // not sure if this isn't an exception in QBE made for struct-returning functions.
-            // TODO: Make a bug report?
-            self.func
-                .blocks
-                .last_mut()
-                .unwrap()
-                .items
-                .push(qbe::BlockItem::Statement(qbe::Statement::Assign(
-                    left, type_, right,
-                )))
-        } else {
-            self.func.assign_instr(left, type_, right);
-        }
+        self.func.assign_instr(left, type_, right);
     }
 
     fn execute(&mut self, instr: Instr<'a>) {
@@ -340,6 +366,19 @@ pub fn make_il(vir: &Program) -> String {
         state.temp_counter = 0;
         for (block_id, block) in function.blocks.iter().enumerate() {
             state.func.add_block(format!("_{block_id}"));
+            if block_id == 0 {
+                for (id, binding_data) in function.bindings.iter().enumerate() {
+                    if id < function.value_args.len() {
+                        continue;
+                    }
+                    let binding_type = &binding_data.type_;
+                    if let Some(struct_id) = binding_type.get_struct() {
+                        let pointer = Binding { id };
+                        let struct_size = vir.struct_byte_size(struct_id);
+                        state.assign(&pointer, Instr::Alloc8(struct_size as u64));
+                    }
+                }
+            }
             state.block(block);
         }
         state.il.add_function(state.func);

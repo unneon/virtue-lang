@@ -64,7 +64,6 @@ pub enum Statement {
         false_block: usize,
     },
     Literal(Binding, i64),
-    New(Binding, usize),
     Return(Option<Binding>),
     StringConstant(Binding, usize),
     Syscall(Binding, Vec<Binding>),
@@ -176,12 +175,30 @@ impl Type {
         }
     }
 
+    pub fn is_fully_instantiated(&self) -> bool {
+        use BaseType::*;
+        match &self.base {
+            Pointer(inner) => inner.is_fully_instantiated(),
+            I64 | I8 | Bool | Void => true,
+            Struct(_, args) => args.is_empty(),
+            TypeVariable(_) => true,
+            Error => true,
+        }
+    }
+
     pub fn is_void(&self) -> bool {
         matches!(self.base, BaseType::Void)
     }
 
     pub fn is_error(&self) -> bool {
         matches!(self.base, BaseType::Error)
+    }
+
+    pub fn get_struct(&self) -> Option<usize> {
+        match &self.base {
+            BaseType::Struct(i, _) => Some(*i),
+            _ => None,
+        }
     }
 
     pub fn unwrap_struct(&self) -> usize {

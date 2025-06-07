@@ -143,6 +143,22 @@ impl<'a> State<'a> {
         }
     }
 
+    fn postprocess_all_functions(&mut self) {
+        for function_id in 0..self.functions.len() {
+            if self.functions[function_id].type_arg_substitutions.is_none() {
+                continue;
+            }
+            let return_type =
+                self.instantiate_type(self.functions[function_id].return_type.clone());
+            self.functions[function_id].return_type = return_type;
+            for arg_id in 0..self.functions[function_id].value_args.len() {
+                let arg_type = self
+                    .instantiate_type(self.functions[function_id].bindings[arg_id].type_.clone());
+                self.functions[function_id].bindings[arg_id].type_ = arg_type;
+            }
+        }
+    }
+
     fn process_block(&mut self, statements: &'a [ast::Statement<'a>]) -> Fallthrough {
         for statement in statements {
             match statement {
@@ -332,7 +348,9 @@ impl<'a> State<'a> {
                     let value_span = value.span;
                     let value_binding = self.process_expression(value);
                     let value_type = self.binding_type(value_binding);
-                    let return_type = self.functions[self.current_function].return_type.clone();
+                    let return_type = self.instantiate_type(
+                        self.functions[self.current_function].return_type.clone(),
+                    );
                     self.check_type_compatible(&return_type, &value_type, value_span);
                     self.add_statement(vir::Statement::Return(Some(value_binding)));
                     return Fallthrough::Unreachable;
@@ -386,7 +404,6 @@ impl<'a> State<'a> {
                     I64
                 };
                 let list_type = self.instantiate_type(element_type.list());
-                let list_struct_id = list_type.unwrap_struct();
                 let length_binding = self.make_literal(initial_bindings.len() as i64);
                 let pointer_binding = self.make_temporary(element_type.pointer());
                 self.add_statement(vir::Statement::Alloc(pointer_binding, length_binding));
@@ -399,7 +416,6 @@ impl<'a> State<'a> {
                     ));
                 }
                 let list_binding = self.make_temporary(list_type);
-                self.add_statement(vir::Statement::New(list_binding, list_struct_id));
                 self.add_statement(vir::Statement::AssignmentField(
                     list_binding,
                     0,
@@ -461,9 +477,7 @@ impl<'a> State<'a> {
                 self.add_statement(vir::Statement::JumpAlways(init_condition_block));
 
                 self.current_block = init_after_block;
-                let list_struct_id = list_type.unwrap_struct();
                 let list_binding = self.make_temporary(list_type);
-                self.add_statement(vir::Statement::New(list_binding, list_struct_id));
                 self.add_statement(vir::Statement::AssignmentField(
                     list_binding,
                     0,
@@ -626,7 +640,8 @@ impl<'a> State<'a> {
                     callee_id
                 };
 
-                let callee_return_type = self.functions[callee_id].return_type.clone();
+                let callee_return_type =
+                    self.instantiate_type(self.functions[callee_id].return_type.clone());
                 let binding = self.make_temporary(callee_return_type.clone());
                 let call_binding = if !callee_return_type.is_void() {
                     Some(binding)
@@ -701,9 +716,7 @@ impl<'a> State<'a> {
                     predicates: struct_type.predicates,
                     base: vir::BaseType::Struct(struct_id, Vec::new()),
                 };
-                let binding = self.make_temporary(struct_type);
-                self.add_statement(vir::Statement::New(binding, struct_id));
-                binding
+                self.make_temporary(struct_type)
             }
             ast::Expression::StringLiteral(literal) => {
                 let string_id = self.make_string(literal);
@@ -711,7 +724,6 @@ impl<'a> State<'a> {
                 let pointer_binding = self.make_temporary(I8.pointer());
                 self.add_statement(vir::Statement::StringConstant(pointer_binding, string_id));
                 let length_binding = self.make_literal(self.string_len(string_id) as i64);
-                self.add_statement(vir::Statement::New(binding, 0));
                 self.add_statement(vir::Statement::AssignmentField(binding, 0, pointer_binding));
                 self.add_statement(vir::Statement::AssignmentField(binding, 1, length_binding));
                 binding
@@ -868,6 +880,16 @@ impl<'a> State<'a> {
 
     fn make_variable(&mut self, variable: &'a str, type_: vir::Type) -> Binding {
         let f = &mut self.functions[self.current_function];
+        if f.type_arg_substitutions.is_some() {
+            assert!(
+                type_.is_fully_substituted(),
+                "type {type_:?} is not fully substituted"
+            );
+            assert!(
+                type_.is_fully_instantiated(),
+                "type {type_:?} is not fully instantiated"
+            );
+        }
         let binding_count = f.bindings.len();
         match f.binding_map.entry(variable) {
             hash_map::Entry::Occupied(entry) => {
@@ -890,7 +912,10 @@ impl<'a> State<'a> {
     fn make_temporary(&mut self, type_: vir::Type) -> Binding {
         let f = &mut self.functions[self.current_function];
         if f.type_arg_substitutions.is_some() {
-            assert!(type_.is_fully_substituted());
+            assert!(
+                type_.is_fully_substituted(),
+                "type {type_:?} is not fully substituted"
+            );
         }
         let binding = Binding {
             id: f.bindings.len(),
@@ -1121,6 +1146,7 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> Result<vir::Program<'a>, Vec<E
     state.preprocess_block(&STD_AST.statements);
     state.preprocess_block(&ast.statements);
     state.process_all_functions();
+    state.postprocess_all_functions();
 
     if !state.errors.is_empty() {
         return Err(state.errors);

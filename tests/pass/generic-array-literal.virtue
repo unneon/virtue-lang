@@ -8,5 +8,4 @@ xl = xs.length
 yl = ys.length
 print "{x} {y} {xl} {yl}"
 
-# ignore-qbe
 # nya 123 4 4

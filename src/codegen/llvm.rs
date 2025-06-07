@@ -337,7 +337,6 @@ impl State<'_> {
                         "store {type_} {literal}, {type_}* %stack_{binding_id}"
                     ));
                 }
-                Statement::New(_, _) => {}
                 Statement::Return(binding) => {
                     if let Some(binding) = binding {
                         let type_ = convert_type(&function.return_type);

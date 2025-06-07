@@ -202,7 +202,6 @@ impl State<'_> {
                     let binding_id = binding.id;
                     self.write(format!("    _{binding_id} = {value};"));
                 }
-                Statement::New(_, _) => {}
                 Statement::Return(binding) => {
                     if !function.is_main {
                         if let Some(binding) = binding {
