@@ -289,7 +289,6 @@ impl<'a> State<'a> {
                                 self.add_statement(vir::Statement::Call {
                                     return_: None,
                                     function,
-                                    type_substitutions: Vec::new(),
                                     args: vec![pointer_binding, length_binding],
                                 });
                             }
@@ -309,7 +308,6 @@ impl<'a> State<'a> {
                                 self.add_statement(vir::Statement::Call {
                                     return_: None,
                                     function,
-                                    type_substitutions: Vec::new(),
                                     args: vec![var],
                                 });
                             }
@@ -325,7 +323,6 @@ impl<'a> State<'a> {
                     self.add_statement(vir::Statement::Call {
                         return_: None,
                         function: self.function_map["virtue_print_raw"],
-                        type_substitutions: Vec::new(),
                         args: vec![newline_binding, newline_length_binding],
                     });
                 }
@@ -390,7 +387,6 @@ impl<'a> State<'a> {
                         self.add_statement(vir::Statement::Call {
                             return_: Some(binding),
                             function: self.function_map["virtue_add_str"],
-                            type_substitutions: Vec::new(),
                             args: vec![left_binding, right_binding],
                         });
                         return binding;
@@ -409,7 +405,6 @@ impl<'a> State<'a> {
                             self.add_statement(vir::Statement::Call {
                                 return_: Some(binding),
                                 function,
-                                type_substitutions: vec![element_type],
                                 args: vec![left_binding, right_binding],
                             });
                         }
@@ -539,7 +534,6 @@ impl<'a> State<'a> {
                 self.add_statement(vir::Statement::Call {
                     return_: call_binding,
                     function: callee_id,
-                    type_substitutions,
                     args: value_args,
                 });
                 binding

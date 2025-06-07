@@ -52,7 +52,6 @@ pub enum Statement {
     Call {
         return_: Option<Binding>,
         function: usize,
-        type_substitutions: Vec<Type>,
         args: Vec<Binding>,
     },
     Field(Binding, Binding, usize),
@@ -111,25 +110,32 @@ pub struct InstantiationInfo {
 }
 
 impl Program<'_> {
-    pub fn struct_byte_size(&self, id: usize) -> usize {
-        self.structs[id]
-            .fields
+    pub fn byte_size(&self, type_: &Type) -> usize {
+        match &type_.base {
+            BaseType::I64 => 8,
+            BaseType::I8 => 1,
+            BaseType::Bool => 1,
+            BaseType::Pointer(_) => 8,
+            BaseType::Struct(struct_id, _) => self.structs[*struct_id]
+                .fields
+                .iter()
+                .map(|type_| self.byte_size(type_))
+                .sum(),
+            BaseType::Void => 0,
+            BaseType::TypeVariable(_) => unreachable!(),
+            BaseType::Error => unreachable!(),
+        }
+    }
+
+    pub fn field_offset(&self, struct_id: usize, field: usize) -> usize {
+        self.structs[struct_id].fields[..field]
             .iter()
-            .map(|type_| match type_.base {
-                BaseType::Struct(id, _) => self.struct_byte_size(id),
-                _ => type_.byte_size(),
-            })
+            .map(|type_| self.byte_size(type_))
             .sum()
     }
 
     pub fn string_len(&self, id: usize) -> usize {
         self.strings[id].iter().map(|s| s.len()).sum()
-    }
-}
-
-impl Struct<'_> {
-    pub fn field_offset(&self, field: usize) -> usize {
-        self.fields[..field].iter().map(Type::byte_size).sum()
     }
 }
 
@@ -193,6 +199,10 @@ impl Type {
         }
     }
 
+    pub fn is_struct(&self) -> bool {
+        matches!(self.base, BaseType::Struct(_, _))
+    }
+
     pub fn is_void(&self) -> bool {
         matches!(self.base, BaseType::Void)
     }
@@ -219,19 +229,6 @@ impl Type {
         match &self.base {
             BaseType::Pointer(inner) => inner.as_ref().clone(),
             _ => panic!("expected pointer, got {self:?}"),
-        }
-    }
-
-    pub fn byte_size(&self) -> usize {
-        match &self.base {
-            BaseType::I64 => 8,
-            BaseType::I8 => 1,
-            BaseType::Bool => 1,
-            BaseType::Pointer(_) => 8,
-            BaseType::Struct(_, _) => unreachable!(),
-            BaseType::Void => 0,
-            BaseType::TypeVariable(_) => unreachable!(),
-            BaseType::Error => unreachable!(),
         }
     }
 }
