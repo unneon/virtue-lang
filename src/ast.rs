@@ -70,8 +70,6 @@ pub struct Type<'a> {
 
 #[derive(Clone, Debug)]
 pub enum Expression<'a> {
-    ArrayLiteral(Vec<Spanned<Expression<'a>>>),
-    ArrayRepeat(Box<(Spanned<Expression<'a>>, Spanned<Expression<'a>>)>),
     BinaryOperation(
         Spanned<BinaryOperator>,
         Box<(Spanned<Expression<'a>>, Spanned<Expression<'a>>)>,
@@ -80,6 +78,8 @@ pub enum Expression<'a> {
     Call(Spanned<&'a str>, Spanned<Vec<Spanned<Expression<'a>>>>),
     CallMethod(Box<Expression<'a>>, &'a str, Vec<Spanned<Expression<'a>>>),
     Index(Box<(Expression<'a>, Spanned<Expression<'a>>)>),
+    ListLiteral(Vec<Spanned<Expression<'a>>>),
+    ListRepeat(Box<(Spanned<Expression<'a>>, Spanned<Expression<'a>>)>),
     Literal(i64),
     New(Type<'a>),
     Field(Box<Expression<'a>>, Spanned<&'a str>),

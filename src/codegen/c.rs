@@ -118,11 +118,11 @@ impl State<'_> {
                     let value_id = value.id;
                     self.write(format!("    _{object_id}._{field} = _{value_id};"));
                 }
-                Statement::AssignmentIndex(array, index, value) => {
-                    let array_id = array.id;
+                Statement::AssignmentIndex(list, index, value) => {
+                    let list_id = list.id;
                     let index_id = index.id;
                     let value_id = value.id;
-                    self.write(format!("    _{array_id}[_{index_id}] = _{value_id};"));
+                    self.write(format!("    _{list_id}[_{index_id}] = _{value_id};"));
                 }
                 Statement::BinaryOperator(result, op, left, right) => {
                     let result_id = result.id;
@@ -180,11 +180,11 @@ impl State<'_> {
                     let object_id = object.id;
                     self.write(format!("    _{result_id} = _{object_id}._{field};"));
                 }
-                Statement::Index(result, array, index) => {
+                Statement::Index(result, list, index) => {
                     let result_id = result.id;
-                    let array_id = array.id;
+                    let list_id = list.id;
                     let index_id = index.id;
-                    self.write(format!("    _{result_id} = _{array_id}[_{index_id}];"));
+                    self.write(format!("    _{result_id} = _{list_id}[_{index_id}];"));
                 }
                 Statement::JumpAlways(target_block) => {
                     self.write(format!("    goto block{target_block};"));
@@ -254,9 +254,9 @@ impl State<'_> {
         format!("{function_return_type} {function_name}({args})")
     }
 
-    fn malloc(&mut self, array: &Binding, size: Value) {
+    fn malloc(&mut self, list: &Binding, size: Value) {
         self.syscall(
-            Some(array),
+            Some(list),
             &[
                 Value::Const(9),
                 Value::Const(0),

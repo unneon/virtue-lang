@@ -368,90 +368,6 @@ impl<'a> State<'a> {
 
     fn process_expression(&mut self, expression: &'a ast::Expression<'a>) -> Binding {
         match expression {
-            ast::Expression::ArrayLiteral(initial_exprs) => {
-                let initial_bindings: Vec<_> = initial_exprs
-                    .iter()
-                    .map(|initial| self.process_expression(initial))
-                    .collect();
-                let element_type = if let Some(initial_0) = initial_bindings.first() {
-                    let first_type = self.binding_type(*initial_0).base.into();
-                    for (later_binding, later_expr) in initial_bindings.iter().zip(initial_exprs) {
-                        self.check_type_compatible(
-                            &first_type,
-                            &self.binding_type(*later_binding),
-                            later_expr.span,
-                        );
-                    }
-                    first_type
-                } else {
-                    I64
-                };
-                let list_type = self.resolve_type(element_type.list());
-                let length = self.make_literal(initial_bindings.len() as i64);
-                let pointer = self.make_temporary(element_type.pointer());
-                self.add_statement(vir::Statement::Alloc(pointer, length));
-                for (i, initial_binding) in initial_bindings.iter().enumerate() {
-                    let i_binding = self.make_literal(i as i64);
-                    self.add_statement(vir::Statement::AssignmentIndex(
-                        pointer,
-                        i_binding,
-                        *initial_binding,
-                    ));
-                }
-                let list = self.make_temporary(list_type);
-                self.add_statement(vir::Statement::AssignmentField(list, 0, pointer));
-                self.add_statement(vir::Statement::AssignmentField(list, 1, length));
-                list
-            }
-            ast::Expression::ArrayRepeat(repeat) => {
-                let (initial, length) = repeat.as_ref();
-                let initial_binding = self.process_expression(initial);
-                let element_type = self.binding_type(initial_binding);
-
-                let length_binding = self.process_expression(length);
-                self.check_type_compatible(&I64, &self.binding_type(length_binding), length.span);
-
-                let pointer = self.make_temporary(element_type.pointer());
-                self.add_statement(vir::Statement::Alloc(pointer, length_binding));
-
-                let init_condition_block = self.make_block();
-                let init_body_block = self.make_block();
-                let init_after_block = self.make_block();
-                let i_cmp = self.make_temporary(BOOL);
-                let i = self.make_literal(0);
-                let i_step = self.make_literal(1);
-                self.add_statement(vir::Statement::JumpAlways(init_condition_block));
-
-                self.current_block = init_condition_block;
-                self.add_statement(vir::Statement::BinaryOperator(
-                    i_cmp,
-                    BinaryOperator::Less,
-                    i,
-                    length_binding,
-                ));
-                self.add_statement(vir::Statement::JumpConditional {
-                    condition: i_cmp,
-                    true_block: init_body_block,
-                    false_block: init_after_block,
-                });
-
-                self.current_block = init_body_block;
-                self.add_statement(vir::Statement::AssignmentIndex(pointer, i, initial_binding));
-                self.add_statement(vir::Statement::BinaryOperator(
-                    i,
-                    BinaryOperator::Add,
-                    i,
-                    i_step,
-                ));
-                self.add_statement(vir::Statement::JumpAlways(init_condition_block));
-
-                self.current_block = init_after_block;
-                let list_type = self.resolve_type(element_type.list());
-                let list = self.make_temporary(list_type);
-                self.add_statement(vir::Statement::AssignmentField(list, 0, pointer));
-                self.add_statement(vir::Statement::AssignmentField(list, 1, length_binding));
-                list
-            }
             ast::Expression::BinaryOperation(op, args) => {
                 use BinaryOperator::*;
                 let (left, right) = args.as_ref();
@@ -648,32 +564,116 @@ impl<'a> State<'a> {
                 binding
             }
             ast::Expression::Index(indexing) => {
-                let (array, index) = indexing.as_ref();
-                let array = self.process_expression(array);
+                let (list, index) = indexing.as_ref();
+                let list = self.process_expression(list);
                 let index = self.process_expression(index);
-                if self.binding_type(array).base == STRING.base {
-                    let string = array;
+                if self.binding_type(list).base == STRING.base {
+                    let string = list;
                     let string_pointer = self.make_temporary(I8.pointer());
                     let binding = self.make_temporary(I8);
                     self.add_statement(vir::Statement::Field(string_pointer, string, 0));
                     self.add_statement(vir::Statement::Index(binding, string_pointer, index));
                     binding
                 } else {
-                    let array_type = self.binding_type(array);
-                    if array_type.is_error() {
+                    let list_type = self.binding_type(list);
+                    if list_type.is_error() {
                         return self.make_temporary(ERROR);
                     }
-                    let vir::BaseType::Struct(array_struct_id, _) = array_type.base else {
+                    let vir::BaseType::Struct(list_struct_id, _) = list_type.base else {
                         unreachable!()
                     };
-                    let pointer_type = &self.structs[array_struct_id].fields[0];
+                    let pointer_type = &self.structs[list_struct_id].fields[0];
                     let element_type = pointer_type.dereference();
                     let pointer = self.make_temporary(pointer_type.clone());
                     let binding = self.make_temporary(element_type);
-                    self.add_statement(vir::Statement::Field(pointer, array, 0));
+                    self.add_statement(vir::Statement::Field(pointer, list, 0));
                     self.add_statement(vir::Statement::Index(binding, pointer, index));
                     binding
                 }
+            }
+            ast::Expression::ListLiteral(initial_exprs) => {
+                let initial_bindings: Vec<_> = initial_exprs
+                    .iter()
+                    .map(|initial| self.process_expression(initial))
+                    .collect();
+                let element_type = if let Some(initial_0) = initial_bindings.first() {
+                    let first_type = self.binding_type(*initial_0).base.into();
+                    for (later_binding, later_expr) in initial_bindings.iter().zip(initial_exprs) {
+                        self.check_type_compatible(
+                            &first_type,
+                            &self.binding_type(*later_binding),
+                            later_expr.span,
+                        );
+                    }
+                    first_type
+                } else {
+                    I64
+                };
+                let list_type = self.resolve_type(element_type.list());
+                let length = self.make_literal(initial_bindings.len() as i64);
+                let pointer = self.make_temporary(element_type.pointer());
+                self.add_statement(vir::Statement::Alloc(pointer, length));
+                for (i, initial_binding) in initial_bindings.iter().enumerate() {
+                    let i_binding = self.make_literal(i as i64);
+                    self.add_statement(vir::Statement::AssignmentIndex(
+                        pointer,
+                        i_binding,
+                        *initial_binding,
+                    ));
+                }
+                let list = self.make_temporary(list_type);
+                self.add_statement(vir::Statement::AssignmentField(list, 0, pointer));
+                self.add_statement(vir::Statement::AssignmentField(list, 1, length));
+                list
+            }
+            ast::Expression::ListRepeat(repeat) => {
+                let (initial, length) = repeat.as_ref();
+                let initial_binding = self.process_expression(initial);
+                let element_type = self.binding_type(initial_binding);
+
+                let length_binding = self.process_expression(length);
+                self.check_type_compatible(&I64, &self.binding_type(length_binding), length.span);
+
+                let pointer = self.make_temporary(element_type.pointer());
+                self.add_statement(vir::Statement::Alloc(pointer, length_binding));
+
+                let init_condition_block = self.make_block();
+                let init_body_block = self.make_block();
+                let init_after_block = self.make_block();
+                let i_cmp = self.make_temporary(BOOL);
+                let i = self.make_literal(0);
+                let i_step = self.make_literal(1);
+                self.add_statement(vir::Statement::JumpAlways(init_condition_block));
+
+                self.current_block = init_condition_block;
+                self.add_statement(vir::Statement::BinaryOperator(
+                    i_cmp,
+                    BinaryOperator::Less,
+                    i,
+                    length_binding,
+                ));
+                self.add_statement(vir::Statement::JumpConditional {
+                    condition: i_cmp,
+                    true_block: init_body_block,
+                    false_block: init_after_block,
+                });
+
+                self.current_block = init_body_block;
+                self.add_statement(vir::Statement::AssignmentIndex(pointer, i, initial_binding));
+                self.add_statement(vir::Statement::BinaryOperator(
+                    i,
+                    BinaryOperator::Add,
+                    i,
+                    i_step,
+                ));
+                self.add_statement(vir::Statement::JumpAlways(init_condition_block));
+
+                self.current_block = init_after_block;
+                let list_type = self.resolve_type(element_type.list());
+                let list = self.make_temporary(list_type);
+                self.add_statement(vir::Statement::AssignmentField(list, 0, pointer));
+                self.add_statement(vir::Statement::AssignmentField(list, 1, length_binding));
+                list
             }
             ast::Expression::Literal(literal) => self.make_literal(*literal),
             ast::Expression::New(type_) => {
@@ -725,22 +725,22 @@ impl<'a> State<'a> {
                 ));
             }
             ast::Expression::Index(indexing) => {
-                let (array, index) = indexing.as_ref();
-                let array = self.process_expression(array);
+                let (list, index) = indexing.as_ref();
+                let list = self.process_expression(list);
                 let index = self.process_expression(index);
-                if self.binding_type(array).base == STRING.base {
-                    let string = array;
+                if self.binding_type(list).base == STRING.base {
+                    let string = list;
                     let string_pointer = self.make_temporary(I8.pointer());
                     self.add_statement(vir::Statement::Field(string_pointer, string, 0));
                     self.add_statement(vir::Statement::AssignmentIndex(string_pointer, index, src));
                 } else {
-                    let array_type = self.binding_type(array);
-                    let vir::BaseType::Struct(array_struct_id, _) = array_type.base else {
+                    let list_type = self.binding_type(list);
+                    let vir::BaseType::Struct(list_struct_id, _) = list_type.base else {
                         unreachable!()
                     };
-                    let pointer_type = &self.structs[array_struct_id].fields[0];
+                    let pointer_type = &self.structs[list_struct_id].fields[0];
                     let pointer = self.make_temporary(pointer_type.clone());
-                    self.add_statement(vir::Statement::Field(pointer, array, 0));
+                    self.add_statement(vir::Statement::Field(pointer, list, 0));
                     self.add_statement(vir::Statement::AssignmentIndex(pointer, index, src));
                 }
             }

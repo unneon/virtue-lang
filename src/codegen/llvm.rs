@@ -179,15 +179,15 @@ impl State<'_> {
                     ));
                     self.write(format!("store {field_type} {value}, {field_type}* {field}"));
                 }
-                Statement::AssignmentIndex(array_binding, index_binding, value_binding) => {
+                Statement::AssignmentIndex(list_binding, index_binding, value_binding) => {
                     let value_type = convert_type(&function.bindings[value_binding.id].type_);
                     let element_type =
-                        convert_type(&function.bindings[array_binding.id].type_.dereference());
+                        convert_type(&function.bindings[list_binding.id].type_.dereference());
                     let value = self.load(value_binding);
-                    let array = self.load(array_binding);
+                    let list = self.load(list_binding);
                     let index = self.load(index_binding);
                     let field = self.temp(format!(
-                        "getelementptr {element_type}, ptr {array}, i64 {index}"
+                        "getelementptr {element_type}, ptr {list}, i64 {index}"
                     ));
                     if value_type == element_type {
                         self.write(format!(
@@ -301,13 +301,13 @@ impl State<'_> {
                     let result = self.temp(format!("load {field_type}, {field_type}* {field}"));
                     self.store(result_binding, result);
                 }
-                Statement::Index(result_binding, array_binding, index_binding) => {
+                Statement::Index(result_binding, list_binding, index_binding) => {
                     let value_type =
-                        convert_type(&function.bindings[array_binding.id].type_.dereference());
-                    let array = self.load(array_binding);
+                        convert_type(&function.bindings[list_binding.id].type_.dereference());
+                    let list = self.load(list_binding);
                     let index = self.load(index_binding);
                     let field = self.temp(format!(
-                        "getelementptr {value_type}, ptr {array}, i64 {index}"
+                        "getelementptr {value_type}, ptr {list}, i64 {index}"
                     ));
                     let result = self.temp(format!("load {value_type}, {value_type}* {field}"));
                     self.store(result_binding, result);

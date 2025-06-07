@@ -362,8 +362,8 @@ fn expression0(input: &str) -> IResult<&str, Spanned<Expression>> {
         alt((
             integer_literal,
             parentheses,
-            array_literal,
-            array_repeat,
+            list_literal,
+            list_repeat,
             method_call,
             field_expression,
             function_call,
@@ -400,23 +400,23 @@ fn parentheses(input: &str) -> IResult<&str, Expression> {
         .parse(input)
 }
 
-fn array_literal(input: &str) -> IResult<&str, Expression> {
+fn list_literal(input: &str) -> IResult<&str, Expression> {
     delimited(
         (sp, char('[')),
         separated_list0((sp, char(','), sp), expression()),
         (sp, char(']')),
     )
-    .map(Expression::ArrayLiteral)
+    .map(Expression::ListLiteral)
     .parse(input)
 }
 
-fn array_repeat(input: &str) -> IResult<&str, Expression> {
+fn list_repeat(input: &str) -> IResult<&str, Expression> {
     delimited(
         (sp, char('[')),
         (expression(), preceded((sp, char(';'), sp), expression())),
         (sp, char(']')),
     )
-    .map(|(initializer, length)| Expression::ArrayRepeat(Box::new((initializer, length))))
+    .map(|(initializer, length)| Expression::ListRepeat(Box::new((initializer, length))))
     .parse(input)
 }
 
