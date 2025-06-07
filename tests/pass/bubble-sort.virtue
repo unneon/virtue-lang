@@ -1,0 +1,34 @@
+func bubble_sort(xs list int)
+    for j from 0 to xs.length - 2
+        for i from 0 to xs.length - 2
+            if xs[i] > xs[i + 1]
+                tmp = xs[i]
+                xs[i] = xs[i + 1]
+                xs[i + 1] = tmp
+
+xs = [20, 8, 3, 12, 7, 5, 17, 4, 2,  9, 10, 1, 15, 19, 16, 18, 11, 14, 13, 6]
+bubble_sort(xs)
+for i from 0 to xs.length - 1
+    x = xs[i]
+    print "{x}"
+
+# 1
+# 2
+# 3
+# 4
+# 5
+# 6
+# 7
+# 8
+# 9
+# 10
+# 11
+# 12
+# 13
+# 14
+# 15
+# 16
+# 17
+# 18
+# 19
+# 20

@@ -48,6 +48,7 @@ impl<'a> State<'a> {
             if !type_.is_type() {
                 let binding = Binding { id: bindings.len() };
                 let type_ = self.convert_type(type_, &type_arg_map);
+                let type_ = self.instantiate_type(type_);
                 value_args.push(vir::Arg { binding });
                 bindings.push(vir::BindingData { type_ });
                 binding_map.insert(**name, binding);
