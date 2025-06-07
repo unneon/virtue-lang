@@ -1,4 +1,5 @@
 #![feature(decl_macro)]
+#![feature(if_let_guard)]
 #![feature(string_into_chars)]
 #![feature(trait_alias)]
 #![allow(mismatched_lifetime_syntaxes)]

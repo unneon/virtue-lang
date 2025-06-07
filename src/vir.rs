@@ -82,6 +82,7 @@ pub struct Struct<'a> {
     pub field_map: HashMap<&'a str, usize>,
     pub type_arg_map: HashMap<&'a str, usize>,
     pub is_instantiated: bool,
+    pub instantiation_info: Option<InstantiationInfo>,
 }
 
 // TODO: Sort predicates or make comparisons order independent.
@@ -101,6 +102,12 @@ pub enum BaseType {
     Void,
     TypeVariable(usize),
     Error,
+}
+
+#[derive(Clone, Debug)]
+pub struct InstantiationInfo {
+    pub generic_struct_id: usize,
+    pub type_args: Vec<Type>,
 }
 
 impl Program<'_> {

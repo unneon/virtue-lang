@@ -1,0 +1,13 @@
+a = [1, 2]
+b = [3, 4, 5, 6]
+c = a + b
+for i from 0 to c.length - 1
+    c_i = c[i]
+    print "{c_i}"
+
+# 1
+# 2
+# 3
+# 4
+# 5
+# 6
