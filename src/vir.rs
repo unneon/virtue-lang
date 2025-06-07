@@ -18,7 +18,7 @@ pub struct Function<'a> {
     pub value_args: Vec<Arg>,
     pub all_args: Vec<AnyArg>,
     pub return_type: Type,
-    pub bindings: Vec<BindingData>,
+    pub bindings: Vec<Type>,
     pub binding_map: HashMap<&'a str, Binding>,
     pub type_arg_map: HashMap<&'a str, usize>,
     pub type_arg_substitutions: Option<Vec<Type>>,
@@ -35,11 +35,6 @@ pub struct Arg {
 pub enum AnyArg {
     Value(usize),
     Type(usize),
-}
-
-#[derive(Clone, Debug)]
-pub struct BindingData {
-    pub type_: Type,
 }
 
 #[derive(Clone, Debug)]
@@ -136,6 +131,18 @@ impl Program<'_> {
 
     pub fn string_len(&self, id: usize) -> usize {
         self.strings[id].iter().map(|s| s.len()).sum()
+    }
+}
+
+impl Function<'_> {
+    pub fn should_codegen(&self) -> bool {
+        self.type_arg_substitutions.is_some()
+    }
+}
+
+impl Struct<'_> {
+    pub fn should_codegen(&self) -> bool {
+        self.is_instantiated
     }
 }
 

@@ -21,25 +21,29 @@ enum Value {
 }
 
 impl State<'_> {
-    fn prologue(&mut self) {
+    fn declare_structs(&mut self) {
         for (struct_id, struct_) in self.vir.structs.iter().enumerate() {
-            if !struct_.is_instantiated {
-                continue;
+            if struct_.should_codegen() {
+                self.write(format!("struct struct{struct_id} {{"));
+                for (field_id, field_type) in struct_.fields.iter().enumerate() {
+                    let field_type = convert_type(field_type);
+                    self.write(format!("    {field_type} _{field_id};"));
+                }
+                self.write("};");
             }
-            self.write(format!("struct struct{struct_id} {{"));
-            for (field_id, field_type) in struct_.fields.iter().enumerate() {
-                let field_type = convert_type(field_type);
-                self.write(format!("    {field_type} _{field_id};"));
-            }
-            self.write("};");
         }
+    }
+
+    fn declare_functions(&mut self) {
         for function in &self.vir.functions {
-            if function.type_arg_substitutions.is_none() {
-                continue;
+            if function.should_codegen() {
+                let signature = self.function_signature(function);
+                self.write(format!("{signature};"));
             }
-            let signature = self.function_signature(function);
-            self.write(format!("{signature};"));
         }
+    }
+
+    fn declare_strings(&mut self) {
         for (string_id, string) in self.vir.strings.iter().enumerate() {
             self.c += &format!("char str{string_id}[] = \"");
             for string in *string {
@@ -52,36 +56,26 @@ impl State<'_> {
         }
     }
 
-    fn all_functions(&mut self) {
-        for function_id in 0..self.vir.functions.len() {
-            if self.vir.functions[function_id]
-                .type_arg_substitutions
-                .is_none()
-            {
-                continue;
+    fn define_functions(&mut self) {
+        for id in 0..self.vir.functions.len() {
+            if self.vir.functions[id].should_codegen() {
+                self.current_function = id;
+                self.temporary_counter = 0;
+                self.extended_register_counter = 0;
+                self.function();
             }
-            self.current_function = function_id;
-            self.temporary_counter = 0;
-            self.extended_register_counter = 0;
-            self.function();
         }
     }
 
     fn function(&mut self) {
         let function = &self.vir.functions[self.current_function];
-        let function_signature = self.function_signature(function);
-        self.write(format!("{function_signature} {{"));
-        for (binding, binding_data) in function
-            .bindings
-            .iter()
-            .enumerate()
-            .skip(function.value_args.len())
-        {
-            if binding_data.type_.base == BaseType::Void {
-                continue;
+        let signature = self.function_signature(function);
+        self.write(format!("{signature} {{"));
+        for (binding_id, type_) in function.bindings.iter().enumerate() {
+            if binding_id >= function.value_args.len() && !type_.is_void() {
+                let type_ = convert_type(type_);
+                self.write(format!("    {type_} _{binding_id};"));
             }
-            let binding_type = convert_type(&binding_data.type_);
-            self.write(format!("    {binding_type} _{binding};"));
         }
         for block_id in 0..function.blocks.len() {
             self.block(block_id);
@@ -92,166 +86,160 @@ impl State<'_> {
     fn block(&mut self, block_id: usize) {
         self.write(format!("block{block_id}:"));
 
-        let function = &self.vir.functions[self.current_function];
-        let block = &function.blocks[block_id];
-        for statement in block {
-            match statement {
-                Statement::Alloc(binding, count) => {
-                    let binding_id = binding.id;
-                    let count_id = count.id;
-                    let size_temp = self.make_temporary();
-                    self.write(format!(
-                        "    long long tmp{size_temp} = _{count_id} * sizeof(*_{binding_id});"
-                    ));
-                    self.malloc(binding, Value::Temporary(size_temp));
-                }
-                Statement::Assignment(left, right) => {
-                    if function.bindings[left.id].type_.base == BaseType::Void {
-                        continue;
-                    }
+        for statement in &self.vir.functions[self.current_function].blocks[block_id] {
+            self.statement(statement);
+        }
+    }
+
+    fn statement(&mut self, statement: &Statement) {
+        match statement {
+            Statement::Alloc(pointer, length) => {
+                let pointer_id = pointer.id;
+                let length_id = length.id;
+                let size = self.make_temporary();
+                self.write(format!(
+                    "    long long tmp{size} = _{length_id} * sizeof(*_{pointer_id});"
+                ));
+                self.malloc(pointer, Value::Temporary(size));
+            }
+            Statement::Assignment(left, right) => {
+                if !self.vir.functions[self.current_function].bindings[left.id].is_void() {
                     let left_id = left.id;
                     let right_id = right.id;
                     self.write(format!("    _{left_id} = _{right_id};"));
                 }
-                Statement::AssignmentField(object, field, value) => {
-                    let object_id = object.id;
-                    let value_id = value.id;
-                    self.write(format!("    _{object_id}._{field} = _{value_id};"));
-                }
-                Statement::AssignmentIndex(list, index, value) => {
-                    let list_id = list.id;
-                    let index_id = index.id;
-                    let value_id = value.id;
-                    self.write(format!("    _{list_id}[_{index_id}] = _{value_id};"));
-                }
-                Statement::BinaryOperator(result, op, left, right) => {
+            }
+            Statement::AssignmentField(object, field, value) => {
+                let object_id = object.id;
+                let value_id = value.id;
+                self.write(format!("    _{object_id}._{field} = _{value_id};"));
+            }
+            Statement::AssignmentIndex(list, index, value) => {
+                let list_id = list.id;
+                let index_id = index.id;
+                let value_id = value.id;
+                self.write(format!("    _{list_id}[_{index_id}] = _{value_id};"));
+            }
+            Statement::BinaryOperator(result, op, left, right) => {
+                let result_id = result.id;
+                let left_id = left.id;
+                let right_id = right.id;
+                let op = match op {
+                    BinaryOperator::Add => "+",
+                    BinaryOperator::Subtract => "-",
+                    BinaryOperator::Multiply => "*",
+                    BinaryOperator::Divide => "/",
+                    BinaryOperator::Modulo => "%",
+                    BinaryOperator::BitAnd => "&",
+                    BinaryOperator::BitOr => "|",
+                    BinaryOperator::Xor => "^",
+                    BinaryOperator::ShiftLeft => "<<",
+                    BinaryOperator::ShiftRight => ">>",
+                    BinaryOperator::Less => "<",
+                    BinaryOperator::LessOrEqual => "<=",
+                    BinaryOperator::Greater => ">",
+                    BinaryOperator::GreaterOrEqual => ">=",
+                    BinaryOperator::Equal => "==",
+                    BinaryOperator::NotEqual => "!=",
+                    BinaryOperator::LogicAnd => "&&",
+                    BinaryOperator::LogicOr => "||",
+                };
+                self.write(format!("    _{result_id} = _{left_id} {op} _{right_id};"));
+            }
+            Statement::Call {
+                return_: result,
+                function,
+                args,
+            } => {
+                let result_assignment = if let Some(result) = result {
                     let result_id = result.id;
-                    let left_id = left.id;
-                    let right_id = right.id;
-                    let op = match op {
-                        BinaryOperator::Add => "+",
-                        BinaryOperator::Subtract => "-",
-                        BinaryOperator::Multiply => "*",
-                        BinaryOperator::Divide => "/",
-                        BinaryOperator::Modulo => "%",
-                        BinaryOperator::BitAnd => "&",
-                        BinaryOperator::BitOr => "|",
-                        BinaryOperator::Xor => "^",
-                        BinaryOperator::ShiftLeft => "<<",
-                        BinaryOperator::ShiftRight => ">>",
-                        BinaryOperator::Less => "<",
-                        BinaryOperator::LessOrEqual => "<=",
-                        BinaryOperator::Greater => ">",
-                        BinaryOperator::GreaterOrEqual => ">=",
-                        BinaryOperator::Equal => "==",
-                        BinaryOperator::NotEqual => "!=",
-                        BinaryOperator::LogicAnd => "&&",
-                        BinaryOperator::LogicOr => "||",
-                    };
-                    self.write(format!("    _{result_id} = _{left_id} {op} _{right_id};"));
-                }
-                Statement::Call {
-                    return_,
-                    function,
-                    args,
-                    ..
-                } => {
-                    let result_assignment = if let Some(return_) = return_
-                        && self.vir.functions[*function].return_type.base != BaseType::Void
-                    {
-                        let return_id = return_.id;
-                        format!("_{return_id} = ")
-                    } else {
-                        String::new()
-                    };
-                    let function_name = self.vir.functions[*function].name.as_ref();
-                    let mut c_args = String::new();
-                    for (arg_index, arg) in args.iter().enumerate() {
-                        if arg_index > 0 {
-                            c_args.push_str(", ");
-                        }
-                        let arg_id = arg.id;
-                        c_args.push_str(&format!("_{arg_id}"));
+                    format!("_{result_id} = ")
+                } else {
+                    String::new()
+                };
+                let callee_name = self.vir.functions[*function].name.as_ref();
+                let mut c_args = String::new();
+                for (arg_index, arg) in args.iter().enumerate() {
+                    if arg_index > 0 {
+                        c_args += ", ";
                     }
-                    self.write(format!("    {result_assignment}{function_name}({c_args});"));
-                }
-                Statement::Field(result, object, field) => {
-                    let result_id = result.id;
-                    let object_id = object.id;
-                    self.write(format!("    _{result_id} = _{object_id}._{field};"));
-                }
-                Statement::Index(result, list, index) => {
-                    let result_id = result.id;
-                    let list_id = list.id;
-                    let index_id = index.id;
-                    self.write(format!("    _{result_id} = _{list_id}[_{index_id}];"));
-                }
-                Statement::JumpAlways(target_block) => {
-                    self.write(format!("    goto block{target_block};"));
-                }
-                Statement::JumpConditional {
-                    condition,
-                    true_block,
-                    false_block,
-                } => {
-                    let condition_id = condition.id;
-                    self.write(format!("    if (_{condition_id}) goto block{true_block};"));
-                    self.write(format!("    else goto block{false_block};"));
-                }
-                Statement::Literal(binding, value) => {
-                    let binding_id = binding.id;
-                    self.write(format!("    _{binding_id} = {value};"));
-                }
-                Statement::Return(binding) => {
-                    if !function.is_main {
-                        if let Some(binding) = binding {
-                            let binding_id = binding.id;
-                            self.write(format!("    return _{binding_id};"));
-                        } else {
-                            self.write("    return;");
-                        }
-                    } else {
-                        self.syscall(None, &[Value::Const(60), Value::Binding(binding.unwrap())]);
-                    }
-                }
-                Statement::Syscall(result_binding, arg_bindings) => {
-                    let args: Vec<_> = arg_bindings.iter().copied().map(Value::Binding).collect();
-                    self.syscall(Some(result_binding), &args);
-                }
-                Statement::StringConstant(binding, value) => {
-                    let binding_id = binding.id;
-                    self.write(format!("    _{binding_id} = str{value};"));
-                }
-                Statement::UnaryOperator(result, op, arg) => {
-                    let result_id = result.id;
                     let arg_id = arg.id;
-                    let op = match op {
-                        UnaryOperator::Negate => "-",
-                        UnaryOperator::BitNot => "~",
-                        UnaryOperator::LogicNot => "!",
-                    };
-                    self.write(format!("    _{result_id} = {op}_{arg_id};"));
+                    c_args += &format!("_{arg_id}");
                 }
+                self.write(format!("    {result_assignment}{callee_name}({c_args});"));
+            }
+            Statement::Field(result, object, field) => {
+                let result_id = result.id;
+                let object_id = object.id;
+                self.write(format!("    _{result_id} = _{object_id}._{field};"));
+            }
+            Statement::Index(result, list, index) => {
+                let result_id = result.id;
+                let list_id = list.id;
+                let index_id = index.id;
+                self.write(format!("    _{result_id} = _{list_id}[_{index_id}];"));
+            }
+            Statement::JumpAlways(target_block) => {
+                self.write(format!("    goto block{target_block};"));
+            }
+            Statement::JumpConditional {
+                condition,
+                true_block,
+                false_block,
+            } => {
+                let condition_id = condition.id;
+                self.write(format!("    if (_{condition_id}) goto block{true_block};"));
+                self.write(format!("    else goto block{false_block};"));
+            }
+            Statement::Literal(literal, value) => {
+                let literal_id = literal.id;
+                self.write(format!("    _{literal_id} = {value};"));
+            }
+            Statement::Return(value) => {
+                if !self.vir.functions[self.current_function].is_main {
+                    if let Some(binding) = value {
+                        let binding_id = binding.id;
+                        self.write(format!("    return _{binding_id};"));
+                    } else {
+                        self.write("    return;");
+                    }
+                } else {
+                    self.syscall(None, &[Value::Const(60), Value::Binding(value.unwrap())]);
+                }
+            }
+            Statement::Syscall(result, args) => {
+                let args: Vec<_> = args.iter().copied().map(Value::Binding).collect();
+                self.syscall(Some(result), &args);
+            }
+            Statement::StringConstant(pointer, string_id) => {
+                let binding_id = pointer.id;
+                self.write(format!("    _{binding_id} = str{string_id};"));
+            }
+            Statement::UnaryOperator(result, op, arg) => {
+                let result_id = result.id;
+                let arg_id = arg.id;
+                let op = match op {
+                    UnaryOperator::Negate => "-",
+                    UnaryOperator::BitNot => "~",
+                    UnaryOperator::LogicNot => "!",
+                };
+                self.write(format!("    _{result_id} = {op}_{arg_id};"));
             }
         }
     }
 
     fn function_signature(&self, function: &Function) -> String {
-        let function_return_type = convert_type(&function.return_type);
-        let function_name = if function.is_main {
-            "_start"
-        } else {
-            function.name.as_ref()
-        };
+        let return_type = convert_type(&function.return_type);
+        let name = function.name.as_ref();
         let mut args = String::new();
         for arg_index in 0..function.value_args.len() {
             if arg_index > 0 {
-                args.push_str(", ");
+                args += ", ";
             }
-            let arg_type = convert_type(&function.bindings[arg_index].type_);
+            let arg_type = convert_type(&function.bindings[arg_index]);
             args += &format!("{arg_type} _{arg_index}");
         }
-        format!("{function_return_type} {function_name}({args})")
+        format!("{return_type} {name}({args})")
     }
 
     fn malloc(&mut self, list: &Binding, size: Value) {
@@ -269,10 +257,10 @@ impl State<'_> {
         );
     }
 
-    fn syscall(&mut self, return_binding: Option<&Binding>, arg_bindings: &[Value]) {
-        let return_ = if let Some(return_binding) = return_binding {
-            let return_id = return_binding.id;
-            &format!("\"=a\" (_{return_id})")
+    fn syscall(&mut self, result: Option<&Binding>, arg_bindings: &[Value]) {
+        let result = if let Some(result) = result {
+            let result_id = result.id;
+            &format!("\"=a\" (_{result_id})")
         } else {
             ""
         };
@@ -281,7 +269,7 @@ impl State<'_> {
         let mut args = String::new();
         for (arg_index, (arg, register)) in arg_bindings.iter().zip(registers).enumerate() {
             if arg_index > 0 {
-                args.push_str(", ");
+                args += ", ";
             }
             let arg = match arg {
                 Value::Binding(binding) => format!("_{}", binding.id),
@@ -300,7 +288,7 @@ impl State<'_> {
             }
         }
         self.write(format!(
-            "    asm volatile (\"syscall\" : {return_} : {args} : \"rcx\", \"r11\", \"memory\");"
+            "    asm volatile (\"syscall\" : {result} : {args} : \"rcx\", \"r11\", \"memory\");"
         ));
     }
 
@@ -311,16 +299,16 @@ impl State<'_> {
     }
 
     fn write(&mut self, content: impl AsRef<str>) {
-        self.c.push_str(content.as_ref());
-        self.c.push('\n');
+        self.c += content.as_ref();
+        self.c += "\n";
     }
 }
 
 fn convert_type(type_: &Type) -> String {
     match &type_.base {
-        BaseType::I8 => "signed char".to_owned(),
         BaseType::I64 => "long long".to_owned(),
-        BaseType::Bool => "signed char".to_owned(),
+        BaseType::I8 => "signed char".to_owned(),
+        BaseType::Bool => "unsigned char".to_owned(),
         BaseType::Pointer(inner) => format!("{}*", convert_type(inner)),
         BaseType::Struct(name, _) => format!("struct struct{name}"),
         BaseType::Void => "void".to_owned(),
@@ -338,8 +326,10 @@ pub fn make_c(vir: &Program) -> String {
         extended_register_counter: 0,
     };
 
-    state.prologue();
-    state.all_functions();
+    state.declare_structs();
+    state.declare_functions();
+    state.declare_strings();
+    state.define_functions();
 
     state.c
 }

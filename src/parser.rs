@@ -23,7 +23,7 @@ pub fn module(input: &str) -> IResult<&str, Module> {
     all_consuming(terminated(block(0), empty_lines))
         .map(|body| {
             let main = Function {
-                name: "main",
+                name: "_start",
                 args: Vec::new(),
                 return_type: Some(Type {
                     segments: vec![Spanned::fake("int")],

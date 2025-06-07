@@ -84,11 +84,7 @@ impl State<'_> {
             return;
         }
         let return_type = convert_type(&function.return_type);
-        let name = if function.is_main {
-            "_start"
-        } else {
-            function.name.as_ref()
-        };
+        let name = function.name.as_ref();
         let args = self.function_args_declaration();
         self.write(format!("define {return_type} @{name}({args}) {{"));
     }
@@ -100,7 +96,7 @@ impl State<'_> {
             if arg_id > 0 {
                 decl.push_str(", ");
             }
-            let arg_type = &function.bindings[arg.binding.id].type_;
+            let arg_type = &function.bindings[arg.binding.id];
             let arg_type = convert_type(arg_type);
             write!(&mut decl, "{arg_type} %arg_{arg_id}").unwrap();
         }
@@ -109,19 +105,19 @@ impl State<'_> {
 
     fn function_stack_allocation(&mut self) {
         let function = &self.vir.functions[self.current_function];
-        for (binding_id, binding) in function.bindings.iter().enumerate() {
-            if binding.type_.base == BaseType::Void {
+        for (binding_id, type_) in function.bindings.iter().enumerate() {
+            if type_.is_void() {
                 continue;
             }
-            let binding_type = convert_type(&binding.type_);
-            self.write(format!("%stack_{binding_id} = alloca {binding_type}"));
+            let type_ = convert_type(type_);
+            self.write(format!("%stack_{binding_id} = alloca {type_}"));
         }
     }
 
     fn function_args_copy(&mut self) {
         let function = &self.vir.functions[self.current_function];
         for (arg_id, arg) in function.value_args.iter().enumerate() {
-            let arg_type = convert_type(&function.bindings[arg.binding.id].type_);
+            let arg_type = convert_type(&function.bindings[arg.binding.id]);
             self.write(format!(
                 "store {arg_type} %arg_{arg_id}, {arg_type}* %stack_{arg_id}"
             ));
@@ -146,7 +142,7 @@ impl State<'_> {
             self.write(format!("; statement_id={statement_id} {statement:?}"));
             match statement {
                 Statement::Alloc(binding, count) => {
-                    let pointer_type = convert_type(&function.bindings[binding.id].type_);
+                    let pointer_type = convert_type(&function.bindings[binding.id]);
                     let count = self.load(count);
                     let element_size =
                         self.temp(format!("getelementptr {pointer_type}, ptr null, i64 1"));
@@ -171,7 +167,7 @@ impl State<'_> {
                 }
                 Statement::AssignmentField(object_binding, field_id, value_binding) => {
                     let object_binding_id = object_binding.id;
-                    let struct_id = function.bindings[object_binding.id].type_.unwrap_struct();
+                    let struct_id = function.bindings[object_binding.id].unwrap_struct();
                     let field_type = convert_type(&self.vir.structs[struct_id].fields[*field_id]);
                     let value = self.load(value_binding);
                     let field = self.temp(format!(
@@ -180,9 +176,9 @@ impl State<'_> {
                     self.write(format!("store {field_type} {value}, {field_type}* {field}"));
                 }
                 Statement::AssignmentIndex(list_binding, index_binding, value_binding) => {
-                    let value_type = convert_type(&function.bindings[value_binding.id].type_);
+                    let value_type = convert_type(&function.bindings[value_binding.id]);
                     let element_type =
-                        convert_type(&function.bindings[list_binding.id].type_.dereference());
+                        convert_type(&function.bindings[list_binding.id].dereference());
                     let value = self.load(value_binding);
                     let list = self.load(list_binding);
                     let index = self.load(index_binding);
@@ -201,7 +197,7 @@ impl State<'_> {
                     }
                 }
                 Statement::BinaryOperator(binding, op, left, right) => {
-                    let left_type = convert_type(&function.bindings[left.id].type_);
+                    let left_type = convert_type(&function.bindings[left.id]);
                     let instr = match op {
                         BinaryOperator::Add => "add",
                         BinaryOperator::Subtract => "sub",
@@ -234,16 +230,14 @@ impl State<'_> {
                     let left_val = self.load(left);
                     let right_val = self.load(right);
                     let result = if left_type == "i8*" && instr == "add" {
-                        let element_type =
-                            convert_type(&function.bindings[left.id].type_.dereference());
-                        let right_type = convert_type(&function.bindings[right.id].type_);
+                        let element_type = convert_type(&function.bindings[left.id].dereference());
+                        let right_type = convert_type(&function.bindings[right.id]);
                         self.temp(format!(
                             "getelementptr {element_type}, ptr {left_val}, {right_type} {right_val}"
                         ))
                     } else if left_type == "i8*" && instr == "sub" {
-                        let element_type =
-                            convert_type(&function.bindings[left.id].type_.dereference());
-                        let right_type = convert_type(&function.bindings[right.id].type_);
+                        let element_type = convert_type(&function.bindings[left.id].dereference());
+                        let right_type = convert_type(&function.bindings[right.id]);
                         let minus_right = self.temp(format!("sub {right_type} 0, {right_val}"));
                         self.temp(format!(
                             "getelementptr {element_type}, ptr {left_val}, {right_type} {minus_right}"
@@ -267,7 +261,7 @@ impl State<'_> {
                     let mut signature = String::new();
                     let mut args = String::new();
                     for (arg_index, arg_binding) in arg_bindings.iter().enumerate() {
-                        let type_ = convert_type(&function.bindings[arg_binding.id].type_);
+                        let type_ = convert_type(&function.bindings[arg_binding.id]);
                         if arg_index > 0 {
                             signature.push_str(", ");
                         }
@@ -280,7 +274,7 @@ impl State<'_> {
                     }
                     let callee_name = self.vir.functions[*callee_id].name.as_ref();
                     if let Some(return_binding) = return_
-                        && function.bindings[return_binding.id].type_.base != BaseType::Void
+                        && !function.bindings[return_binding.id].is_void()
                     {
                         let return_type = convert_type(&self.vir.functions[*callee_id].return_type);
                         let result = self.temp(format!(
@@ -293,7 +287,7 @@ impl State<'_> {
                 }
                 Statement::Field(result_binding, object_binding, field_id) => {
                     let object_binding_id = object_binding.id;
-                    let struct_id = function.bindings[object_binding.id].type_.unwrap_struct();
+                    let struct_id = function.bindings[object_binding.id].unwrap_struct();
                     let field_type = convert_type(&self.vir.structs[struct_id].fields[*field_id]);
                     let field = self.temp(format!(
                         "getelementptr inbounds %struct_{struct_id}, ptr %stack_{object_binding_id}, i32 0, i32 {field_id}"
@@ -303,7 +297,7 @@ impl State<'_> {
                 }
                 Statement::Index(result_binding, list_binding, index_binding) => {
                     let value_type =
-                        convert_type(&function.bindings[list_binding.id].type_.dereference());
+                        convert_type(&function.bindings[list_binding.id].dereference());
                     let list = self.load(list_binding);
                     let index = self.load(index_binding);
                     let field = self.temp(format!(
@@ -332,7 +326,7 @@ impl State<'_> {
                 }
                 Statement::Literal(binding, literal) => {
                     let binding_id = binding.id;
-                    let type_ = convert_type(&function.bindings[binding_id].type_);
+                    let type_ = convert_type(&function.bindings[binding_id]);
                     self.write(format!(
                         "store {type_} {literal}, {type_}* %stack_{binding_id}"
                     ));
@@ -402,8 +396,7 @@ impl State<'_> {
             }
             let (temp, type_) = match arg_value {
                 Value::Binding(binding) => {
-                    let type_ =
-                        &self.vir.functions[self.current_function].bindings[binding.id].type_;
+                    let type_ = &self.vir.functions[self.current_function].bindings[binding.id];
                     (self.load(binding).to_string(), convert_type(type_))
                 }
                 Value::Constant(constant) => (constant.to_string(), "i64".to_owned()),
@@ -413,7 +406,7 @@ impl State<'_> {
         }
         if let Some(return_binding) = return_binding {
             let return_type = convert_type(
-                &self.vir.functions[self.current_function].bindings[return_binding.id].type_,
+                &self.vir.functions[self.current_function].bindings[return_binding.id],
             );
             let result = self.temp(format!(
                 "call {return_type} asm sideeffect \"syscall\", \"=r,{registers}\" ({args})"
@@ -428,15 +421,13 @@ impl State<'_> {
 
     fn load(&mut self, source: &Binding) -> Temporary {
         let source_id = source.id;
-        let type_ =
-            convert_type(&self.vir.functions[self.current_function].bindings[source.id].type_);
+        let type_ = convert_type(&self.vir.functions[self.current_function].bindings[source.id]);
         self.temp(format!("load {type_}, {type_}* %stack_{source_id}"))
     }
 
     fn store(&mut self, dest: &Binding, source: Temporary) {
         let dest_id = dest.id;
-        let type_ =
-            convert_type(&self.vir.functions[self.current_function].bindings[dest.id].type_);
+        let type_ = convert_type(&self.vir.functions[self.current_function].bindings[dest.id]);
         self.write(format!("store {type_} {source}, {type_}* %stack_{dest_id}"));
     }
 

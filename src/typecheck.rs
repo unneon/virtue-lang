@@ -49,7 +49,7 @@ impl<'a> State<'a> {
                 let binding = Binding { id: bindings.len() };
                 let type_ = self.resolve_ast_type_nocf(type_, &type_arg_map);
                 value_args.push(vir::Arg { binding });
-                bindings.push(vir::BindingData { type_ });
+                bindings.push(type_);
                 binding_map.insert(**name, binding);
             }
         }
@@ -65,8 +65,8 @@ impl<'a> State<'a> {
             None => VOID,
         };
         self.functions.push(vir::Function {
-            exported: function.name == "main",
-            is_main: function.name == "main",
+            exported: function.name == "_start",
+            is_main: function.name == "_start",
             name: Cow::Borrowed(function.name),
             value_args,
             all_args,
@@ -501,9 +501,8 @@ impl<'a> State<'a> {
                         let caller_arg_type = self.binding_type(*caller_arg_binding);
                         let callee = &self.functions[callee_id];
                         let callee_arg = callee.value_args[arg_index].binding;
-                        let callee_arg_type = callee.bindings[callee_arg.id]
-                            .type_
-                            .substitute_types(&type_substitutions);
+                        let callee_arg_type =
+                            callee.bindings[callee_arg.id].substitute_types(&type_substitutions);
                         let callee_arg_type = self.resolve_type(callee_arg_type);
                         self.check_type_compatible(
                             &callee_arg_type,
@@ -838,12 +837,11 @@ impl<'a> State<'a> {
                     blocks: f.blocks.clone(),
                     ast_block: f.ast_block,
                     bindings: (0..f.bindings.len())
-                        .map(|binding_id| vir::BindingData {
-                            type_: self.instantiate_type(
+                        .map(|binding_id| {
+                            self.instantiate_type(
                                 self.functions[function_id].bindings[binding_id]
-                                    .type_
                                     .substitute_types(&type_args),
-                            ),
+                            )
                         })
                         .collect(),
                     return_type: self.instantiate_type(
@@ -913,7 +911,7 @@ impl<'a> State<'a> {
         match f.binding_map.entry(variable) {
             hash_map::Entry::Occupied(entry) => {
                 let binding = *entry.get();
-                let binding_type = &f.bindings[binding.id].type_;
+                let binding_type = &f.bindings[binding.id];
                 assert_eq!(type_, *binding_type);
                 binding
             }
@@ -922,7 +920,7 @@ impl<'a> State<'a> {
                     assert!(type_.is_fully_substituted());
                 }
                 let binding = Binding { id: binding_count };
-                f.bindings.push(vir::BindingData { type_ });
+                f.bindings.push(type_);
                 *e.insert(binding)
             }
         }
@@ -939,8 +937,7 @@ impl<'a> State<'a> {
         let binding = Binding {
             id: f.bindings.len(),
         };
-        let binding_data = vir::BindingData { type_ };
-        f.bindings.push(binding_data);
+        f.bindings.push(type_);
         binding
     }
 
@@ -1051,7 +1048,7 @@ impl<'a> State<'a> {
     }
 
     fn binding_type(&self, binding: Binding) -> vir::Type {
-        self.current_function().bindings[binding.id].type_.clone()
+        self.current_function().bindings[binding.id].clone()
     }
 
     fn function_by_name(&mut self, name: Spanned<&str>) -> Result<usize, ()> {

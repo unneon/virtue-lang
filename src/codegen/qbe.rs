@@ -26,7 +26,7 @@ impl<'a> State<'a> {
                 .add_comment(format!("################### {statement:?}"));
             match statement {
                 Statement::Alloc(pointer, count) => {
-                    let element_type = self.vir_func.bindings[pointer.id].type_.dereference();
+                    let element_type = self.vir_func.bindings[pointer.id].dereference();
                     let size = self.temp(Instr::Mul(
                         count.into(),
                         Value::Const(self.vir.byte_size(&element_type) as u64),
@@ -49,7 +49,7 @@ impl<'a> State<'a> {
                     );
                 }
                 Statement::Assignment(left, right) => {
-                    let right_type = &self.vir_func.bindings[right.id].type_;
+                    let right_type = &self.vir_func.bindings[right.id];
                     if right_type.is_struct() {
                         let byte_size = self.vir.byte_size(right_type);
                         self.execute(Instr::Blit(right.into(), left.into(), byte_size as u64));
@@ -58,7 +58,7 @@ impl<'a> State<'a> {
                     }
                 }
                 Statement::AssignmentField(struct_, field, value) => {
-                    let struct_type = &self.vir_func.bindings[struct_.id].type_;
+                    let struct_type = &self.vir_func.bindings[struct_.id];
                     let struct_id = struct_type.unwrap_struct();
                     let field_type = &self.vir.structs[struct_id].fields[*field];
                     let field_offset = self.vir.field_offset(struct_id, *field);
@@ -69,7 +69,7 @@ impl<'a> State<'a> {
                     self.store(field_pointer, value, field_type);
                 }
                 Statement::AssignmentIndex(list, index, right) => {
-                    let element_type = self.vir_func.bindings[list.id].type_.dereference();
+                    let element_type = self.vir_func.bindings[list.id].dereference();
                     let offset = self.temp(Instr::Mul(
                         index.into(),
                         Value::Const(self.vir.byte_size(&element_type) as u64),
@@ -112,14 +112,14 @@ impl<'a> State<'a> {
                         .iter()
                         .map(|arg| {
                             (
-                                abi_type(&self.vir_func.bindings[arg.id].type_, self.aggregates),
+                                abi_type(&self.vir_func.bindings[arg.id], self.aggregates),
                                 arg.into(),
                             )
                         })
                         .collect();
                     let instr = Instr::Call(function_name.to_string(), args, None);
                     if let Some(result) = result {
-                        let right_type = &self.vir_func.bindings[result.id].type_;
+                        let right_type = &self.vir_func.bindings[result.id];
                         if right_type.is_struct() {
                             let byte_size = self.vir.byte_size(right_type);
                             // The Rust qbe library converts the type to base type instead of ABI types, though I'm
@@ -142,7 +142,7 @@ impl<'a> State<'a> {
                     }
                 }
                 Statement::Field(value, struct_, field) => {
-                    let struct_type = &self.vir_func.bindings[struct_.id].type_;
+                    let struct_type = &self.vir_func.bindings[struct_.id];
                     let struct_id = struct_type.unwrap_struct();
                     let field_type = &self.vir.structs[struct_id].fields[*field];
                     let field_offset = self.vir.field_offset(struct_id, *field);
@@ -153,7 +153,7 @@ impl<'a> State<'a> {
                     self.load(value, field_pointer, field_type);
                 }
                 Statement::Index(element, list, index) => {
-                    let element_type = self.vir_func.bindings[list.id].type_.dereference();
+                    let element_type = self.vir_func.bindings[list.id].dereference();
                     let offset = self.temp(Instr::Mul(
                         index.into(),
                         Value::Const(self.vir.byte_size(&element_type) as u64),
@@ -202,12 +202,7 @@ impl<'a> State<'a> {
                 Statement::Syscall(result, args) => {
                     let args = args
                         .iter()
-                        .map(|arg| {
-                            (
-                                extended_type(&self.vir_func.bindings[arg.id].type_),
-                                arg.into(),
-                            )
-                        })
+                        .map(|arg| (extended_type(&self.vir_func.bindings[arg.id]), arg.into()))
                         .collect();
                     self.assign(result, Instr::Call("syscall".to_owned(), args, None));
                 }
@@ -250,7 +245,7 @@ impl<'a> State<'a> {
     }
 
     fn assign(&mut self, left: &Binding, right: Instr<'a>) {
-        let type_ = &self.vir_func.bindings[left.id].type_;
+        let type_ = &self.vir_func.bindings[left.id];
         let type_ = abi_type(type_, self.aggregates);
         self.func.assign_instr(left.into(), type_, right);
     }
@@ -322,17 +317,12 @@ pub fn make_il(vir: &Program) -> String {
         } else {
             Linkage::private()
         };
-        let name = if function.is_main {
-            "_start"
-        } else {
-            function.name.as_ref()
-        };
         let args = function
             .value_args
             .iter()
             .map(|arg| {
                 (
-                    abi_type(&function.bindings[arg.binding.id].type_, &aggregates),
+                    abi_type(&function.bindings[arg.binding.id], &aggregates),
                     (&arg.binding).into(),
                 )
             })
@@ -340,7 +330,7 @@ pub fn make_il(vir: &Program) -> String {
         state.vir_func = function;
         state.func = qbe::Function::new(
             linkage,
-            name,
+            function.name.as_ref(),
             args,
             match function.return_type.base {
                 BaseType::Void => None,
@@ -351,11 +341,10 @@ pub fn make_il(vir: &Program) -> String {
         for (block_id, block) in function.blocks.iter().enumerate() {
             state.func.add_block(format!("_{block_id}"));
             if block_id == 0 {
-                for (id, binding_data) in function.bindings.iter().enumerate() {
+                for (id, binding_type) in function.bindings.iter().enumerate() {
                     if id < function.value_args.len() {
                         continue;
                     }
-                    let binding_type = &binding_data.type_;
                     if binding_type.is_struct() {
                         let pointer = Binding { id };
                         let struct_size = vir.byte_size(binding_type);
