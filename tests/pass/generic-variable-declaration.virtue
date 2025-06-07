@@ -1,0 +1,7 @@
+func f(x t, t type) t
+    y t = x
+    return y
+y = f(1, int)
+print "{y}"
+
+# 1

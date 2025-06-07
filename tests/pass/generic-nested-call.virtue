@@ -1,0 +1,8 @@
+func f1(x t, t type) t
+    return x
+func f2(x t, t type) t
+    return f1(x, t)
+x = f2(123, int)
+print "{x}"
+
+# 123
