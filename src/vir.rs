@@ -206,6 +206,14 @@ impl Type {
         }
     }
 
+    pub fn is_i64(&self) -> bool {
+        matches!(self.base, BaseType::I64)
+    }
+
+    pub fn is_i8(&self) -> bool {
+        matches!(self.base, BaseType::I8)
+    }
+
     pub fn is_struct(&self) -> bool {
         matches!(self.base, BaseType::Struct(_, _))
     }

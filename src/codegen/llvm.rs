@@ -3,128 +3,131 @@ mod subprocess;
 pub use subprocess::compile_ir;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
-use crate::typecheck::std::I64;
 use crate::vir::{BaseType, Binding, Program, Statement, Type};
-use std::fmt::Write;
+use inkwell::basic_block::BasicBlock;
+use inkwell::builder::Builder;
+use inkwell::context::Context;
+use inkwell::module::{Linkage, Module};
+use inkwell::types::{BasicType, BasicTypeEnum, StructType};
+use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, IntValue, PointerValue};
+use inkwell::{AddressSpace, IntPredicate};
 
 struct State<'a> {
-    ir: String,
+    ctx: &'a Context,
+    builder: Builder<'a>,
+    module: Module<'a>,
+    blocks: Option<Vec<BasicBlock<'a>>>,
+    bindings: Option<Vec<Option<PointerValue<'a>>>>,
+    struct_types: Vec<StructType<'a>>,
     vir: &'a Program<'a>,
     current_function: usize,
     temp_counter: usize,
 }
 
-enum Value {
-    Binding(Binding),
-    Constant(i64),
-    Temporary(Temporary, Type),
-}
-
-#[derive(Clone)]
-struct Temporary {
-    id: usize,
-}
-
-impl State<'_> {
+impl<'a> State<'a> {
     fn prologue_structs(&mut self) {
-        for (struct_id, struct_) in self.vir.structs.iter().enumerate() {
-            if !struct_.is_instantiated {
-                continue;
+        for struct_ in &self.vir.structs {
+            if struct_.is_instantiated {
+                let fields: Vec<_> = struct_
+                    .fields
+                    .iter()
+                    .map(|type_| self.convert_type(type_))
+                    .collect();
+                self.struct_types.push(self.ctx.struct_type(&fields, false));
+            } else {
+                self.struct_types.push(self.ctx.struct_type(&[], false));
             }
-            let mut fields = String::new();
-            for (field_id, field) in struct_.fields.iter().enumerate() {
-                if field_id > 0 {
-                    fields += ", ";
-                }
-                fields += &convert_type(field);
-            }
-            self.write(format!("%struct_{struct_id} = type {{ {fields} }}"));
-        }
-    }
-
-    fn prologue_strings(&mut self) {
-        for (id, text) in self.vir.strings.iter().enumerate() {
-            let length = self.vir.string_len(id);
-            self.ir += &format!("@string_{id} = internal constant [{length} x i8] c\"");
-            for s in *text {
-                self.ir += match *s {
-                    "\n" => "\\0A",
-                    _ => s,
-                };
-            }
-            self.ir += "\"\n";
         }
     }
 
     fn all_functions(&mut self) {
         for function_id in 0..self.vir.functions.len() {
-            if self.vir.functions[function_id]
-                .type_arg_substitutions
-                .is_none()
-            {
-                continue;
+            if self.vir.functions[function_id].should_codegen() {
+                self.current_function = function_id;
+                self.function_declaration();
             }
-            self.current_function = function_id;
-            self.temp_counter = 0;
-            self.function();
         }
-    }
 
-    fn function(&mut self) {
-        self.function_declaration();
-        self.function_stack_allocation();
-        self.function_args_copy();
-        self.function_body();
-        self.function_epilogue();
+        for function_id in 0..self.vir.functions.len() {
+            if self.vir.functions[function_id].should_codegen() {
+                self.current_function = function_id;
+                self.function_definition();
+            }
+        }
     }
 
     fn function_declaration(&mut self) {
-        let function = &self.vir.functions[self.current_function];
-        if function.type_arg_substitutions.is_none() {
-            return;
-        }
-        let return_type = convert_type(&function.return_type);
-        let name = function.name.as_ref();
-        let args = self.function_args_declaration();
-        self.write(format!("define {return_type} @{name}({args}) {{"));
+        let f = &self.vir.functions[self.current_function];
+        let args: Vec<_> = f
+            .value_args
+            .iter()
+            .map(|arg| self.convert_type(&f.bindings[arg.binding.id]).into())
+            .collect();
+        self.module.add_function(
+            f.name.as_ref(),
+            if f.return_type.is_void() {
+                self.ctx.void_type().fn_type(&args, false)
+            } else {
+                self.convert_type(&f.return_type).fn_type(&args, false)
+            },
+            Some(if f.is_main {
+                Linkage::External
+            } else {
+                Linkage::Internal
+            }),
+        );
     }
 
-    fn function_args_declaration(&self) -> String {
-        let function = &self.vir.functions[self.current_function];
-        let mut decl = String::new();
-        for (arg_id, arg) in function.value_args.iter().enumerate() {
-            if arg_id > 0 {
-                decl.push_str(", ");
-            }
-            let arg_type = &function.bindings[arg.binding.id];
-            let arg_type = convert_type(arg_type);
-            write!(&mut decl, "{arg_type} %arg_{arg_id}").unwrap();
-        }
-        decl
+    fn function_definition(&mut self) {
+        self.function_preprocess_blocks();
+        self.function_allocate_stack();
+        self.function_copy_args();
+        self.function_process_blocks();
     }
 
-    fn function_stack_allocation(&mut self) {
-        let function = &self.vir.functions[self.current_function];
-        for (binding_id, type_) in function.bindings.iter().enumerate() {
+    fn function_preprocess_blocks(&mut self) {
+        let f = &self.vir.functions[self.current_function];
+        let function = self.module.get_function(f.name.as_ref()).unwrap();
+        let mut blocks = Vec::new();
+        for block_id in 0..f.blocks.len() {
+            let block = self
+                .ctx
+                .append_basic_block(function, &format!("b{block_id}"));
+            blocks.push(block);
+        }
+        self.builder.position_at_end(blocks[0]);
+        self.blocks = Some(blocks);
+    }
+
+    fn function_allocate_stack(&mut self) {
+        let f = &self.vir.functions[self.current_function];
+        let mut bindings = Vec::new();
+        for (binding_id, type_) in f.bindings.iter().enumerate() {
             if type_.is_void() {
-                continue;
+                bindings.push(None);
+            } else {
+                let type_ = self.convert_type(type_);
+                let pointer = self
+                    .builder
+                    .build_alloca(type_, &format!("s{binding_id}"))
+                    .unwrap();
+                bindings.push(Some(pointer));
             }
-            let type_ = convert_type(type_);
-            self.write(format!("%stack_{binding_id} = alloca {type_}"));
+        }
+        self.bindings = Some(bindings);
+    }
+
+    fn function_copy_args(&mut self) {
+        let f = &self.vir.functions[self.current_function];
+        let function = self.module.get_function(f.name.as_ref()).unwrap();
+
+        for (arg_id, arg) in f.value_args.iter().enumerate() {
+            let arg_value = function.get_nth_param(arg_id as u32).unwrap();
+            self.store(&arg.binding, arg_value);
         }
     }
 
-    fn function_args_copy(&mut self) {
-        let function = &self.vir.functions[self.current_function];
-        for (arg_id, arg) in function.value_args.iter().enumerate() {
-            let arg_type = convert_type(&function.bindings[arg.binding.id]);
-            self.write(format!(
-                "store {arg_type} %arg_{arg_id}, {arg_type}* %stack_{arg_id}"
-            ));
-        }
-    }
-
-    fn function_body(&mut self) {
+    fn function_process_blocks(&mut self) {
         let function = &self.vir.functions[self.current_function];
         for block_id in 0..function.blocks.len() {
             self.block(block_id);
@@ -132,32 +135,32 @@ impl State<'_> {
     }
 
     fn block(&mut self, block_id: usize) {
-        if block_id > 0 {
-            self.write(format!("block_{block_id}:"));
-        }
+        let block = self.blocks.as_ref().unwrap()[block_id];
+        self.builder.position_at_end(block);
 
         let function = &self.vir.functions[self.current_function];
         let block = &function.blocks[block_id];
-        for (statement_id, statement) in block.iter().enumerate() {
-            self.write(format!("; statement_id={statement_id} {statement:?}"));
+        for statement in block {
             match statement {
-                Statement::Alloc(binding, count) => {
-                    let pointer_type = convert_type(&function.bindings[binding.id]);
-                    let count = self.load(count);
-                    let element_size =
-                        self.temp(format!("getelementptr {pointer_type}, ptr null, i64 1"));
-                    let element_size = self.temp(format!("ptrtoint ptr {element_size} to i64"));
-                    let size = self.temp(format!("mul i64 {count}, {element_size}"));
+                Statement::Alloc(pointer, count) => {
+                    let element_type = function.bindings[pointer.id].dereference();
+                    let element_size = self.sizeof(&element_type);
+                    let count = self.load(count).into_int_value();
+                    let size_temp = self.temp();
+                    let size = self
+                        .builder
+                        .build_int_mul(count, element_size, &size_temp)
+                        .unwrap();
                     self.syscall(
-                        Some(binding),
+                        Some(pointer),
                         &[
-                            Value::Constant(9),
-                            Value::Constant(0),
-                            Value::Temporary(size, I64),
-                            Value::Constant(0x3),
-                            Value::Constant(0x22),
-                            Value::Constant(-1),
-                            Value::Constant(0),
+                            self.ctx.i64_type().const_int(9, false).into(),
+                            self.ctx.i64_type().const_int(0, false).into(),
+                            size.into(),
+                            self.ctx.i64_type().const_int(0x3, false).into(),
+                            self.ctx.i64_type().const_int(0x22, false).into(),
+                            self.ctx.i64_type().const_int((-1i64) as u64, true).into(),
+                            self.ctx.i64_type().const_int(0, false).into(),
                         ],
                     );
                 }
@@ -165,58 +168,123 @@ impl State<'_> {
                     let right = self.load(right);
                     self.store(left, right);
                 }
-                Statement::AssignmentField(object_binding, field_id, value_binding) => {
-                    let object_binding_id = object_binding.id;
-                    let struct_id = function.bindings[object_binding.id].unwrap_struct();
-                    let field_type = convert_type(&self.vir.structs[struct_id].fields[*field_id]);
-                    let value = self.load(value_binding);
-                    let field = self.temp(format!(
-                        "getelementptr inbounds %struct_{struct_id}, ptr %stack_{object_binding_id}, i32 0, i32 {field_id}"
-                    ));
-                    self.write(format!("store {field_type} {value}, {field_type}* {field}"));
+                Statement::AssignmentField(object, field_id, value) => {
+                    let field = self.field(object, *field_id);
+                    let value = self.load(value);
+                    self.builder.build_store(field, value).unwrap();
                 }
-                Statement::AssignmentIndex(list_binding, index_binding, value_binding) => {
-                    let value_type = convert_type(&function.bindings[value_binding.id]);
-                    let element_type =
-                        convert_type(&function.bindings[list_binding.id].dereference());
-                    let value = self.load(value_binding);
-                    let list = self.load(list_binding);
-                    let index = self.load(index_binding);
-                    let field = self.temp(format!(
-                        "getelementptr {element_type}, ptr {list}, i64 {index}"
-                    ));
+                Statement::AssignmentIndex(list, index, value) => {
+                    let value_type = &function.bindings[value.id];
+                    let element_type = &function.bindings[list.id].dereference();
+                    let pointer = self.index(list, index);
+                    let value = self.load(value);
                     if value_type == element_type {
-                        self.write(format!(
-                            "store {value_type} {value}, {element_type}* {field}"
-                        ));
-                    } else if value_type == "i64" && element_type == "i8" {
-                        let trunc = self.temp(format!("trunc i64 {value} to i8"));
-                        self.write(format!("store i8 {trunc}, i8* {field}"));
+                        self.builder.build_store(pointer, value).unwrap();
+                    } else if value_type.is_i64() && element_type.is_i8() {
+                        let trunc_temp = self.temp();
+                        let trunc = self
+                            .builder
+                            .build_int_truncate(
+                                value.into_int_value(),
+                                self.ctx.i8_type(),
+                                &trunc_temp,
+                            )
+                            .unwrap();
+                        self.builder.build_store(pointer, trunc).unwrap();
                     } else {
                         todo!()
                     }
                 }
-                Statement::BinaryOperator(binding, op, left, right) => {
-                    let left_type = convert_type(&function.bindings[left.id]);
-                    let instr = match op {
-                        BinaryOperator::Add => "add",
-                        BinaryOperator::Subtract => "sub",
-                        BinaryOperator::Multiply => "mul",
-                        BinaryOperator::Divide => "sdiv",
-                        BinaryOperator::Modulo => "srem",
-                        BinaryOperator::BitAnd => "and",
-                        BinaryOperator::BitOr => "or",
-                        BinaryOperator::Xor => "xor",
-                        BinaryOperator::ShiftLeft => "shl",
-                        BinaryOperator::ShiftRight => "lshr",
-                        BinaryOperator::Less => "icmp slt",
-                        BinaryOperator::LessOrEqual => "icmp sle",
-                        BinaryOperator::Greater => "icmp sgt",
-                        BinaryOperator::GreaterOrEqual => "icmp sge",
-                        BinaryOperator::Equal => "icmp eq",
-                        BinaryOperator::NotEqual => "icmp ne",
-                        BinaryOperator::LogicAnd => "and",
-                        BinaryOperator::LogicOr => "or",
+                Statement::BinaryOperator(result_binding, op, left, right) => {
+                    let left_type = &function.bindings[left.id];
+                    if let BaseType::Pointer(left_inner) = &left_type.base
+                        && left_inner.is_i8()
+                    {
+                        let left = self.load(left).into_pointer_value();
+                        let right = self.load(right).into_int_value();
+                        let index = match op {
+                            BinaryOperator::Add => right,
+                            BinaryOperator::Subtract => {
+                                let index_temp = self.temp();
+                                self.builder
+                                    .build_int_sub(
+                                        right.get_type().const_int(0, false),
+                                        right,
+                                        &index_temp,
+                                    )
+                                    .unwrap()
+                            }
+                            _ => unreachable!(),
+                        };
+                        let temp = self.temp();
+                        let result = unsafe {
+                            self.builder
+                                .build_gep(self.ctx.i8_type(), left, &[index], &temp)
+                        }
+                        .unwrap();
+                        self.store(result_binding, result.into());
+                        continue;
+                    }
+
+                    let left = self.load(left).into_int_value();
+                    let right = self.load(right).into_int_value();
+                    let temp = self.temp();
+                    let output = match op {
+                        BinaryOperator::Add => {
+                            self.builder.build_int_add(left, right, &temp).unwrap()
+                        }
+                        BinaryOperator::Subtract => {
+                            self.builder.build_int_sub(left, right, &temp).unwrap()
+                        }
+                        BinaryOperator::Multiply => {
+                            self.builder.build_int_mul(left, right, &temp).unwrap()
+                        }
+                        BinaryOperator::Divide => self
+                            .builder
+                            .build_int_signed_div(left, right, &temp)
+                            .unwrap(),
+                        BinaryOperator::Modulo => self
+                            .builder
+                            .build_int_signed_rem(left, right, &temp)
+                            .unwrap(),
+                        BinaryOperator::BitAnd | BinaryOperator::LogicAnd => {
+                            self.builder.build_and(left, right, &temp).unwrap()
+                        }
+                        BinaryOperator::BitOr | BinaryOperator::LogicOr => {
+                            self.builder.build_or(left, right, &temp).unwrap()
+                        }
+                        BinaryOperator::Xor => self.builder.build_xor(left, right, &temp).unwrap(),
+                        BinaryOperator::ShiftLeft => {
+                            self.builder.build_left_shift(left, right, &temp).unwrap()
+                        }
+                        BinaryOperator::ShiftRight => self
+                            .builder
+                            .build_right_shift(left, right, true, &temp)
+                            .unwrap(),
+                        BinaryOperator::Less => self
+                            .builder
+                            .build_int_compare(IntPredicate::SLT, left, right, &temp)
+                            .unwrap(),
+                        BinaryOperator::LessOrEqual => self
+                            .builder
+                            .build_int_compare(IntPredicate::SLE, left, right, &temp)
+                            .unwrap(),
+                        BinaryOperator::Greater => self
+                            .builder
+                            .build_int_compare(IntPredicate::SGT, left, right, &temp)
+                            .unwrap(),
+                        BinaryOperator::GreaterOrEqual => self
+                            .builder
+                            .build_int_compare(IntPredicate::SGE, left, right, &temp)
+                            .unwrap(),
+                        BinaryOperator::Equal => self
+                            .builder
+                            .build_int_compare(IntPredicate::EQ, left, right, &temp)
+                            .unwrap(),
+                        BinaryOperator::NotEqual => self
+                            .builder
+                            .build_int_compare(IntPredicate::NE, left, right, &temp)
+                            .unwrap(),
                     };
                     let returns_bool = matches!(
                         op,
@@ -227,90 +295,66 @@ impl State<'_> {
                             | BinaryOperator::Equal
                             | BinaryOperator::NotEqual
                     );
-                    let left_val = self.load(left);
-                    let right_val = self.load(right);
-                    let result = if left_type == "i8*" && instr == "add" {
-                        let element_type = convert_type(&function.bindings[left.id].dereference());
-                        let right_type = convert_type(&function.bindings[right.id]);
-                        self.temp(format!(
-                            "getelementptr {element_type}, ptr {left_val}, {right_type} {right_val}"
-                        ))
-                    } else if left_type == "i8*" && instr == "sub" {
-                        let element_type = convert_type(&function.bindings[left.id].dereference());
-                        let right_type = convert_type(&function.bindings[right.id]);
-                        let minus_right = self.temp(format!("sub {right_type} 0, {right_val}"));
-                        self.temp(format!(
-                            "getelementptr {element_type}, ptr {left_val}, {right_type} {minus_right}"
-                        ))
-                    } else {
-                        self.temp(format!("{instr} {left_type} {left_val}, {right_val}"))
-                    };
                     if returns_bool {
-                        let zext = self.temp(format!("zext i1 {result} to i8"));
-                        self.store(binding, zext);
+                        let zext_temp = self.temp();
+                        let zext = self
+                            .builder
+                            .build_int_z_extend(output, self.ctx.i8_type(), &zext_temp)
+                            .unwrap();
+                        self.store(result_binding, zext.into());
                     } else {
-                        self.store(binding, result);
+                        self.store(result_binding, output.into());
                     }
                 }
                 Statement::Call {
                     return_,
                     function: callee_id,
-                    args: arg_bindings,
+                    args,
                     ..
                 } => {
-                    let mut signature = String::new();
-                    let mut args = String::new();
-                    for (arg_index, arg_binding) in arg_bindings.iter().enumerate() {
-                        let type_ = convert_type(&function.bindings[arg_binding.id]);
-                        if arg_index > 0 {
-                            signature.push_str(", ");
-                        }
-                        signature.push_str(&type_);
-                        let arg_val = self.load(arg_binding);
-                        if arg_index > 0 {
-                            args.push_str(", ");
-                        }
-                        write!(&mut args, "{type_} {arg_val}").unwrap();
-                    }
-                    let callee_name = self.vir.functions[*callee_id].name.as_ref();
-                    if let Some(return_binding) = return_
-                        && !function.bindings[return_binding.id].is_void()
-                    {
-                        let return_type = convert_type(&self.vir.functions[*callee_id].return_type);
-                        let result = self.temp(format!(
-                            "call {return_type} ({signature}) @{callee_name}({args})"
-                        ));
-                        self.store(return_binding, result);
-                    } else {
-                        self.write(format!("call void ({signature}) @{callee_name}({args})"));
+                    let temp = self.temp();
+                    let args: Vec<_> = args
+                        .iter()
+                        .map(|arg_binding| self.load(arg_binding).into())
+                        .collect();
+                    let result = self
+                        .builder
+                        .build_call(
+                            self.module
+                                .get_function(self.vir.functions[*callee_id].name.as_ref())
+                                .unwrap(),
+                            &args,
+                            &temp,
+                        )
+                        .unwrap();
+                    if let Some(return_) = return_ {
+                        let result = result.try_as_basic_value().left().unwrap();
+                        self.store(return_, result);
                     }
                 }
-                Statement::Field(result_binding, object_binding, field_id) => {
-                    let object_binding_id = object_binding.id;
-                    let struct_id = function.bindings[object_binding.id].unwrap_struct();
-                    let field_type = convert_type(&self.vir.structs[struct_id].fields[*field_id]);
-                    let field = self.temp(format!(
-                        "getelementptr inbounds %struct_{struct_id}, ptr %stack_{object_binding_id}, i32 0, i32 {field_id}"
-                    ));
-                    let result = self.temp(format!("load {field_type}, {field_type}* {field}"));
+                Statement::Field(result_binding, object, field_id) => {
+                    let struct_id = function.bindings[object.id].unwrap_struct();
+                    let field_type =
+                        self.convert_type(&self.vir.structs[struct_id].fields[*field_id]);
+                    let field = self.field(object, *field_id);
+                    let temp = self.temp();
+                    let result = self.builder.build_load(field_type, field, &temp).unwrap();
                     self.store(result_binding, result);
                 }
-                Statement::Index(result_binding, list_binding, index_binding) => {
-                    let value_type =
-                        convert_type(&function.bindings[list_binding.id].dereference());
-                    let list = self.load(list_binding);
-                    let index = self.load(index_binding);
-                    let field = self.temp(format!(
-                        "getelementptr {value_type}, ptr {list}, i64 {index}"
-                    ));
-                    let result = self.temp(format!("load {value_type}, {value_type}* {field}"));
+                Statement::Index(result_binding, list, index) => {
+                    let element_type = self.convert_type(&function.bindings[list.id].dereference());
+                    let pointer = self.index(list, index);
+                    let temp = self.temp();
+                    let result = self
+                        .builder
+                        .build_load(element_type, pointer, &temp)
+                        .unwrap();
                     self.store(result_binding, result);
                 }
                 Statement::JumpAlways(block) => {
-                    self.write(format!(
-                        "br i1 1, label %block_{block}, label %block_{block}"
-                    ));
-                    return;
+                    self.builder
+                        .build_unconditional_branch(self.blocks.as_ref().unwrap()[*block])
+                        .unwrap();
                 }
                 Statement::JumpConditional {
                     condition,
@@ -318,179 +362,225 @@ impl State<'_> {
                     false_block,
                 } => {
                     let cond_val = self.load(condition);
-                    let cond_i1 = self.temp(format!("trunc i8 {cond_val} to i1"));
-                    self.write(format!(
-                        "br i1 {cond_i1}, label %block_{true_block}, label %block_{false_block}"
-                    ));
-                    return;
+                    let cond_i1_temp = self.temp();
+                    let cond_i1 = self
+                        .builder
+                        .build_int_truncate(
+                            cond_val.into_int_value(),
+                            self.ctx.custom_width_int_type(1),
+                            &cond_i1_temp,
+                        )
+                        .unwrap();
+                    self.builder
+                        .build_conditional_branch(
+                            cond_i1,
+                            self.blocks.as_ref().unwrap()[*true_block],
+                            self.blocks.as_ref().unwrap()[*false_block],
+                        )
+                        .unwrap();
                 }
                 Statement::Literal(binding, literal) => {
                     let binding_id = binding.id;
-                    let type_ = convert_type(&function.bindings[binding_id]);
-                    self.write(format!(
-                        "store {type_} {literal}, {type_}* %stack_{binding_id}"
-                    ));
+                    let type_ = self
+                        .convert_type(&function.bindings[binding_id])
+                        .into_int_type();
+                    self.store(binding, type_.const_int(*literal as u64, true).into());
                 }
                 Statement::Return(binding) => {
                     if let Some(binding) = binding {
-                        let type_ = convert_type(&function.return_type);
                         let value = self.load(binding);
                         if !function.is_main {
-                            self.write(format!("ret {type_} {value}"));
+                            self.builder.build_return(Some(&value)).unwrap();
                         } else {
                             self.syscall(
                                 None,
                                 &[
-                                    Value::Constant(60),
-                                    Value::Temporary(value, function.return_type.clone()),
+                                    self.ctx.i64_type().const_int(60, false).into(),
+                                    value.into(),
                                 ],
                             );
-                            self.write("unreachable");
+                            self.builder.build_unreachable().unwrap();
                         }
                     } else {
-                        self.write("ret void");
+                        self.builder.build_return(None).unwrap();
                     }
-                    return;
                 }
                 Statement::StringConstant(binding, string_id) => {
-                    let length = self.vir.string_len(*string_id);
-                    let pointer = self.temp(format!("getelementptr [{length} x i8], [{length} x i8]* @string_{string_id}, i32 0, i32 0"));
-                    self.store(binding, pointer);
+                    let temp = self.temp();
+                    let pointer = self
+                        .builder
+                        .build_global_string_ptr(
+                            &escape_string(self.vir.strings[*string_id]),
+                            &temp,
+                        )
+                        .unwrap();
+                    self.store(binding, pointer.as_pointer_value().into());
                 }
                 Statement::Syscall(binding, arg_bindings) => {
-                    self.syscall(
-                        Some(binding),
-                        arg_bindings
-                            .iter()
-                            .map(|binding| Value::Binding(*binding))
-                            .collect::<Vec<_>>()
-                            .as_slice(),
-                    );
+                    let args: Vec<_> = arg_bindings
+                        .iter()
+                        .map(|binding| self.load(binding).into())
+                        .collect();
+                    self.syscall(Some(binding), &args);
                 }
-                Statement::UnaryOperator(binding, op, arg) => {
-                    let (instr, helper_arg, type_) = match op {
-                        UnaryOperator::Negate => ("sub", "0", "i64"),
-                        UnaryOperator::BitNot => ("xor", "-1", "i64"),
-                        UnaryOperator::LogicNot => ("xor", "1", "i8"),
+                Statement::UnaryOperator(result_binding, op, input) => {
+                    let input = self.load(input).into_int_value();
+                    let temp = self.temp();
+                    let output = match op {
+                        UnaryOperator::Negate => {
+                            self.builder
+                                .build_int_sub(input.get_type().const_zero(), input, &temp)
+                        }
+                        UnaryOperator::BitNot => self.builder.build_xor(
+                            input.get_type().const_int(u64::MAX, false),
+                            input,
+                            &temp,
+                        ),
+                        UnaryOperator::LogicNot => self.builder.build_xor(
+                            input.get_type().const_int(1, false),
+                            input,
+                            &temp,
+                        ),
                     };
-                    let input = self.load(arg);
-                    let output = self.temp(format!("{instr} {type_} {helper_arg}, {input}"));
-                    self.store(binding, output);
+                    let result = output.unwrap();
+                    self.store(result_binding, result.into());
                 }
             }
         }
     }
 
-    fn function_epilogue(&mut self) {
-        self.write("}");
+    fn sizeof(&mut self, type_: &Type) -> IntValue<'a> {
+        let temp = self.temp();
+        unsafe {
+            self.builder.build_gep(
+                self.convert_type(type_),
+                self.ctx.ptr_type(AddressSpace::default()).const_zero(),
+                &[self.ctx.i64_type().const_int(1, false)],
+                &temp,
+            )
+        }
+        .unwrap()
+        .const_to_int(self.ctx.i64_type())
     }
 
-    fn syscall(&mut self, return_binding: Option<&Binding>, arg_values: &[Value]) {
-        let registers = ["{rax}", "{rdi}", "{rsi}", "{rdx}", "{r10}", "{r8}", "{r9}"]
-            [..arg_values.len()]
-            .join(",");
-        let mut args = String::new();
-        for (arg_index, arg_value) in arg_values.iter().enumerate() {
-            if arg_index > 0 {
-                args.push_str(", ");
-            }
-            let (temp, type_) = match arg_value {
-                Value::Binding(binding) => {
-                    let type_ = &self.vir.functions[self.current_function].bindings[binding.id];
-                    (self.load(binding).to_string(), convert_type(type_))
-                }
-                Value::Constant(constant) => (constant.to_string(), "i64".to_owned()),
-                Value::Temporary(temp, type_) => (temp.to_string(), convert_type(type_)),
-            };
-            write!(&mut args, "{type_} {temp}").unwrap();
+    fn field(&mut self, object: &Binding, field: usize) -> PointerValue<'a> {
+        let object_type = &self.vir.functions[self.current_function].bindings[object.id];
+        let object = self.bindings.as_ref().unwrap()[object.id].unwrap();
+        let struct_id = object_type.unwrap_struct();
+        let temp = self.temp();
+        self.builder
+            .build_struct_gep(self.struct_types[struct_id], object, field as u32, &temp)
+            .unwrap()
+    }
+
+    fn index(&mut self, list: &Binding, index: &Binding) -> PointerValue<'a> {
+        let list_type = &self.vir.functions[self.current_function].bindings[list.id];
+        let element_type = list_type.dereference();
+        let list = self.load(list).into_pointer_value();
+        let index = self.load(index).into_int_value();
+        let temp = self.temp();
+        unsafe {
+            self.builder
+                .build_gep(self.convert_type(&element_type), list, &[index], &temp)
         }
-        if let Some(return_binding) = return_binding {
-            let return_type = convert_type(
+        .unwrap()
+    }
+
+    fn syscall(&mut self, return_binding: Option<&Binding>, args: &[BasicMetadataValueEnum<'a>]) {
+        let arg_types = vec![self.ctx.i64_type().into(); args.len()];
+        let func_type = if let Some(return_binding) = return_binding {
+            self.convert_type(
                 &self.vir.functions[self.current_function].bindings[return_binding.id],
-            );
-            let result = self.temp(format!(
-                "call {return_type} asm sideeffect \"syscall\", \"=r,{registers}\" ({args})"
-            ));
-            self.store(return_binding, result);
+            )
+            .fn_type(&arg_types, false)
         } else {
-            self.write(format!(
-                "call void asm sideeffect \"syscall\", \"{registers}\" ({args})"
-            ));
+            self.ctx.void_type().fn_type(&arg_types, false)
+        };
+        let return_constraint = if return_binding.is_some() { "=r," } else { "" };
+        let registers =
+            ["{rax}", "{rdi}", "{rsi}", "{rdx}", "{r10}", "{r8}", "{r9}"][..args.len()].join(",");
+
+        let func = self.ctx.create_inline_asm(
+            func_type,
+            "syscall".to_owned(),
+            format!("{return_constraint}{registers}"),
+            true,
+            false,
+            None,
+            false,
+        );
+
+        let result = self
+            .builder
+            .build_indirect_call(func_type, func, args, "exit")
+            .unwrap();
+        if let Some(return_binding) = return_binding {
+            let result = result.try_as_basic_value().left().unwrap();
+            self.store(return_binding, result);
         }
     }
 
-    fn load(&mut self, source: &Binding) -> Temporary {
-        let source_id = source.id;
-        let type_ = convert_type(&self.vir.functions[self.current_function].bindings[source.id]);
-        self.temp(format!("load {type_}, {type_}* %stack_{source_id}"))
+    fn load(&mut self, source: &Binding) -> BasicValueEnum<'a> {
+        let type_ =
+            self.convert_type(&self.vir.functions[self.current_function].bindings[source.id]);
+        let temp = self.temp();
+        self.builder
+            .build_load(
+                type_,
+                self.bindings.as_ref().unwrap()[source.id].unwrap(),
+                &temp,
+            )
+            .unwrap()
     }
 
-    fn store(&mut self, dest: &Binding, source: Temporary) {
-        let dest_id = dest.id;
-        let type_ = convert_type(&self.vir.functions[self.current_function].bindings[dest.id]);
-        self.write(format!("store {type_} {source}, {type_}* %stack_{dest_id}"));
+    fn store(&mut self, dest: &Binding, source: BasicValueEnum<'a>) {
+        self.builder
+            .build_store(self.bindings.as_ref().unwrap()[dest.id].unwrap(), source)
+            .unwrap();
     }
 
-    fn temp(&mut self, value: impl AsRef<str>) -> Temporary {
-        let id = self.make_temporary();
-        let temp = Temporary { id };
-        let value = value.as_ref();
-        self.write(format!("{temp} = {value}"));
-        temp
-    }
-
-    fn write(&mut self, line: impl AsRef<str>) {
-        let line = line.as_ref();
-        if !line.starts_with("%struct_")
-            && !line.starts_with("declare")
-            && !line.starts_with("@")
-            && !line.starts_with("define")
-            && !line.starts_with("}")
-        {
-            self.ir += "    ";
-        }
-        self.ir += line;
-        self.ir += "\n";
-    }
-
-    fn make_temporary(&mut self) -> usize {
+    fn temp(&mut self) -> String {
         let temp = self.temp_counter;
         self.temp_counter += 1;
-        temp
+        format!("t{temp}")
+    }
+
+    fn convert_type(&self, type_: &Type) -> BasicTypeEnum<'a> {
+        match type_.base {
+            BaseType::I64 => self.ctx.i64_type().into(),
+            BaseType::I8 => self.ctx.i8_type().into(),
+            BaseType::Bool => self.ctx.i8_type().into(),
+            BaseType::Pointer(_) => self.ctx.ptr_type(AddressSpace::default()).into(),
+            BaseType::Struct(id, _) => self.struct_types[id].into(),
+            BaseType::Void => unreachable!(),
+            BaseType::TypeVariable(_) => unreachable!(),
+            BaseType::Error => unreachable!(),
+        }
     }
 }
 
-impl std::fmt::Display for Temporary {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let id = self.id;
-        write!(f, "%temp_{id}")
+fn escape_string(text: &[&str]) -> String {
+    let mut full = String::new();
+    for text in text {
+        full += text;
     }
-}
-
-fn convert_type(type_: &Type) -> String {
-    match &type_.base {
-        BaseType::Pointer(inner) => format!("{}*", convert_type(inner)),
-        BaseType::I64 => "i64".to_owned(),
-        BaseType::I8 => "i8".to_owned(),
-        BaseType::Bool => "i8".to_owned(),
-        BaseType::Struct(id, _) => format!("%struct_{id}"),
-        BaseType::Void => "void".to_owned(),
-        BaseType::TypeVariable(_) => unreachable!(),
-        BaseType::Error => unreachable!(),
-    }
+    full
 }
 
 pub fn make_ir(vir: &Program) -> String {
+    let ctx = Context::create();
     let mut state = State {
-        ir: String::new(),
+        ctx: &ctx,
+        builder: ctx.create_builder(),
+        module: ctx.create_module("main"),
+        blocks: None,
+        bindings: None,
+        struct_types: Vec::new(),
         vir,
         current_function: 0,
         temp_counter: 0,
     };
-
     state.prologue_structs();
-    state.prologue_strings();
     state.all_functions();
-
-    state.ir
+    state.module.to_string()
 }

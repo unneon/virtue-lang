@@ -11,7 +11,7 @@ pub fn compile_ir(ir: &str, output_path: Option<&Path>) -> Result<(), String> {
 }
 
 fn llc(ir: &str, object_path: &Path) -> Result<(), String> {
-    let mut child = Command::new("llc")
+    let mut child = Command::new("llc-18")
         .args(["--filetype", "obj", "-", "-o"])
         .arg(object_path)
         .stdin(Stdio::piped())
