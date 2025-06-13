@@ -9,7 +9,7 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
 use inkwell::types::{BasicType, BasicTypeEnum, StructType};
-use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, IntValue, PointerValue};
+use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, PointerValue};
 use inkwell::{AddressSpace, IntPredicate};
 
 struct State<'a> {
@@ -144,7 +144,7 @@ impl<'a> State<'a> {
             match statement {
                 Statement::Alloc(pointer, count) => {
                     let element_type = function.bindings[pointer.id].dereference();
-                    let element_size = self.sizeof(&element_type);
+                    let element_size = self.convert_type(&element_type).size_of().unwrap();
                     let count = self.load(count).into_int_value();
                     let size_temp = self.temp();
                     let size = self
@@ -447,20 +447,6 @@ impl<'a> State<'a> {
                 }
             }
         }
-    }
-
-    fn sizeof(&mut self, type_: &Type) -> IntValue<'a> {
-        let temp = self.temp();
-        unsafe {
-            self.builder.build_gep(
-                self.convert_type(type_),
-                self.ctx.ptr_type(AddressSpace::default()).const_zero(),
-                &[self.ctx.i64_type().const_int(1, false)],
-                &temp,
-            )
-        }
-        .unwrap()
-        .const_to_int(self.ctx.i64_type())
     }
 
     fn field(&mut self, object: &Binding, field: usize) -> PointerValue<'a> {
