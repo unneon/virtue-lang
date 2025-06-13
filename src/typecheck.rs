@@ -53,11 +53,11 @@ impl<'a> State<'a> {
                 binding_map.insert(**name, binding);
             }
         }
-        for (name, type_) in &function.args {
+        for (_, type_) in &function.args {
             if !type_.is_type() {
-                all_args.push(vir::AnyArg::Value(binding_map[**name].id));
+                all_args.push(vir::AnyArg::Value);
             } else {
-                all_args.push(vir::AnyArg::Type(type_arg_map[**name]));
+                all_args.push(vir::AnyArg::Type);
             }
         }
         let return_type = match &function.return_type {
@@ -479,10 +479,10 @@ impl<'a> State<'a> {
                 let mut type_substitutions = Vec::new();
                 for (arg_index, arg_ast) in (*args_ast).iter().enumerate() {
                     match self.functions[callee_id].all_args.get(arg_index) {
-                        Some(vir::AnyArg::Value(_)) => {
+                        Some(vir::AnyArg::Value) => {
                             value_args.push(self.process_expression(arg_ast));
                         }
-                        Some(vir::AnyArg::Type(_)) => {
+                        Some(vir::AnyArg::Type) => {
                             let ast::Expression::Variable(type_arg_name) = &**arg_ast else {
                                 todo!()
                             };

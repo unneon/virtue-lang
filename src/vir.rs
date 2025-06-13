@@ -34,8 +34,8 @@ pub struct Arg {
 
 #[derive(Clone, Debug)]
 pub enum AnyArg {
-    Value(usize),
-    Type(usize),
+    Value,
+    Type,
 }
 
 #[derive(Clone, Debug)]
@@ -130,10 +130,6 @@ impl Program<'_> {
             .map(|type_| self.byte_size(type_))
             .sum()
     }
-
-    pub fn string_len(&self, id: usize) -> usize {
-        self.strings[id].iter().map(|s| s.len()).sum()
-    }
 }
 
 impl Function<'_> {
@@ -226,13 +222,6 @@ impl Type {
 
     pub fn is_error(&self) -> bool {
         matches!(self.base, BaseType::Error)
-    }
-
-    pub fn get_struct(&self) -> Option<usize> {
-        match &self.base {
-            BaseType::Struct(i, _) => Some(*i),
-            _ => None,
-        }
     }
 
     pub fn unwrap_struct(&self) -> usize {
