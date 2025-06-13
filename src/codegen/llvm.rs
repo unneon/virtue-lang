@@ -567,10 +567,9 @@ fn escape_string(text: &[&str]) -> String {
     full
 }
 
-pub fn make_ir(vir: &Program) -> String {
-    let ctx = Context::create();
+pub fn make_ir<'a>(vir: &'a Program, ctx: &'a Context) -> Module<'a> {
     let mut state = State {
-        ctx: &ctx,
+        ctx,
         builder: ctx.create_builder(),
         module: ctx.create_module("main"),
         blocks: None,
@@ -582,5 +581,5 @@ pub fn make_ir(vir: &Program) -> String {
     };
     state.prologue_structs();
     state.all_functions();
-    state.module.to_string()
+    state.module
 }

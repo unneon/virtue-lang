@@ -10,7 +10,7 @@ llvm = ["dep:inkwell"]
 qbe = ["dep:qbe"]
 
 [dependencies]
-inkwell = { version = "0.6", features = ["llvm18-1"], optional = true }
+inkwell = { version = "0.6", features = ["llvm18-1", "target-x86"], default-features = false, optional = true }
 memfd = "0.6"
 nom = "8.0"
 qbe = { git = "https://github.com/unneon/qbe-rs", optional = true }

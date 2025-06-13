@@ -165,14 +165,16 @@ fn run_pass(test: Arc<TestFile>, backend: Backend) -> Result<(), Failed> {
         }
         #[cfg(feature = "llvm")]
         Backend::Llvm => {
-            let ir = virtue::codegen::llvm::make_ir(&vir);
+            let ctx = inkwell::context::Context::create();
+            let ir = virtue::codegen::llvm::make_ir(&vir, &ctx);
             if let Err(e) = virtue::codegen::llvm::compile_ir(&ir, Some(output_file.path())) {
+                let ir = ir.to_string();
                 return Err(format!(
                     "\x1B[1m{intermediate_name}:\x1B[0m\n{ir}\n\x1B[1mllvm error:\x1B[0m\n{e}"
                 )
                 .into());
             }
-            ir
+            ir.to_string()
         }
         #[cfg(feature = "qbe")]
         Backend::Qbe => {

@@ -73,9 +73,11 @@ fn main() {
         }
         #[cfg(feature = "llvm")]
         Backend::Llvm => {
-            let ir = virtue::codegen::llvm::make_ir(&vir);
+            let ctx = inkwell::context::Context::create();
+            let ir = virtue::codegen::llvm::make_ir(&vir, &ctx);
             if options.format == Format::LlvmIr {
-                output(ir, output_path);
+                let text_ir = ir.to_string();
+                output(text_ir, output_path);
             }
 
             virtue::codegen::llvm::compile_ir(&ir, output_path).unwrap();
