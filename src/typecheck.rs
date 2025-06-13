@@ -67,6 +67,7 @@ impl<'a> State<'a> {
         self.functions.push(vir::Function {
             exported: function.name == "_start",
             is_main: function.name == "_start",
+            is_used: false,
             name: Cow::Borrowed(function.name),
             value_args,
             all_args,
@@ -121,6 +122,7 @@ impl<'a> State<'a> {
             fields,
             field_map,
             is_instantiated: type_arg_map.is_empty(),
+            is_used: false,
             type_arg_map,
             instantiation_info: None,
         });
@@ -745,6 +747,53 @@ impl<'a> State<'a> {
         }
     }
 
+    fn compute_used(&mut self) {
+        for function_id in 0..self.functions.len() {
+            let f = &self.functions[function_id];
+            if f.is_main {
+                self.compute_used_walk_function(function_id);
+            }
+        }
+    }
+
+    fn compute_used_walk_function(&mut self, function_id: usize) {
+        self.functions[function_id].is_used = true;
+        self.compute_used_walk_type(self.functions[function_id].return_type.clone());
+        for binding_id in 0..self.functions[function_id].bindings.len() {
+            self.compute_used_walk_type(self.functions[function_id].bindings[binding_id].clone());
+        }
+        for block_id in 0..self.functions[function_id].blocks.len() {
+            for statement_id in 0..self.functions[function_id].blocks[block_id].len() {
+                if let vir::Statement::Call {
+                    function: callee, ..
+                } = self.functions[function_id].blocks[block_id][statement_id]
+                    && !self.functions[callee].is_used
+                {
+                    self.compute_used_walk_function(callee);
+                }
+            }
+        }
+    }
+
+    fn compute_used_walk_type(&mut self, type_: vir::Type) {
+        match type_.base {
+            vir::BaseType::Struct(struct_id, _) => {
+                if !self.structs[struct_id].is_used {
+                    self.structs[struct_id].is_used = true;
+                    for field_id in 0..self.structs[struct_id].fields.len() {
+                        self.compute_used_walk_type(
+                            self.structs[struct_id].fields[field_id].clone(),
+                        );
+                    }
+                }
+            }
+            vir::BaseType::Pointer(inner) => {
+                self.compute_used_walk_type((*inner).clone());
+            }
+            _ => {}
+        }
+    }
+
     fn list_get_element(&self, type_: &vir::Type) -> Option<vir::Type> {
         let vir::BaseType::Struct(early_struct_id, early_args) = &type_.base else {
             return None;
@@ -828,6 +877,7 @@ impl<'a> State<'a> {
                 let instantiated = vir::Function {
                     exported: false,
                     is_main: false,
+                    is_used: false,
                     name: Cow::Owned(format!("g{instantiation_id}_{f_name}")),
                     value_args: f.value_args.clone(),
                     all_args: f.all_args.clone(),
@@ -1182,6 +1232,7 @@ pub fn typecheck<'a>(ast: &'a ast::Module<'a>) -> Result<vir::Program<'a>, Vec<E
     state.preprocess_block(&STD_AST.statements);
     state.preprocess_block(&ast.statements);
     state.process_all_functions();
+    state.compute_used();
 
     if !state.errors.is_empty() {
         return Err(state.errors);

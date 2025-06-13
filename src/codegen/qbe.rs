@@ -19,11 +19,6 @@ struct State<'a> {
 impl<'a> State<'a> {
     fn block(&mut self, statements: &'a [Statement]) {
         for statement in statements {
-            self.func
-                .blocks
-                .last_mut()
-                .unwrap()
-                .add_comment(format!("################### {statement:?}"));
             match statement {
                 Statement::Alloc(pointer, count) => {
                     let element_type = self.vir_func.bindings[pointer.id].dereference();
@@ -309,7 +304,7 @@ pub fn make_il(vir: &Program) -> String {
     }
 
     for function in &vir.functions {
-        if function.type_arg_substitutions.is_none() {
+        if !function.should_codegen() {
             continue;
         }
         let linkage = if function.exported {

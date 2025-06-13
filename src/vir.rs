@@ -14,6 +14,7 @@ pub struct Program<'a> {
 pub struct Function<'a> {
     pub exported: bool,
     pub is_main: bool,
+    pub is_used: bool,
     pub name: Cow<'a, str>,
     pub value_args: Vec<Arg>,
     pub all_args: Vec<AnyArg>,
@@ -76,6 +77,7 @@ pub struct Struct<'a> {
     pub field_map: HashMap<&'a str, usize>,
     pub type_arg_map: HashMap<&'a str, usize>,
     pub is_instantiated: bool,
+    pub is_used: bool,
     pub instantiation_info: Option<InstantiationInfo>,
 }
 
@@ -136,7 +138,7 @@ impl Program<'_> {
 
 impl Function<'_> {
     pub fn should_codegen(&self) -> bool {
-        self.type_arg_substitutions.is_some()
+        self.type_arg_substitutions.is_some() && self.is_used
     }
 }
 
