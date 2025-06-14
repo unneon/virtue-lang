@@ -1,0 +1,9 @@
+a int = 42
+a = "what now"
+
+# error: type error
+#  --> test.virtue:2:5
+#    |
+#  2 | a = "what now"
+#    |     ^^^^^^^^^^ expected int, found string
+#

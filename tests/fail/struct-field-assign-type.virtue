@@ -1,0 +1,11 @@
+struct hello
+    a int
+h = new hello
+h.a = "what"
+
+# error: type error
+#  --> test.virtue:4:7
+#    |
+#  4 | h.a = "what"
+#    |       ^^^^^^ expected int, found string
+#

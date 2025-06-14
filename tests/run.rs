@@ -65,8 +65,9 @@ fn find_tests() -> Result<Vec<Trial>, Box<dyn Error>> {
             TestKind::Fail => {
                 let name = &file.name;
                 let name = format!("fail::{name}");
+                let ignore = file.directives.ignore;
                 let runner = move || run_fail(file);
-                let trial = Trial::test(name, runner);
+                let trial = Trial::test(name, runner).with_ignored_flag(ignore);
                 tests.push(trial);
             }
         }

@@ -1,7 +1,7 @@
 pub mod std;
 
 use crate::ast::{BinaryOperator, FormatSegment, IncrementDecrementOperator, UnaryOperator};
-use crate::error::{Error, Span, Spanned};
+use crate::error::{Error, Span, SpanExt, Spanned};
 use crate::typecheck::std::{BOOL, ERROR, I8, I64, STD_AST, STRING, VOID};
 use crate::vir::{Binding, Value};
 use crate::{ast, vir};
@@ -157,7 +157,7 @@ impl<'a> State<'a> {
                         self.check_type_compatible(&type_, &self.value_type(right), right_span);
                     }
                     // TODO: Push down assignment to `left` as optional `process_expression` arg?
-                    self.process_assignment(left, right);
+                    self.process_assignment(left, right.with_span(right_span));
                 }
                 ast::Statement::AssignmentBinary { op, left, right } => {
                     let left = self.process_expression(left).unwrap_binding();
@@ -679,8 +679,8 @@ impl<'a> State<'a> {
         }
     }
 
-    fn process_assignment(&mut self, dest: &'a ast::Expression<'a>, src: Value) {
-        let src_type = self.value_type(src);
+    fn process_assignment(&mut self, dest: &'a ast::Expression<'a>, src: Spanned<Value>) {
+        let src_type = self.value_type(*src);
         match dest {
             ast::Expression::Field(object, field_name) => {
                 let object_binding = self.process_expression(object).unwrap_binding();
@@ -692,10 +692,12 @@ impl<'a> State<'a> {
                 let Ok(field_id) = self.struct_field(struct_id, *field_name) else {
                     return;
                 };
+                let field_type = self.structs[struct_id].fields[field_id].clone();
+                self.check_type_compatible(&field_type, &src_type, src.span);
                 self.add_statement(vir::Statement::AssignmentField(
                     object_binding,
                     field_id,
-                    src,
+                    *src,
                 ));
             }
             ast::Expression::Index(indexing) => {
@@ -705,22 +707,31 @@ impl<'a> State<'a> {
                 if self.binding_type(list).base == STRING.base {
                     let string = list;
                     let string_pointer = self.make_temporary(I8.pointer());
+                    // TODO: Typecheck src is either I64 or I8, and fix the backends probably?
                     self.add_statement(vir::Statement::Field(string_pointer, string, 0));
-                    self.add_statement(vir::Statement::AssignmentIndex(string_pointer, index, src));
+                    self.add_statement(vir::Statement::AssignmentIndex(
+                        string_pointer,
+                        index,
+                        *src,
+                    ));
                 } else {
                     let list_type = self.binding_type(list);
                     let vir::BaseType::Struct(list_struct_id, _) = list_type.base else {
                         unreachable!()
                     };
                     let pointer_type = &self.structs[list_struct_id].fields[0];
+                    let element_type = pointer_type.dereference();
                     let pointer = self.make_temporary(pointer_type.clone());
+                    self.check_type_compatible(&element_type, &src_type, src.span);
                     self.add_statement(vir::Statement::Field(pointer, list, 0));
-                    self.add_statement(vir::Statement::AssignmentIndex(pointer, index, src));
+                    self.add_statement(vir::Statement::AssignmentIndex(pointer, index, *src));
                 }
             }
             ast::Expression::Variable(variable) => {
-                let left_binding = self.make_variable(variable, src_type);
-                self.add_statement(vir::Statement::Assignment(left_binding, src));
+                let left = self.make_variable(variable, src_type.clone());
+                let left_type = self.binding_type(left);
+                self.check_type_compatible(&left_type, &src_type, src.span);
+                self.add_statement(vir::Statement::Assignment(left, *src));
             }
             _ => todo!("vir assignment unimplemented {src:?}"),
         }
@@ -938,12 +949,7 @@ impl<'a> State<'a> {
         }
         let binding_count = f.bindings.len();
         match f.binding_map.entry(variable) {
-            hash_map::Entry::Occupied(entry) => {
-                let binding = *entry.get();
-                let binding_type = &f.bindings[binding.id];
-                assert_eq!(type_, *binding_type);
-                binding
-            }
+            hash_map::Entry::Occupied(entry) => *entry.get(),
             hash_map::Entry::Vacant(e) => {
                 if f.type_arg_substitutions.is_some() {
                     assert!(type_.is_fully_substituted());

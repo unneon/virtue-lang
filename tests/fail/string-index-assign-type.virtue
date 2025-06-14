@@ -1,0 +1,4 @@
+a = "Hello"
+a[2] = "cursed"
+
+# ignore

@@ -1,0 +1,9 @@
+a = [123]
+a[0] = "Hello?"
+
+# error: type error
+#  --> test.virtue:2:8
+#    |
+#  2 | a[0] = "Hello?"
+#    |        ^^^^^^^^ expected int, found string
+#
