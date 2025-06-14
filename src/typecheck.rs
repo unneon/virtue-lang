@@ -150,29 +150,24 @@ impl<'a> State<'a> {
         for statement in statements {
             match statement {
                 ast::Statement::Assignment { left, type_, right } => {
-                    let right_value = self.process_expression(right);
+                    let right_span = right.span;
+                    let right = self.process_expression(right);
                     if let Some(type_) = type_ {
                         let type_ = self.resolve_ast_type(type_);
-                        self.check_type_compatible(
-                            &type_,
-                            &self.value_type(right_value),
-                            right.span,
-                        );
+                        self.check_type_compatible(&type_, &self.value_type(right), right_span);
                     }
-                    self.process_assignment(left, right_value);
+                    // TODO: Push down assignment to `left` as optional `process_expression` arg?
+                    self.process_assignment(left, right);
                 }
                 ast::Statement::AssignmentBinary { op, left, right } => {
-                    let left_binding = self.process_expression(left);
-                    let left_type = self.value_type(left_binding);
-                    let right_binding = self.process_expression(right);
-                    let temp = self.make_temporary(left_type);
+                    let left = self.process_expression(left).unwrap_binding();
+                    let right = self.process_expression(right);
                     self.add_statement(vir::Statement::BinaryOperator(
-                        temp,
+                        left,
                         *op,
-                        left_binding,
-                        right_binding,
+                        left.into(),
+                        right,
                     ));
-                    self.process_assignment(left, temp.into());
                 }
                 ast::Statement::Expression(expression) => {
                     self.process_expression(expression);
@@ -184,9 +179,9 @@ impl<'a> State<'a> {
                     step,
                     body,
                 } => {
-                    let lower_binding = self.process_expression(lower);
-                    let upper_binding = self.process_expression(upper);
-                    let step_binding = if let Some(step) = step {
+                    let lower = self.process_expression(lower);
+                    let upper = self.process_expression(upper);
+                    let step = if let Some(step) = step {
                         self.process_expression(step)
                     } else {
                         Value::ConstI64(1)
@@ -197,7 +192,7 @@ impl<'a> State<'a> {
                     let body_block = self.make_block();
                     let after_block = self.make_block();
 
-                    self.add_statement(vir::Statement::Assignment(index, lower_binding));
+                    self.add_statement(vir::Statement::Assignment(index, lower));
                     self.add_statement(vir::Statement::JumpAlways(condition_block));
 
                     self.current_block = condition_block;
@@ -205,7 +200,7 @@ impl<'a> State<'a> {
                         condition,
                         BinaryOperator::LessOrEqual,
                         index.into(),
-                        upper_binding,
+                        upper,
                     ));
                     self.add_statement(vir::Statement::JumpConditional {
                         condition: condition.into(),
@@ -215,16 +210,11 @@ impl<'a> State<'a> {
 
                     self.current_block = body_block;
                     if self.process_block(body) == Fallthrough::Reachable {
-                        let index_next_binding = self.make_temporary(I64);
                         self.add_statement(vir::Statement::BinaryOperator(
-                            index_next_binding,
+                            index,
                             BinaryOperator::Add,
                             index.into(),
-                            step_binding,
-                        ));
-                        self.add_statement(vir::Statement::Assignment(
-                            index,
-                            index_next_binding.into(),
+                            step,
                         ));
                         self.add_statement(vir::Statement::JumpAlways(condition_block));
                     }
@@ -263,16 +253,18 @@ impl<'a> State<'a> {
                     self.current_block = after_block;
                 }
                 ast::Statement::IncrementDecrement { value, op } => {
-                    let before = self.process_expression(value);
-                    let type_ = self.value_type(before);
+                    let value = self.process_expression(value).unwrap_binding();
                     let one = Value::ConstI64(1);
-                    let after = self.make_temporary(type_);
                     let op = match op {
                         IncrementDecrementOperator::Increment => BinaryOperator::Add,
                         IncrementDecrementOperator::Decrement => BinaryOperator::Subtract,
                     };
-                    self.add_statement(vir::Statement::BinaryOperator(after, op, before, one));
-                    self.process_assignment(value, after.into());
+                    self.add_statement(vir::Statement::BinaryOperator(
+                        value,
+                        op,
+                        value.into(),
+                        one,
+                    ));
                 }
                 ast::Statement::Print { fmt } => {
                     for segment in &fmt.segments {
@@ -280,28 +272,26 @@ impl<'a> State<'a> {
                             FormatSegment::Text(text) => {
                                 let function = self.function_map["virtue_print_raw"];
                                 let string_id = self.make_string(text);
-                                let pointer_binding = Value::String(string_id);
-                                let length_binding =
-                                    Value::ConstI64(self.string_len(string_id) as i64);
+                                let pointer = Value::String(string_id);
+                                let length = Value::ConstI64(self.string_len(string_id) as i64);
                                 self.add_statement(vir::Statement::Call {
                                     return_: None,
                                     function,
-                                    args: vec![pointer_binding, length_binding],
+                                    args: vec![pointer, length],
                                 });
                             }
                             FormatSegment::Variable(var) => {
                                 let var = self.variable_binding(var);
                                 let var_type = self.binding_type(var);
-                                let function = match var_type.base {
-                                    vir::BaseType::I64 => self.function_map["virtue_print_int"],
-                                    vir::BaseType::Bool => self.function_map["virtue_print_bool"],
-                                    vir::BaseType::Struct(0, _) => {
-                                        self.function_map["virtue_print_str"]
-                                    }
+                                let function_name = match var_type.base {
+                                    vir::BaseType::I64 => "virtue_print_int",
+                                    vir::BaseType::Bool => "virtue_print_bool",
+                                    vir::BaseType::Struct(0, _) => "virtue_print_str",
                                     vir::BaseType::TypeVariable(_) => continue,
                                     vir::BaseType::Error => continue,
                                     _ => todo!(),
                                 };
+                                let function = self.function_map[function_name];
                                 self.add_statement(vir::Statement::Call {
                                     return_: None,
                                     function,
@@ -311,21 +301,19 @@ impl<'a> State<'a> {
                         }
                     }
                     let newline_string_id = self.make_string(&["\n"]);
-                    let newline = Value::String(newline_string_id);
-                    let newline_length = Value::ConstI64(1);
                     self.add_statement(vir::Statement::Call {
                         return_: None,
                         function: self.function_map["virtue_print_raw"],
-                        args: vec![newline, newline_length],
+                        args: vec![Value::String(newline_string_id), Value::ConstI64(1)],
                     });
                 }
                 ast::Statement::Return { value } => {
                     let value_span = value.span;
-                    let value_binding = self.process_expression(value);
-                    let value_type = self.value_type(value_binding);
+                    let value = self.process_expression(value);
+                    let value_type = self.value_type(value);
                     let return_type = self.current_function().return_type.clone();
                     self.check_type_compatible(&return_type, &value_type, value_span);
-                    self.add_statement(vir::Statement::Return(Some(value_binding)));
+                    self.add_statement(vir::Statement::Return(Some(value)));
                     return Fallthrough::Unreachable;
                 }
                 ast::Statement::Struct { .. } => {}
@@ -361,10 +349,10 @@ impl<'a> State<'a> {
             ast::Expression::BinaryOperation(op, args) => {
                 use BinaryOperator::*;
                 let (left, right) = args.as_ref();
-                let left_binding = self.process_expression(left);
-                let left_type = self.value_type(left_binding);
-                let right_binding = self.process_expression(right);
-                let right_type = self.value_type(right_binding);
+                let left = self.process_expression(left);
+                let left_type = self.value_type(left);
+                let right = self.process_expression(right);
+                let right_type = self.value_type(right);
                 let type_ = match (**op, &left_type.base, &right_type.base) {
                     (
                         Add | Subtract | Multiply | Divide | Modulo | BitAnd | BitOr | Xor
@@ -380,7 +368,7 @@ impl<'a> State<'a> {
                         self.add_statement(vir::Statement::Call {
                             return_: Some(binding),
                             function: self.function_map["virtue_add_str"],
-                            args: vec![left_binding, right_binding],
+                            args: vec![left, right],
                         });
                         return binding.into();
                     }
@@ -398,7 +386,7 @@ impl<'a> State<'a> {
                             self.add_statement(vir::Statement::Call {
                                 return_: Some(binding),
                                 function,
-                                args: vec![left_binding, right_binding],
+                                args: vec![left, right],
                             });
                         }
                         return binding.into();
@@ -423,12 +411,7 @@ impl<'a> State<'a> {
                     }
                 };
                 let binding = self.make_temporary(type_);
-                self.add_statement(vir::Statement::BinaryOperator(
-                    binding,
-                    **op,
-                    left_binding,
-                    right_binding,
-                ));
+                self.add_statement(vir::Statement::BinaryOperator(binding, **op, left, right));
                 binding.into()
             }
             ast::Expression::BoolLiteral(literal) => Value::ConstBool(*literal),
