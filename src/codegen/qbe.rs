@@ -3,6 +3,8 @@ mod subprocess;
 pub use subprocess::compile_il;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
+use crate::typecheck::std::{BOOL, I8, I64};
+use crate::vir;
 use crate::vir::{BaseType, Binding, Function, Program, Statement, Type};
 use qbe::Type::{Byte, Long, SignedByte, UnsignedByte};
 use qbe::{Cmp, DataDef, DataItem, Instr, Linkage, Value};
@@ -44,9 +46,9 @@ impl<'a> State<'a> {
                     );
                 }
                 Statement::Assignment(left, right) => {
-                    let right_type = &self.vir_func.bindings[right.id];
+                    let right_type = self.value_type(right);
                     if right_type.is_struct() {
-                        let byte_size = self.vir.byte_size(right_type);
+                        let byte_size = self.vir.byte_size(&right_type);
                         self.execute(Instr::Blit(right.into(), left.into(), byte_size as u64));
                     } else {
                         self.assign(left, Instr::Copy(right.into()));
@@ -105,12 +107,7 @@ impl<'a> State<'a> {
                     let function_name = self.vir.functions[*function].name.as_ref();
                     let args = args
                         .iter()
-                        .map(|arg| {
-                            (
-                                abi_type(&self.vir_func.bindings[arg.id], self.aggregates),
-                                arg.into(),
-                            )
-                        })
+                        .map(|arg| (abi_type(&self.value_type(arg), self.aggregates), arg.into()))
                         .collect();
                     let instr = Instr::Call(function_name.to_string(), args, None);
                     if let Some(result) = result {
@@ -172,9 +169,6 @@ impl<'a> State<'a> {
                     ));
                     return;
                 }
-                Statement::Literal(literal, value) => {
-                    self.assign(literal, Instr::Copy(Value::Const(*value as u64)));
-                }
                 Statement::Return(result) => {
                     if !self.vir_func.is_main {
                         self.execute(Instr::Ret(result.as_ref().map(From::from)));
@@ -188,16 +182,10 @@ impl<'a> State<'a> {
                     }
                     return;
                 }
-                Statement::StringConstant(pointer, string_id) => {
-                    self.assign(
-                        pointer,
-                        Instr::Copy(Value::Global(format!("string_{string_id}"))),
-                    );
-                }
                 Statement::Syscall(result, args) => {
                     let args = args
                         .iter()
-                        .map(|arg| (extended_type(&self.vir_func.bindings[arg.id]), arg.into()))
+                        .map(|arg| (extended_type(&self.value_type(arg)), arg.into()))
                         .collect();
                     self.assign(result, Instr::Call("syscall".to_owned(), args, None));
                 }
@@ -215,7 +203,7 @@ impl<'a> State<'a> {
         }
     }
 
-    fn store(&mut self, pointer: Value, value: &Binding, type_: &Type) {
+    fn store(&mut self, pointer: Value, value: &vir::Value, type_: &Type) {
         if type_.is_struct() {
             let byte_size = self.vir.byte_size(type_);
             self.execute(Instr::Blit(value.into(), pointer, byte_size as u64));
@@ -254,11 +242,33 @@ impl<'a> State<'a> {
         self.temp_counter += 1;
         Value::Temporary(format!("tmp_{temp_id}"))
     }
+
+    fn value_type(&self, value: &vir::Value) -> Type {
+        match value {
+            vir::Value::Binding(binding) => self.vir_func.bindings[binding.id].clone(),
+            vir::Value::ConstBool(_) => BOOL,
+            vir::Value::ConstI64(_) => I64,
+            vir::Value::Error => unreachable!(),
+            vir::Value::String(_) => I8.pointer(),
+        }
+    }
 }
 
 impl From<&Binding> for Value {
     fn from(value: &Binding) -> Value {
         Value::Temporary(format!("_{}", value.id))
+    }
+}
+
+impl From<&vir::Value> for Value {
+    fn from(value: &vir::Value) -> Value {
+        match value {
+            vir::Value::Binding(binding) => binding.into(),
+            vir::Value::ConstBool(value) => Value::Const(*value as u64),
+            vir::Value::ConstI64(value) => Value::Const(*value as u64),
+            vir::Value::Error => unreachable!(),
+            vir::Value::String(string_id) => Value::Global(format!("string_{string_id}")),
+        }
     }
 }
 

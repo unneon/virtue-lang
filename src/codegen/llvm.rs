@@ -3,7 +3,8 @@ mod subprocess;
 pub use subprocess::compile_ir;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
-use crate::vir::{BaseType, Binding, Program, Statement, Type};
+use crate::typecheck::std::{BOOL, I8, I64};
+use crate::vir::{BaseType, Binding, Program, Statement, Type, Value};
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
@@ -174,11 +175,11 @@ impl<'a> State<'a> {
                     self.builder.build_store(field, value).unwrap();
                 }
                 Statement::AssignmentIndex(list, index, value) => {
-                    let value_type = &function.bindings[value.id];
+                    let value_type = self.value_type(value);
                     let element_type = &function.bindings[list.id].dereference();
                     let pointer = self.index(list, index);
                     let value = self.load(value);
-                    if value_type == element_type {
+                    if value_type == *element_type {
                         self.builder.build_store(pointer, value).unwrap();
                     } else if value_type.is_i64() && element_type.is_i8() {
                         let trunc_temp = self.temp();
@@ -196,7 +197,7 @@ impl<'a> State<'a> {
                     }
                 }
                 Statement::BinaryOperator(result_binding, op, left, right) => {
-                    let left_type = &function.bindings[left.id];
+                    let left_type = self.value_type(left);
                     if let BaseType::Pointer(left_inner) = &left_type.base
                         && left_inner.is_i8()
                     {
@@ -379,13 +380,6 @@ impl<'a> State<'a> {
                         )
                         .unwrap();
                 }
-                Statement::Literal(binding, literal) => {
-                    let binding_id = binding.id;
-                    let type_ = self
-                        .convert_type(&function.bindings[binding_id])
-                        .into_int_type();
-                    self.store(binding, type_.const_int(*literal as u64, true).into());
-                }
                 Statement::Return(binding) => {
                     if let Some(binding) = binding {
                         let value = self.load(binding);
@@ -404,17 +398,6 @@ impl<'a> State<'a> {
                     } else {
                         self.builder.build_return(None).unwrap();
                     }
-                }
-                Statement::StringConstant(binding, string_id) => {
-                    let temp = self.temp();
-                    let pointer = self
-                        .builder
-                        .build_global_string_ptr(
-                            &escape_string(self.vir.strings[*string_id]),
-                            &temp,
-                        )
-                        .unwrap();
-                    self.store(binding, pointer.as_pointer_value().into());
                 }
                 Statement::Syscall(binding, arg_bindings) => {
                     let args: Vec<_> = arg_bindings
@@ -459,10 +442,10 @@ impl<'a> State<'a> {
             .unwrap()
     }
 
-    fn index(&mut self, list: &Binding, index: &Binding) -> PointerValue<'a> {
+    fn index(&mut self, list: &Binding, index: &Value) -> PointerValue<'a> {
         let list_type = &self.vir.functions[self.current_function].bindings[list.id];
         let element_type = list_type.dereference();
-        let list = self.load(list).into_pointer_value();
+        let list = self.load(&(*list).into()).into_pointer_value();
         let index = self.load(index).into_int_value();
         let temp = self.temp();
         unsafe {
@@ -506,7 +489,26 @@ impl<'a> State<'a> {
         }
     }
 
-    fn load(&mut self, source: &Binding) -> BasicValueEnum<'a> {
+    fn load(&mut self, source: &Value) -> BasicValueEnum<'a> {
+        let source = match source {
+            Value::Binding(binding) => binding,
+            Value::ConstBool(value) => {
+                return self.ctx.bool_type().const_int(*value as u64, false).into();
+            }
+            Value::ConstI64(value) => {
+                return self.ctx.i64_type().const_int(*value as u64, true).into();
+            }
+            Value::Error => unreachable!(),
+            Value::String(string_id) => {
+                let temp = self.temp();
+                return self
+                    .builder
+                    .build_global_string_ptr(&escape_string(self.vir.strings[*string_id]), &temp)
+                    .unwrap()
+                    .as_pointer_value()
+                    .into();
+            }
+        };
         let type_ =
             self.convert_type(&self.vir.functions[self.current_function].bindings[source.id]);
         let temp = self.temp();
@@ -529,6 +531,18 @@ impl<'a> State<'a> {
         let temp = self.temp_counter;
         self.temp_counter += 1;
         format!("t{temp}")
+    }
+
+    fn value_type(&self, value: &Value) -> Type {
+        match value {
+            Value::Binding(binding) => {
+                self.vir.functions[self.current_function].bindings[binding.id].clone()
+            }
+            Value::ConstBool(_) => BOOL,
+            Value::ConstI64(_) => I64,
+            Value::Error => unreachable!(),
+            Value::String(_) => I8.pointer(),
+        }
     }
 
     fn convert_type(&self, type_: &Type) -> BasicTypeEnum<'a> {

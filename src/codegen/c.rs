@@ -3,6 +3,7 @@ mod subprocess;
 pub use subprocess::compile_c;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
+use crate::vir;
 use crate::vir::{BaseType, Binding, Function, Program, Statement, Type};
 use std::fmt::Write;
 
@@ -17,6 +18,7 @@ struct State<'a> {
 enum Value {
     Binding(Binding),
     Const(i64),
+    String(usize),
     Temporary(usize),
 }
 
@@ -84,7 +86,7 @@ impl State<'_> {
     }
 
     fn block(&mut self, block_id: usize) {
-        self.write(format!("block{block_id}:"));
+        self.write(format!("b{block_id}:"));
 
         for statement in &self.vir.functions[self.current_function].blocks[block_id] {
             self.statement(statement);
@@ -95,35 +97,35 @@ impl State<'_> {
         match statement {
             Statement::Alloc(pointer, length) => {
                 let pointer_id = pointer.id;
-                let length_id = length.id;
+                let length = convert_value(length);
                 let size = self.make_temporary();
                 self.write(format!(
-                    "    long long tmp{size} = _{length_id} * sizeof(*_{pointer_id});"
+                    "    long long tmp{size} = {length} * sizeof(*_{pointer_id});"
                 ));
                 self.malloc(pointer, Value::Temporary(size));
             }
             Statement::Assignment(left, right) => {
                 if !self.vir.functions[self.current_function].bindings[left.id].is_void() {
                     let left_id = left.id;
-                    let right_id = right.id;
-                    self.write(format!("    _{left_id} = _{right_id};"));
+                    let right = convert_value(right);
+                    self.write(format!("    _{left_id} = {right};"));
                 }
             }
             Statement::AssignmentField(object, field, value) => {
                 let object_id = object.id;
-                let value_id = value.id;
-                self.write(format!("    _{object_id}._{field} = _{value_id};"));
+                let value = convert_value(value);
+                self.write(format!("    _{object_id}._{field} = {value};"));
             }
             Statement::AssignmentIndex(list, index, value) => {
                 let list_id = list.id;
-                let index_id = index.id;
-                let value_id = value.id;
-                self.write(format!("    _{list_id}[_{index_id}] = _{value_id};"));
+                let index = convert_value(index);
+                let value = convert_value(value);
+                self.write(format!("    _{list_id}[{index}] = {value};"));
             }
             Statement::BinaryOperator(result, op, left, right) => {
                 let result_id = result.id;
-                let left_id = left.id;
-                let right_id = right.id;
+                let left = convert_value(left);
+                let right = convert_value(right);
                 let op = match op {
                     BinaryOperator::Add => "+",
                     BinaryOperator::Subtract => "-",
@@ -144,7 +146,7 @@ impl State<'_> {
                     BinaryOperator::LogicAnd => "&&",
                     BinaryOperator::LogicOr => "||",
                 };
-                self.write(format!("    _{result_id} = _{left_id} {op} _{right_id};"));
+                self.write(format!("    _{result_id} = {left} {op} {right};"));
             }
             Statement::Call {
                 return_: result,
@@ -163,8 +165,8 @@ impl State<'_> {
                     if arg_index > 0 {
                         c_args += ", ";
                     }
-                    let arg_id = arg.id;
-                    c_args += &format!("_{arg_id}");
+                    let arg = convert_value(arg);
+                    c_args += &arg.to_string();
                 }
                 self.write(format!("    {result_assignment}{callee_name}({c_args});"));
             }
@@ -176,54 +178,46 @@ impl State<'_> {
             Statement::Index(result, list, index) => {
                 let result_id = result.id;
                 let list_id = list.id;
-                let index_id = index.id;
-                self.write(format!("    _{result_id} = _{list_id}[_{index_id}];"));
+                let index = convert_value(index);
+                self.write(format!("    _{result_id} = _{list_id}[{index}];"));
             }
             Statement::JumpAlways(target_block) => {
-                self.write(format!("    goto block{target_block};"));
+                self.write(format!("    goto b{target_block};"));
             }
             Statement::JumpConditional {
                 condition,
                 true_block,
                 false_block,
             } => {
-                let condition_id = condition.id;
-                self.write(format!("    if (_{condition_id}) goto block{true_block};"));
-                self.write(format!("    else goto block{false_block};"));
-            }
-            Statement::Literal(literal, value) => {
-                let literal_id = literal.id;
-                self.write(format!("    _{literal_id} = {value};"));
+                let condition = convert_value(condition);
+                self.write(format!("    if ({condition}) goto b{true_block};"));
+                self.write(format!("    else goto b{false_block};"));
             }
             Statement::Return(value) => {
                 if !self.vir.functions[self.current_function].is_main {
-                    if let Some(binding) = value {
-                        let binding_id = binding.id;
-                        self.write(format!("    return _{binding_id};"));
+                    if let Some(value) = value {
+                        let value = convert_value(value);
+                        self.write(format!("    return {value};"));
                     } else {
                         self.write("    return;");
                     }
                 } else {
-                    self.syscall(None, &[Value::Const(60), Value::Binding(value.unwrap())]);
+                    self.syscall(None, &[Value::Const(60), value.unwrap().into()]);
                 }
             }
             Statement::Syscall(result, args) => {
-                let args: Vec<_> = args.iter().copied().map(Value::Binding).collect();
+                let args: Vec<_> = args.iter().copied().map(Value::from).collect();
                 self.syscall(Some(result), &args);
-            }
-            Statement::StringConstant(pointer, string_id) => {
-                let binding_id = pointer.id;
-                self.write(format!("    _{binding_id} = str{string_id};"));
             }
             Statement::UnaryOperator(result, op, arg) => {
                 let result_id = result.id;
-                let arg_id = arg.id;
+                let arg = convert_value(arg);
                 let op = match op {
                     UnaryOperator::Negate => "-",
                     UnaryOperator::BitNot => "~",
                     UnaryOperator::LogicNot => "!",
                 };
-                self.write(format!("    _{result_id} = {op}_{arg_id};"));
+                self.write(format!("    _{result_id} = {op}{arg};"));
             }
         }
     }
@@ -274,6 +268,7 @@ impl State<'_> {
             let arg = match arg {
                 Value::Binding(binding) => format!("_{}", binding.id),
                 Value::Const(value) => value.to_string(),
+                Value::String(string_id) => format!("str{string_id}"),
                 Value::Temporary(temporary) => format!("tmp{temporary}"),
             };
             if arg_index < 4 {
@@ -301,6 +296,28 @@ impl State<'_> {
     fn write(&mut self, content: impl AsRef<str>) {
         self.c += content.as_ref();
         self.c += "\n";
+    }
+}
+
+impl From<vir::Value> for Value {
+    fn from(value: vir::Value) -> Self {
+        match value {
+            vir::Value::Binding(binding) => Value::Binding(binding),
+            vir::Value::ConstBool(value) => Value::Const(value as i64),
+            vir::Value::ConstI64(value) => Value::Const(value),
+            vir::Value::Error => unreachable!(),
+            vir::Value::String(string_id) => Value::String(string_id),
+        }
+    }
+}
+
+fn convert_value(value: &vir::Value) -> String {
+    match value {
+        vir::Value::Binding(binding) => format!("_{}", binding.id),
+        vir::Value::ConstBool(value) => (*value as i64).to_string(),
+        vir::Value::ConstI64(value) => value.to_string(),
+        vir::Value::Error => unreachable!(),
+        vir::Value::String(string_id) => format!("str{string_id}"),
     }
 }
 

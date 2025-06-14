@@ -40,34 +40,41 @@ pub enum AnyArg {
 
 #[derive(Clone, Debug)]
 pub enum Statement {
-    Alloc(Binding, Binding),
-    Assignment(Binding, Binding),
-    AssignmentField(Binding, usize, Binding),
-    AssignmentIndex(Binding, Binding, Binding),
-    BinaryOperator(Binding, BinaryOperator, Binding, Binding),
+    Alloc(Binding, Value),
+    Assignment(Binding, Value),
+    AssignmentField(Binding, usize, Value),
+    AssignmentIndex(Binding, Value, Value),
+    BinaryOperator(Binding, BinaryOperator, Value, Value),
     Call {
         return_: Option<Binding>,
         function: usize,
-        args: Vec<Binding>,
+        args: Vec<Value>,
     },
     Field(Binding, Binding, usize),
-    Index(Binding, Binding, Binding),
+    Index(Binding, Binding, Value),
     JumpAlways(usize),
     JumpConditional {
-        condition: Binding,
+        condition: Value,
         true_block: usize,
         false_block: usize,
     },
-    Literal(Binding, i64),
-    Return(Option<Binding>),
-    StringConstant(Binding, usize),
-    Syscall(Binding, Vec<Binding>),
-    UnaryOperator(Binding, UnaryOperator, Binding),
+    Return(Option<Value>),
+    Syscall(Binding, Vec<Value>),
+    UnaryOperator(Binding, UnaryOperator, Value),
 }
 
 #[derive(Clone, Copy)]
 pub struct Binding {
     pub id: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum Value {
+    Binding(Binding),
+    ConstBool(bool),
+    ConstI64(i64),
+    Error,
+    String(usize),
 }
 
 #[derive(Clone, Debug)]
@@ -135,6 +142,15 @@ impl Program<'_> {
 impl Function<'_> {
     pub fn should_codegen(&self) -> bool {
         self.type_arg_substitutions.is_some() && self.is_used
+    }
+}
+
+impl Value {
+    pub fn unwrap_binding(&self) -> Binding {
+        match self {
+            Value::Binding(binding) => *binding,
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -236,6 +252,12 @@ impl Type {
             BaseType::Pointer(inner) => inner.as_ref().clone(),
             _ => panic!("expected pointer, got {self:?}"),
         }
+    }
+}
+
+impl From<Binding> for Value {
+    fn from(binding: Binding) -> Value {
+        Value::Binding(binding)
     }
 }
 
