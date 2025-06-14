@@ -24,7 +24,7 @@ pub struct Span {
     pub end: usize,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct Spanned<T> {
     pub value: T,
     pub span: Span,
@@ -103,6 +103,12 @@ impl<T> Deref for Spanned<T> {
 
     fn deref(&self) -> &T {
         &self.value
+    }
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.value)
     }
 }
 

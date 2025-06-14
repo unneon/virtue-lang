@@ -89,7 +89,7 @@ pub struct Struct<'a> {
 }
 
 // TODO: Sort predicates or make comparisons order independent.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct Type {
     pub predicates: Vec<usize>,
     pub base: BaseType,
@@ -274,5 +274,31 @@ impl std::fmt::Debug for Binding {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let id = self.id;
         write!(f, "_{id}")
+    }
+}
+
+impl std::fmt::Debug for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "[")?;
+        for predicate in &self.predicates {
+            write!(f, "f{predicate} ")?;
+        }
+        match &self.base {
+            BaseType::I64 => write!(f, "i64")?,
+            BaseType::I8 => write!(f, "i8")?,
+            BaseType::Bool => write!(f, "bool")?,
+            BaseType::Pointer(inner) => write!(f, "ptr {inner:?}")?,
+            BaseType::Struct(struct_id, args) => {
+                write!(f, "struct{struct_id}")?;
+                for arg in args {
+                    write!(f, " {arg:?}")?;
+                }
+            }
+            BaseType::Void => write!(f, "void")?,
+            BaseType::TypeVariable(id) => write!(f, "tv{id}")?,
+            BaseType::Error => write!(f, "error")?,
+        }
+        write!(f, "]")?;
+        Ok(())
     }
 }
