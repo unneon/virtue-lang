@@ -13,7 +13,7 @@ struct State<'a> {
     vir: &'a Program<'a>,
     vir_func: &'a Function<'a>,
     il: qbe::Module<'a>,
-    aggregates: &'a [qbe::TypeDef<'a>],
+    aggregates: &'a [Option<qbe::TypeDef<'a>>],
     func: qbe::Function<'a>,
     temp_counter: usize,
 }
@@ -277,14 +277,20 @@ pub fn make_il(vir: &Program) -> String {
         .structs
         .iter()
         .enumerate()
-        .map(|(struct_id, struct_)| qbe::TypeDef {
-            name: format!("_{struct_id}"),
-            align: None,
-            items: struct_
-                .fields
-                .iter()
-                .map(|field| (extended_type(field), 1))
-                .collect(),
+        .map(|(struct_id, struct_)| {
+            if struct_.should_codegen() {
+                Some(qbe::TypeDef {
+                    name: format!("_{struct_id}"),
+                    align: None,
+                    items: struct_
+                        .fields
+                        .iter()
+                        .map(|field| (extended_type(field), 1))
+                        .collect(),
+                })
+            } else {
+                None
+            }
         })
         .collect();
 
@@ -297,7 +303,7 @@ pub fn make_il(vir: &Program) -> String {
         temp_counter: 0,
     };
 
-    for aggregate in &aggregates {
+    for aggregate in aggregates.iter().flatten() {
         // The Rust qbe library requires reference to a TypeDef to construct an aggregate type, but
         // doesn't provide a way to get it once added (it should probably use an index/name
         // instead.) So we keep a copy in memory to pass it to `abi_type`.
@@ -378,13 +384,15 @@ fn extended_type(type_: &Type) -> qbe::Type<'static> {
     }
 }
 
-fn abi_type<'a>(type_: &Type, aggregates: &'a [qbe::TypeDef<'a>]) -> qbe::Type<'a> {
+fn abi_type<'a>(type_: &Type, aggregates: &'a [Option<qbe::TypeDef<'a>>]) -> qbe::Type<'a> {
     match &type_.base {
         BaseType::I64 => Long,
         BaseType::I8 => SignedByte,
         BaseType::Bool => UnsignedByte,
         BaseType::Pointer(_) => Long,
-        BaseType::Struct(struct_id, _) => qbe::Type::Aggregate(&aggregates[*struct_id]),
+        BaseType::Struct(struct_id, _) => {
+            qbe::Type::Aggregate(aggregates[*struct_id].as_ref().unwrap())
+        }
         BaseType::Void => unreachable!(),
         BaseType::TypeVariable(_) => unreachable!(),
         BaseType::Error => unreachable!(),

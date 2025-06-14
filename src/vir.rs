@@ -156,7 +156,7 @@ impl Value {
 
 impl Struct<'_> {
     pub fn should_codegen(&self) -> bool {
-        self.is_instantiated
+        self.is_instantiated && self.is_used
     }
 }
 

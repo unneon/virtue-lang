@@ -28,7 +28,7 @@ struct State<'a> {
 impl<'a> State<'a> {
     fn prologue_structs(&mut self) {
         for struct_ in &self.vir.structs {
-            if struct_.is_instantiated {
+            if struct_.should_codegen() {
                 let fields: Vec<_> = struct_
                     .fields
                     .iter()
