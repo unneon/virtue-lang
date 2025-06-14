@@ -1,0 +1,21 @@
+for i from "not much" to "a lot" by "small step"
+    print "{i}"
+
+# error: type error
+#  --> test.virtue:1:12
+#    |
+#  1 | for i from "not much" to "a lot" by "small step"
+#    |            ^^^^^^^^^^ expected int, found string
+#
+# error: type error
+#  --> test.virtue:1:26
+#    |
+#  1 | for i from "not much" to "a lot" by "small step"
+#    |                          ^^^^^^^ expected int, found string
+#
+# error: type error
+#  --> test.virtue:1:37
+#    |
+#  1 | for i from "not much" to "a lot" by "small step"
+#    |                                     ^^^^^^^^^^^^ expected int, found string
+#

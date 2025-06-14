@@ -179,13 +179,23 @@ impl<'a> State<'a> {
                     step,
                     body,
                 } => {
+                    let lower_span = lower.span;
                     let lower = self.process_expression(lower);
+                    self.check_type_compatible(&I64, &self.value_type(lower), lower_span);
+
+                    let upper_span = upper.span;
                     let upper = self.process_expression(upper);
+                    self.check_type_compatible(&I64, &self.value_type(upper), upper_span);
+
                     let step = if let Some(step) = step {
-                        self.process_expression(step)
+                        let step_span = step.span;
+                        let step = self.process_expression(step);
+                        self.check_type_compatible(&I64, &self.value_type(step), step_span);
+                        step
                     } else {
                         Value::ConstI64(1)
                     };
+
                     let index = self.make_variable(index, I64);
                     let condition = self.make_temporary(BOOL);
                     let condition_block = self.make_block();
