@@ -263,7 +263,10 @@ impl<'a> State<'a> {
                     self.current_block = after_block;
                 }
                 ast::Statement::IncrementDecrement { value, op } => {
+                    let value_span = value.span;
                     let value = self.process_expression(value).unwrap_binding();
+                    self.check_type_compatible(&I64, &self.binding_type(value), value_span);
+
                     let one = Value::ConstI64(1);
                     let op = match op {
                         IncrementDecrementOperator::Increment => BinaryOperator::Add,
