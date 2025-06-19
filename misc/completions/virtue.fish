@@ -11,3 +11,6 @@ complete -c virtue -o b -x -d 'Select backend to use' -a "\
     c\t\"Use C backend\"\
     llvm\t\"Use LLVM backend\"\
     qbe\t\"Use QBE backend\""
+complete -c virtue -o e -x -d 'Select error format to use' -a "\
+    github-actions\t\"Emit errors as GitHub Actions workflow commands\"\
+    terminal\t\"Emit errors in human-readable text format\""

@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::Arc;
 use virtue::codegen::{ALL_BACKENDS, Backend};
-use virtue::error::{NO_COLORS, format_errors};
+use virtue::error::terminal::{NO_COLORS, format_errors};
 use virtue::util::tempfile;
 
 struct TestFile {

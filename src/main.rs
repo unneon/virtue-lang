@@ -2,13 +2,15 @@ use std::fmt::Display;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use virtue::codegen::Backend;
-use virtue::error::{ANSI_COLORS, format_errors};
+use virtue::error::terminal::ANSI_COLORS;
+use virtue::error::{ErrorFormat, github_actions, terminal};
 
 struct Options {
     source_path: PathBuf,
     output_path: Option<PathBuf>,
     format: Format,
     backend: Backend,
+    error_format: ErrorFormat,
 }
 
 #[derive(Eq, PartialEq)]
@@ -25,12 +27,22 @@ enum Format {
 }
 
 const USAGE: &str = r#"virtue [OPTIONS] file.virtue
-    -h           prints this help
-    -o file      output to file
-    -f <format>  generate format among:
-        debug-ast, debug-vir, c, llvm-ir, qbe-il, executable (default)
-    -b <backend> generate backend among:
-        c, llvm (default), qbe"#;
+    -h                prints this help
+    -o file           output to file
+    -f <format>       generate format among:
+        debug-ast
+        debug-vir
+        c
+        llvm-ir
+        qbe-il
+        executable (default)
+    -b <backend>      generate backend among:
+        c
+        llvm (default)
+        qbe
+    -e <error format> generate error format among:
+        github-actions (default if GITHUB_ACTIONS set)
+        terminal (default otherwise)"#;
 
 fn main() {
     let options = options();
@@ -45,15 +57,25 @@ fn main() {
     let vir = match virtue::typecheck::typecheck(&ast) {
         Ok(vir) => vir,
         Err(errors) => {
-            eprint!(
-                "{}",
-                format_errors(
-                    &errors,
-                    &source,
-                    options.source_path.to_str().unwrap(),
-                    &ANSI_COLORS
-                )
-            );
+            match options.error_format {
+                ErrorFormat::GithubActions => print!(
+                    "{}",
+                    github_actions::format_errors(
+                        &errors,
+                        &source,
+                        options.source_path.to_str().unwrap()
+                    )
+                ),
+                ErrorFormat::Terminal => eprint!(
+                    "{}",
+                    terminal::format_errors(
+                        &errors,
+                        &source,
+                        options.source_path.to_str().unwrap(),
+                        &ANSI_COLORS
+                    )
+                ),
+            }
             std::process::exit(1);
         }
     };
@@ -99,6 +121,7 @@ fn options() -> Options {
     let mut output_path = None;
     let mut format = None;
     let mut backend = None;
+    let mut error_format = None;
 
     let mut args = std::env::args_os().skip(1);
     while let Some(arg) = args.next() {
@@ -169,6 +192,20 @@ fn options() -> Options {
             } else {
                 error("option -b specified to unknown backend");
             });
+        } else if arg == "-e" {
+            if error_format.is_some() {
+                error("option -e specified more than once");
+            }
+            let Some(arg) = args.next() else {
+                error("option -e requires an argument");
+            };
+            error_format = Some(if arg == "github-actions" {
+                ErrorFormat::GithubActions
+            } else if arg == "terminal" {
+                ErrorFormat::Terminal
+            } else {
+                error("option -e specified to unknown error format")
+            });
         } else if let Some(arg) = arg.to_str()
             && arg.starts_with('-')
         {
@@ -196,6 +233,11 @@ fn options() -> Options {
         #[cfg(not(feature = "llvm"))]
         None => error("default llvm backend not enabled"),
     };
+    let error_format = match error_format {
+        Some(error_format) => error_format,
+        None if std::env::var_os("GITHUB_ACTIONS").is_some() => ErrorFormat::GithubActions,
+        None => ErrorFormat::Terminal,
+    };
 
     #[cfg(feature = "c")]
     if format == Format::C && backend != Backend::C {
@@ -215,6 +257,7 @@ fn options() -> Options {
         output_path,
         format,
         backend,
+        error_format,
     }
 }
 
