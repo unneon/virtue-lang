@@ -3,7 +3,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use virtue::codegen::Backend;
 use virtue::error::terminal::ANSI_COLORS;
-use virtue::error::{ErrorFormat, github_actions, terminal};
+use virtue::error::{Error, ErrorFormat, github_actions, terminal};
 
 struct Options {
     source_path: PathBuf,
@@ -49,35 +49,17 @@ fn main() {
     let source = std::fs::read_to_string(&options.source_path).unwrap();
     let output_path = options.output_path.as_ref().map(PathBuf::as_ref);
 
-    let ast = virtue::parser::parse(&source).unwrap();
+    let ast = match virtue::parser::parse(&source) {
+        Ok(ast) => ast,
+        Err(errors) => output_errors(&errors, &source, &options),
+    };
     if options.format == Format::DebugAst {
         output(format_args!("{ast:#?}"), output_path);
     }
 
     let vir = match virtue::typecheck::typecheck(&ast) {
         Ok(vir) => vir,
-        Err(errors) => {
-            match options.error_format {
-                ErrorFormat::GithubActions => print!(
-                    "{}",
-                    github_actions::format_errors(
-                        &errors,
-                        &source,
-                        options.source_path.to_str().unwrap()
-                    )
-                ),
-                ErrorFormat::Terminal => eprint!(
-                    "{}",
-                    terminal::format_errors(
-                        &errors,
-                        &source,
-                        options.source_path.to_str().unwrap(),
-                        &ANSI_COLORS
-                    )
-                ),
-            }
-            std::process::exit(1);
-        }
+        Err(errors) => output_errors(&errors, &source, &options),
     };
     if options.format == Format::DebugVir {
         output(format_args!("{vir:#?}"), output_path);
@@ -259,6 +241,25 @@ fn options() -> Options {
         backend,
         error_format,
     }
+}
+
+fn output_errors(errors: &[Error], source: &str, options: &Options) -> ! {
+    match options.error_format {
+        ErrorFormat::GithubActions => print!(
+            "{}",
+            github_actions::format_errors(errors, source, options.source_path.to_str().unwrap())
+        ),
+        ErrorFormat::Terminal => eprint!(
+            "{}",
+            terminal::format_errors(
+                errors,
+                source,
+                options.source_path.to_str().unwrap(),
+                &ANSI_COLORS
+            )
+        ),
+    }
+    std::process::exit(1);
 }
 
 fn output(data: impl Display, output_path: Option<&Path>) -> ! {

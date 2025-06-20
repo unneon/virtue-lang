@@ -31,11 +31,15 @@ pub enum ErrorFormat {
     Terminal,
 }
 
+impl Span {
+    pub const FAKE: Span = Span { start: 0, end: 0 };
+}
+
 impl<T> Spanned<T> {
     pub fn fake(value: T) -> Spanned<T> {
         Spanned {
             value,
-            span: Span { start: 0, end: 0 },
+            span: Span::FAKE,
         }
     }
 }

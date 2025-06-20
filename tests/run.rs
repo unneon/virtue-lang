@@ -134,7 +134,10 @@ fn parse_directives(source: &str) -> Directives {
 fn run_pass(test: Arc<TestFile>, backend: Backend) -> Result<(), Failed> {
     let ast = match virtue::parser::parse(&test.source) {
         Ok(ast) => ast,
-        Err(e) => return Err(format!("\x1B[1mparse error:\x1B[0m\n{e}").into()),
+        Err(e) => {
+            let e = format_errors(&e, &test.source, "test.virtue", &NO_COLORS);
+            return Err(format!("\x1B[1mparse error:\x1B[0m\n{e}").into());
+        }
     };
     let vir = match virtue::typecheck::typecheck(&ast) {
         Ok(vir) => vir,
@@ -210,42 +213,38 @@ fn run_pass(test: Arc<TestFile>, backend: Backend) -> Result<(), Failed> {
 }
 
 fn run_fail(test: TestFile) -> Result<(), Failed> {
-    let ast = match virtue::parser::parse(&test.source) {
-        Ok(ast) => ast,
-        Err(_) => todo!(),
+    let errors = match virtue::parser::parse(&test.source) {
+        Ok(ast) => match virtue::typecheck::typecheck(&ast) {
+            Ok(vir) => return Err(format!("\x1B[1mVIR:\x1B[0m\n{vir:?}").into()),
+            Err(errors) => errors,
+        },
+        Err(errors) => errors,
     };
-    let vir = match virtue::typecheck::typecheck(&ast) {
-        Ok(vir) => vir,
-        Err(errors) => {
-            let actual_stderr: String =
-                format_errors(&errors, &test.source, "test.virtue", &NO_COLORS);
-            let expected_stderr = &test.directives.output;
-            if actual_stderr != *expected_stderr {
-                if std::env::var("VIRTUE_LANG_BLESS")
-                    .ok()
-                    .as_ref()
-                    .map(String::as_str)
-                    == Some("1")
-                {
-                    let source = &test.source;
-                    let directives = actual_stderr
-                        .lines()
-                        .map(|line| {
-                            if line.is_empty() {
-                                "#\n".to_owned()
-                            } else {
-                                format!("# {line}\n")
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join("");
-                    fs::write(test.path, format!("{source}\n{directives}")).unwrap();
-                } else {
-                    return Err(format!("\x1B[1;31mactual stderr:\x1B[0m\n{actual_stderr}\n\x1B[1;32mexpected stderr:\x1B[0m\n{expected_stderr}").into());
-                }
-            }
-            return Ok(());
+    let actual_stderr: String = format_errors(&errors, &test.source, "test.virtue", &NO_COLORS);
+    let expected_stderr = &test.directives.output;
+    if actual_stderr != *expected_stderr {
+        if std::env::var("VIRTUE_LANG_BLESS")
+            .ok()
+            .as_ref()
+            .map(String::as_str)
+            == Some("1")
+        {
+            let source = &test.source;
+            let directives = actual_stderr
+                .lines()
+                .map(|line| {
+                    if line.is_empty() {
+                        "#\n".to_owned()
+                    } else {
+                        format!("# {line}\n")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("");
+            fs::write(test.path, format!("{source}\n{directives}")).unwrap();
+        } else {
+            return Err(format!("\x1B[1;31mactual stderr:\x1B[0m\n{actual_stderr}\n\x1B[1;32mexpected stderr:\x1B[0m\n{expected_stderr}").into());
         }
-    };
-    Err(format!("\x1B[1mVIR:\x1B[0m\n{vir:?}").into())
+    }
+    Ok(())
 }

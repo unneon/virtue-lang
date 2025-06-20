@@ -51,7 +51,10 @@ fn format_error(error: &Error, source: &str, filename: &str, colors: &Colors) ->
     let end = source.len() - note_span.end;
     let line = source[..start].chars().filter(|c| *c == '\n').count() + 1;
     let line_start = source[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let line_end = line_start + source[line_start..].find('\n').unwrap_or(source.len());
+    let line_end = line_start
+        + source[line_start..]
+            .find('\n')
+            .unwrap_or(source.len() - line_start);
     let file_padding_indent = " ".repeat(line.ilog10() as usize);
     let line_padding_indent = " ".repeat(line.ilog10() as usize + 2);
     let column = start - line_start + 1;
