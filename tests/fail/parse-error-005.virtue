@@ -1,0 +1,11 @@
+if false
+    print "no?"
+else true
+    print "yes!"
+
+# error: parse error
+#  --> test.virtue:3:6
+#    |
+#  3 | else true
+#    |      ^ expected newline
+#

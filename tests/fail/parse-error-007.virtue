@@ -1,0 +1,9 @@
+struct
+    a int
+
+# error: parse error
+#  --> test.virtue:1:7
+#    |
+#  1 | struct
+#    |       ^ expected identifier
+#

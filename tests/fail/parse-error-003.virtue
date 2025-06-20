@@ -1,0 +1,8 @@
+a =
+
+# error: parse error
+#  --> test.virtue:1:4
+#    |
+#  1 | a =
+#    |    ^ expected expression
+#

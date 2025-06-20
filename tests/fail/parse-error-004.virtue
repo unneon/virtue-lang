@@ -1,0 +1,8 @@
+if = 42
+
+# error: parse error
+#  --> test.virtue:1:4
+#    |
+#  1 | if = 42
+#    |    ^ expected expression
+#

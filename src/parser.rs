@@ -6,8 +6,8 @@ use crate::error::{Span, SpanExt, Spanned};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while};
 use nom::character::anychar;
-use nom::character::complete::{char, digit1};
-use nom::combinator::{all_consuming, cut, opt, recognize, verify};
+use nom::character::complete::{alphanumeric1, char, digit1};
+use nom::combinator::{all_consuming, cut, eof, not, opt, peek, recognize, verify};
 use nom::multi::{count, fold_many0, many0, many1, separated_list0, separated_list1};
 use nom::sequence::{delimited, pair, preceded, terminated};
 
@@ -15,7 +15,10 @@ trait Parser<'a, T> = nom::Parser<&'a str, Output = T, Error = ParseError<'a>>;
 
 #[derive(Debug)]
 enum ParseElement {
+    Expression,
+    FormatString,
     Identifier,
+    Newline,
 }
 
 #[derive(Debug)]
@@ -42,7 +45,10 @@ impl<'a> nom::error::ParseError<&'a str> for ParseError<'a> {
 impl std::fmt::Display for ParseElement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            ParseElement::Expression => "expression",
+            ParseElement::FormatString => "format string",
             ParseElement::Identifier => "identifier",
+            ParseElement::Newline => "newline",
         })
     }
 }
@@ -160,14 +166,14 @@ fn assignment_binary_statement<'a>() -> impl Parser<'a, Statement<'a>> {
         shift_left,
         shift_right,
     ));
-    (expression(), preceded(sp, op), expression())
+    (expression(), delimited(sp, op, sp), cut(expression()))
         .map(|(left, op, right)| Statement::AssignmentBinary { op, left, right })
 }
 
 fn assingment_statement<'a>() -> impl Parser<'a, Statement<'a>> {
     (
         expression(),
-        delimited((sp, char('='), sp), expression(), newline),
+        preceded((sp, char('='), sp), cut(terminated(expression(), newline))),
     )
         .map(|(left, right)| Statement::Assignment {
             left,
@@ -181,35 +187,42 @@ fn expression_statement<'a>() -> impl Parser<'a, Statement<'a>> {
 }
 
 fn if_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
-    (
-        preceded((tag("if"), sp), expression()),
-        preceded(newline, block(nesting + 1)),
-        opt(else_block(nesting)),
+    preceded(
+        (keyword("if"), sp),
+        cut((
+            expression(),
+            preceded(newline, block(nesting + 1)),
+            opt(else_block(nesting)),
+        )),
     )
-        .map(|(condition, true_, false_block)| {
-            let false_ = false_block.unwrap_or_else(Vec::new);
-            Statement::If {
-                condition,
-                true_,
-                false_,
-            }
-        })
+    .map(|(condition, true_, false_block)| {
+        let false_ = false_block.unwrap_or_else(Vec::new);
+        Statement::If {
+            condition,
+            true_,
+            false_,
+        }
+    })
 }
 
 fn else_block<'a>(nesting: usize) -> impl Parser<'a, Vec<Statement<'a>>> {
     preceded(
-        (indentiation(nesting), tag("else"), newline),
-        block(nesting + 1),
+        (indentiation(nesting), keyword("else"), sp),
+        cut(preceded(newline, block(nesting + 1))),
     )
 }
 
 fn print_statement<'a>() -> impl Parser<'a, Statement<'a>> {
-    delimited((tag("print"), sp), format_string(), newline).map(|fmt| Statement::Print { fmt })
+    preceded(
+        (keyword("print"), sp),
+        cut(terminated(format_string, newline)),
+    )
+    .map(|fmt| Statement::Print { fmt })
 }
 
 fn while_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
     (
-        preceded((tag("while"), sp), expression()),
+        preceded((keyword("while"), sp), expression()),
         preceded(newline, block(nesting + 1)),
     )
         .map(|(condition, body)| Statement::While { condition, body })
@@ -217,10 +230,10 @@ fn while_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
 
 fn for_range_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
     (
-        preceded((tag("for"), sp), identifier),
-        preceded((sp, tag("from"), sp), expression()),
-        preceded((sp, tag("to"), sp), expression()),
-        opt(preceded((sp, tag("by"), sp), expression())),
+        preceded((keyword("for"), sp), identifier),
+        preceded((sp, keyword("from"), sp), expression()),
+        preceded((sp, keyword("to"), sp), expression()),
+        opt(preceded((sp, keyword("by"), sp), expression())),
         preceded(newline, block(nesting + 1)),
     )
         .map(|(index, lower, upper, step, body)| Statement::ForRange {
@@ -234,7 +247,7 @@ fn for_range_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
 
 fn func_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
     preceded(
-        tag("func"),
+        keyword("func"),
         cut((
             preceded(sp, identifier),
             preceded(
@@ -259,38 +272,50 @@ fn func_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
 }
 
 fn return_statement<'a>() -> impl Parser<'a, Statement<'a>> {
-    delimited((tag("return"), sp), expression(), newline).map(|value| Statement::Return { value })
+    delimited((keyword("return"), sp), expression(), newline)
+        .map(|value| Statement::Return { value })
 }
 
 fn struct_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
-    (
-        preceded((tag("struct"), sp), identifier),
-        delimited(
-            sp,
-            opt(delimited(
-                (char('('), sp),
-                separated_list1(
-                    (sp, char(','), sp),
-                    (spanned(identifier), preceded(sp, type_)),
-                ),
-                (sp, char(')')),
+    preceded(
+        (keyword("struct"), sp),
+        cut((
+            identifier,
+            delimited(
+                sp,
+                opt(delimited(
+                    (char('('), sp),
+                    separated_list1(
+                        (sp, char(','), sp),
+                        (spanned(identifier), preceded(sp, type_)),
+                    ),
+                    (sp, char(')')),
+                )),
+                (sp, newline),
+            ),
+            many0(delimited(
+                (empty_lines, indentiation(nesting + 1)),
+                (identifier, type_),
+                newline,
             )),
-            (sp, newline),
-        ),
-        many0(delimited(
-            (empty_lines, indentiation(nesting + 1)),
-            (identifier, type_),
-            newline,
         )),
     )
-        .map(|(name, args, fields)| {
-            let args = args.unwrap_or_default();
-            Statement::Struct(Struct { name, args, fields })
-        })
+    .map(|(name, args, fields)| {
+        let args = args.unwrap_or_default();
+        Statement::Struct(Struct { name, args, fields })
+    })
 }
 
-fn format_string<'a>() -> impl Parser<'a, Format<'a>> {
-    delimited(char('"'), many0(format_segment()), char('"')).map(|segments| Format { segments })
+fn format_string(input: &str) -> Result<Format> {
+    delimited(char('"'), many0(format_segment()), char('"'))
+        .map(|segments| Format { segments })
+        .parse(input)
+        .map_err(|e| {
+            e.map(|_| ParseError::Expected {
+                element: ParseElement::FormatString,
+                position: input.len(),
+            })
+        })
 }
 
 fn format_segment<'a>() -> impl Parser<'a, FormatSegment<'a>> {
@@ -311,12 +336,19 @@ fn format_segment_variable<'a>() -> impl Parser<'a, FormatSegment<'a>> {
 }
 
 fn expression<'a>() -> impl Parser<'a, Spanned<Expression<'a>>> {
-    |input| expression6(input)
+    |input| {
+        expression6(input).map_err(|e| {
+            e.map(|_| ParseError::Expected {
+                element: ParseElement::Expression,
+                position: input.len(),
+            })
+        })
+    }
 }
 
 fn expression6(input: &str) -> Result<Spanned<Expression>> {
-    let logic_and = tag("and").map(|_| BinaryOperator::LogicAnd);
-    let logic_or = tag("or").map(|_| BinaryOperator::LogicOr);
+    let logic_and = keyword("and").map(|_| BinaryOperator::LogicAnd);
+    let logic_or = keyword("or").map(|_| BinaryOperator::LogicOr);
     let op = alt((logic_and, logic_or));
     expression_binary_single(expression5, op, input)
 }
@@ -403,7 +435,7 @@ fn expression_binary_single<'a>(
 fn expression1(input: &str) -> Result<Spanned<Expression>> {
     let negate = char('-').map(|_| UnaryOperator::Negate);
     let bitnot = char('~').map(|_| UnaryOperator::BitNot);
-    let not = (tag("not"), sp).map(|_| UnaryOperator::LogicNot);
+    let not = (keyword("not"), sp).map(|_| UnaryOperator::LogicNot);
     let op = alt((negate, bitnot, not));
     (position, opt(op), expression0, position)
         .map(|(start, op, expr, end)| match op {
@@ -534,7 +566,7 @@ fn index_expression(input: &str) -> Result<Expression> {
         .parse(input)
 }
 fn new_expression(input: &str) -> Result<Expression> {
-    preceded((sp, tag("new"), sp), type_)
+    preceded((sp, keyword("new"), sp), type_)
         .map(Expression::New)
         .parse(input)
 }
@@ -554,8 +586,8 @@ fn string_escape(input: &str) -> Result<&str> {
 }
 
 fn bool_literal(input: &str) -> Result<Expression> {
-    let true_ = tag("true").map(|_| Expression::BoolLiteral(true));
-    let false_ = tag("false").map(|_| Expression::BoolLiteral(false));
+    let true_ = keyword("true").map(|_| Expression::BoolLiteral(true));
+    let false_ = keyword("false").map(|_| Expression::BoolLiteral(false));
     preceded(sp, alt((true_, false_))).parse(input)
 }
 
@@ -591,8 +623,21 @@ fn comment(input: &str) -> Result<()> {
         .parse(input)
 }
 
+fn keyword<'a>(name: &'static str) -> impl Parser<'a, ()> {
+    terminated(
+        tag(name),
+        peek(alt((not(alt((alphanumeric1, tag("_")))), eof.map(|_| ())))),
+    )
+    .map(|_| ())
+}
+
 fn newline(input: &str) -> Result<()> {
-    preceded(sp, char('\n')).map(|_| ()).parse(input)
+    char('\n').map(|_| ()).parse(input).map_err(|e| {
+        e.map(|_: ()| ParseError::Expected {
+            element: ParseElement::Newline,
+            position: input.len(),
+        })
+    })
 }
 
 fn sp(input: &str) -> Result<()> {
