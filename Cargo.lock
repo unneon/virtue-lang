@@ -263,8 +263,8 @@ dependencies = [
 
 [[package]]
 name = "qbe"
-version = "2.5.0"
-source = "git+https://github.com/unneon/qbe-rs#a73bdd4d5b084a001287825b263aaf06341d7672"
+version = "2.5.1"
+source = "git+https://github.com/garritfra/qbe-rs?rev=5af7c7fc12351dfc4d333cb63d59fd03d5e1f70b#5af7c7fc12351dfc4d333cb63d59fd03d5e1f70b"
 
 [[package]]
 name = "quote"

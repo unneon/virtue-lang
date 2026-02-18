@@ -13,7 +13,7 @@ qbe = ["dep:qbe"]
 inkwell = { version = "0.6", features = ["llvm18-1", "target-x86"], default-features = false, optional = true }
 memfd = "0.6"
 nom = "8.0"
-qbe = { git = "https://github.com/unneon/qbe-rs", optional = true }
+qbe = { git = "https://github.com/garritfra/qbe-rs", rev = "5af7c7fc12351dfc4d333cb63d59fd03d5e1f70b", optional = true }
 
 [dev-dependencies]
 libtest-mimic = "0.8"
