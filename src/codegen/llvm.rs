@@ -329,7 +329,7 @@ impl<'a> State<'a> {
                         )
                         .unwrap();
                     if let Some(return_) = return_ {
-                        let result = result.try_as_basic_value().left().unwrap();
+                        let result = result.try_as_basic_value().basic().unwrap();
                         self.store(return_, result);
                     }
                 }
@@ -484,7 +484,7 @@ impl<'a> State<'a> {
             .build_indirect_call(func_type, func, args, "exit")
             .unwrap();
         if let Some(return_binding) = return_binding {
-            let result = result.try_as_basic_value().left().unwrap();
+            let result = result.try_as_basic_value().basic().unwrap();
             self.store(return_binding, result);
         }
     }

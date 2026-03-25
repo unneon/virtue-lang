@@ -10,7 +10,7 @@ llvm = ["dep:inkwell"]
 qbe = ["dep:qbe"]
 
 [dependencies]
-inkwell = { version = "0.6", features = ["llvm18-1", "target-x86"], default-features = false, optional = true }
+inkwell = { version = "0.8", features = ["llvm21-1", "target-x86"], default-features = false, optional = true }
 memfd = "0.6"
 nom = "8.0"
 qbe = { git = "https://github.com/garritfra/qbe-rs", rev = "5af7c7fc12351dfc4d333cb63d59fd03d5e1f70b", optional = true }
