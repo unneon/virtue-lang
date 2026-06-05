@@ -11,6 +11,7 @@ use inkwell::module::{Linkage, Module};
 use inkwell::types::{BasicType, BasicTypeEnum, StructType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, PointerValue};
 use inkwell::{AddressSpace, IntPredicate};
+use std::num::NonZeroU32;
 
 struct State<'a> {
     ctx: &'a Context,
@@ -367,7 +368,9 @@ impl<'a> State<'a> {
                         .builder
                         .build_int_truncate(
                             cond_val.into_int_value(),
-                            self.ctx.custom_width_int_type(1),
+                            self.ctx
+                                .custom_width_int_type(NonZeroU32::new(1).unwrap())
+                                .unwrap(),
                             &cond_i1_temp,
                         )
                         .unwrap();
