@@ -6,14 +6,15 @@ use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::vir;
 use crate::vir::{Binding, Function, Program, Statement, Type};
 use qbe::Type::{Byte, Long, SignedByte, UnsignedByte};
-use qbe::{Cmp, DataDef, DataItem, Instr, Linkage, Value};
+use qbe::{Cmp, DataDef, DataItem, Instr, Linkage, TypeDef, Value};
+use std::sync::Arc;
 
 struct State<'a> {
     vir: &'a Program<'a>,
     vir_func: &'a Function<'a>,
-    il: qbe::Module<'a>,
-    aggregates: &'a [Option<qbe::TypeDef<'a>>],
-    func: qbe::Function<'a>,
+    il: qbe::Module,
+    aggregates: &'a Vec<Option<Arc<TypeDef>>>,
+    func: qbe::Function,
     temp_counter: usize,
 }
 
@@ -220,19 +221,19 @@ impl<'a> State<'a> {
         }
     }
 
-    fn temp(&mut self, instr: Instr<'a>) -> Value {
+    fn temp(&mut self, instr: Instr) -> Value {
         let temp = self.make_temporary();
         self.func.assign_instr(temp.clone(), Long, instr);
         temp
     }
 
-    fn assign(&mut self, left: &Binding, right: Instr<'a>) {
+    fn assign(&mut self, left: &Binding, right: Instr) {
         let type_ = &self.vir_func.bindings[left.id];
         let type_ = abi_type(type_, self.aggregates);
         self.func.assign_instr(left.into(), type_, right);
     }
 
-    fn execute(&mut self, instr: Instr<'a>) {
+    fn execute(&mut self, instr: Instr) {
         self.func.add_instr(instr);
     }
 
@@ -272,21 +273,21 @@ impl From<&vir::Value> for Value {
 }
 
 pub fn make_il(vir: &Program) -> String {
-    let aggregates: Vec<_> = vir
+    let aggregates: Vec<Option<Arc<TypeDef>>> = vir
         .structs
         .iter()
         .enumerate()
         .map(|(struct_id, struct_)| {
             if struct_.should_codegen() {
-                Some(qbe::TypeDef {
-                    name: format!("_{struct_id}"),
+                Some(Arc::new(qbe::TypeDef::Regular {
+                    ident: format!("_{struct_id}"),
                     align: None,
                     items: struct_
                         .fields
                         .iter()
                         .map(|field| (extended_type(field), 1))
                         .collect(),
-                })
+                }))
             } else {
                 None
             }
@@ -370,7 +371,7 @@ pub fn make_il(vir: &Program) -> String {
     state.il.to_string()
 }
 
-fn extended_type(type_: &Type) -> qbe::Type<'static> {
+fn extended_type(type_: &Type) -> qbe::Type {
     match type_ {
         Type::I64 => Long,
         Type::I8 => Byte,
@@ -383,14 +384,14 @@ fn extended_type(type_: &Type) -> qbe::Type<'static> {
     }
 }
 
-fn abi_type<'a>(type_: &Type, aggregates: &'a [Option<qbe::TypeDef<'a>>]) -> qbe::Type<'a> {
+fn abi_type(type_: &Type, aggregates: &[Option<Arc<TypeDef>>]) -> qbe::Type {
     match type_ {
         Type::I64 => Long,
         Type::I8 => SignedByte,
         Type::Bool => UnsignedByte,
         Type::Pointer(_) => Long,
         Type::Struct(struct_id, _) => {
-            qbe::Type::Aggregate(aggregates[*struct_id].as_ref().unwrap())
+            qbe::Type::Aggregate(Arc::clone(aggregates[*struct_id].as_ref().unwrap()))
         }
         Type::Void => unreachable!(),
         Type::TypeVariable(_) => unreachable!(),
@@ -398,7 +399,7 @@ fn abi_type<'a>(type_: &Type, aggregates: &'a [Option<qbe::TypeDef<'a>>]) -> qbe
     }
 }
 
-fn load_type(type_: &Type) -> qbe::Type<'static> {
+fn load_type(type_: &Type) -> qbe::Type {
     match type_ {
         Type::I64 => Long,
         Type::I8 => SignedByte,
