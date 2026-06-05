@@ -3,9 +3,8 @@ mod subprocess;
 pub use subprocess::compile_il;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
-use crate::typecheck::std::{BOOL, I8, I64};
 use crate::vir;
-use crate::vir::{BaseType, Binding, Function, Program, Statement, Type};
+use crate::vir::{Binding, Function, Program, Statement, Type};
 use qbe::Type::{Byte, Long, SignedByte, UnsignedByte};
 use qbe::{Cmp, DataDef, DataItem, Instr, Linkage, Value};
 
@@ -246,10 +245,10 @@ impl<'a> State<'a> {
     fn value_type(&self, value: &vir::Value) -> Type {
         match value {
             vir::Value::Binding(binding) => self.vir_func.bindings[binding.id].clone(),
-            vir::Value::ConstBool(_) => BOOL,
-            vir::Value::ConstI64(_) => I64,
+            vir::Value::ConstBool(_) => Type::Bool,
+            vir::Value::ConstI64(_) => Type::I64,
             vir::Value::Error => unreachable!(),
-            vir::Value::String(_) => I8.pointer(),
+            vir::Value::String(_) => Type::I8.pointer(),
         }
     }
 }
@@ -343,8 +342,8 @@ pub fn make_il(vir: &Program) -> String {
             linkage,
             function.name.as_ref(),
             args,
-            match function.return_type.base {
-                BaseType::Void => None,
+            match function.return_type {
+                Type::Void => None,
                 _ => Some(abi_type(&function.return_type, &aggregates)),
             },
         );
@@ -372,43 +371,43 @@ pub fn make_il(vir: &Program) -> String {
 }
 
 fn extended_type(type_: &Type) -> qbe::Type<'static> {
-    match &type_.base {
-        BaseType::I64 => Long,
-        BaseType::I8 => Byte,
-        BaseType::Bool => Byte,
-        BaseType::Pointer(_) => Long,
-        BaseType::Struct(_, _) => Long,
-        BaseType::Void => unreachable!(),
-        BaseType::TypeVariable(_) => Long,
-        BaseType::Error => unreachable!(),
+    match type_ {
+        Type::I64 => Long,
+        Type::I8 => Byte,
+        Type::Bool => Byte,
+        Type::Pointer(_) => Long,
+        Type::Struct(_, _) => Long,
+        Type::Void => unreachable!(),
+        Type::TypeVariable(_) => Long,
+        Type::Error => unreachable!(),
     }
 }
 
 fn abi_type<'a>(type_: &Type, aggregates: &'a [Option<qbe::TypeDef<'a>>]) -> qbe::Type<'a> {
-    match &type_.base {
-        BaseType::I64 => Long,
-        BaseType::I8 => SignedByte,
-        BaseType::Bool => UnsignedByte,
-        BaseType::Pointer(_) => Long,
-        BaseType::Struct(struct_id, _) => {
+    match type_ {
+        Type::I64 => Long,
+        Type::I8 => SignedByte,
+        Type::Bool => UnsignedByte,
+        Type::Pointer(_) => Long,
+        Type::Struct(struct_id, _) => {
             qbe::Type::Aggregate(aggregates[*struct_id].as_ref().unwrap())
         }
-        BaseType::Void => unreachable!(),
-        BaseType::TypeVariable(_) => unreachable!(),
-        BaseType::Error => unreachable!(),
+        Type::Void => unreachable!(),
+        Type::TypeVariable(_) => unreachable!(),
+        Type::Error => unreachable!(),
     }
 }
 
 fn load_type(type_: &Type) -> qbe::Type<'static> {
-    match &type_.base {
-        BaseType::I64 => Long,
-        BaseType::I8 => SignedByte,
-        BaseType::Bool => UnsignedByte,
-        BaseType::Pointer(_) => Long,
-        BaseType::Struct(_, _) => Long,
-        BaseType::Void => unreachable!(),
-        BaseType::TypeVariable(_) => unreachable!(),
-        BaseType::Error => unreachable!(),
+    match type_ {
+        Type::I64 => Long,
+        Type::I8 => SignedByte,
+        Type::Bool => UnsignedByte,
+        Type::Pointer(_) => Long,
+        Type::Struct(_, _) => Long,
+        Type::Void => unreachable!(),
+        Type::TypeVariable(_) => unreachable!(),
+        Type::Error => unreachable!(),
     }
 }
 

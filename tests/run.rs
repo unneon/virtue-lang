@@ -1,5 +1,3 @@
-#![feature(string_into_chars)]
-
 use libtest_mimic::{Arguments, Failed, Trial};
 use std::collections::HashSet;
 use std::error::Error;

@@ -3,8 +3,7 @@ mod subprocess;
 pub use subprocess::compile_ir;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
-use crate::typecheck::std::{BOOL, I8, I64};
-use crate::vir::{BaseType, Binding, Program, Statement, Type, Value};
+use crate::vir::{Binding, Program, Statement, Type, Value};
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
@@ -198,7 +197,7 @@ impl<'a> State<'a> {
                 }
                 Statement::BinaryOperator(result_binding, op, left, right) => {
                     let left_type = self.value_type(left);
-                    if let BaseType::Pointer(left_inner) = &left_type.base
+                    if let Type::Pointer(left_inner) = &left_type
                         && left_inner.is_i8()
                     {
                         let left = self.load(left).into_pointer_value();
@@ -538,23 +537,23 @@ impl<'a> State<'a> {
             Value::Binding(binding) => {
                 self.vir.functions[self.current_function].bindings[binding.id].clone()
             }
-            Value::ConstBool(_) => BOOL,
-            Value::ConstI64(_) => I64,
+            Value::ConstBool(_) => Type::Bool,
+            Value::ConstI64(_) => Type::I64,
             Value::Error => unreachable!(),
-            Value::String(_) => I8.pointer(),
+            Value::String(_) => Type::I8.pointer(),
         }
     }
 
     fn convert_type(&self, type_: &Type) -> BasicTypeEnum<'a> {
-        match type_.base {
-            BaseType::I64 => self.ctx.i64_type().into(),
-            BaseType::I8 => self.ctx.i8_type().into(),
-            BaseType::Bool => self.ctx.i8_type().into(),
-            BaseType::Pointer(_) => self.ctx.ptr_type(AddressSpace::default()).into(),
-            BaseType::Struct(id, _) => self.struct_types[id].into(),
-            BaseType::Void => unreachable!(),
-            BaseType::TypeVariable(_) => unreachable!(),
-            BaseType::Error => unreachable!(),
+        match *type_ {
+            Type::I64 => self.ctx.i64_type().into(),
+            Type::I8 => self.ctx.i8_type().into(),
+            Type::Bool => self.ctx.i8_type().into(),
+            Type::Pointer(_) => self.ctx.ptr_type(AddressSpace::default()).into(),
+            Type::Struct(id, _) => self.struct_types[id].into(),
+            Type::Void => unreachable!(),
+            Type::TypeVariable(_) => unreachable!(),
+            Type::Error => unreachable!(),
         }
     }
 }

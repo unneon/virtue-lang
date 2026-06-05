@@ -88,15 +88,8 @@ pub struct Struct<'a> {
     pub instantiation_info: Option<InstantiationInfo>,
 }
 
-// TODO: Sort predicates or make comparisons order independent.
 #[derive(Clone, Eq, Hash, PartialEq)]
-pub struct Type {
-    pub predicates: Vec<usize>,
-    pub base: BaseType,
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum BaseType {
+pub enum Type {
     I64,
     I8,
     Bool,
@@ -115,19 +108,19 @@ pub struct InstantiationInfo {
 
 impl Program<'_> {
     pub fn byte_size(&self, type_: &Type) -> usize {
-        match &type_.base {
-            BaseType::I64 => 8,
-            BaseType::I8 => 1,
-            BaseType::Bool => 1,
-            BaseType::Pointer(_) => 8,
-            BaseType::Struct(struct_id, _) => self.structs[*struct_id]
+        match type_ {
+            Type::I64 => 8,
+            Type::I8 => 1,
+            Type::Bool => 1,
+            Type::Pointer(_) => 8,
+            Type::Struct(struct_id, _) => self.structs[*struct_id]
                 .fields
                 .iter()
                 .map(|type_| self.byte_size(type_))
                 .sum(),
-            BaseType::Void => 0,
-            BaseType::TypeVariable(_) => unreachable!(),
-            BaseType::Error => unreachable!(),
+            Type::Void => 0,
+            Type::TypeVariable(_) => unreachable!(),
+            Type::Error => unreachable!(),
         }
     }
 
@@ -162,36 +155,24 @@ impl Struct<'_> {
 
 impl Type {
     pub fn pointer(&self) -> Type {
-        Type {
-            predicates: Vec::new(),
-            base: BaseType::Pointer(Box::new(self.clone())),
-        }
+        Type::Pointer(Box::new(self.clone()))
     }
 
     pub fn list(&self) -> Type {
-        Type {
-            predicates: Vec::new(),
-            base: BaseType::Struct(1, vec![self.clone()]),
-        }
+        Type::Struct(1, vec![self.clone()])
     }
 
     pub fn substitute_types(&self, substitutions: &[Type]) -> Type {
-        use BaseType::*;
-        match &self.base {
+        use Type::*;
+        match self {
             I64 | I8 | Bool => self.clone(),
-            Pointer(inner) => Type {
-                predicates: self.predicates.clone(),
-                base: Pointer(Box::new(inner.substitute_types(substitutions))),
-            },
-            Struct(id, args) => Type {
-                predicates: self.predicates.clone(),
-                base: Struct(
-                    *id,
-                    args.iter()
-                        .map(|arg| arg.substitute_types(substitutions))
-                        .collect(),
-                ),
-            },
+            Pointer(inner) => Pointer(Box::new(inner.substitute_types(substitutions))),
+            Struct(id, args) => Struct(
+                *id,
+                args.iter()
+                    .map(|arg| arg.substitute_types(substitutions))
+                    .collect(),
+            ),
             Void => self.clone(),
             TypeVariable(i) => substitutions[*i].clone(),
             Error => self.clone(),
@@ -199,8 +180,8 @@ impl Type {
     }
 
     pub fn is_fully_substituted(&self) -> bool {
-        use BaseType::*;
-        match &self.base {
+        use Type::*;
+        match self {
             Pointer(inner) => inner.is_fully_substituted(),
             I64 | I8 | Bool | Void => true,
             Struct(_, args) => args.iter().all(Type::is_fully_substituted),
@@ -210,8 +191,8 @@ impl Type {
     }
 
     pub fn is_fully_instantiated(&self) -> bool {
-        use BaseType::*;
-        match &self.base {
+        use Type::*;
+        match self {
             Pointer(inner) => inner.is_fully_instantiated(),
             I64 | I8 | Bool | Void => true,
             Struct(_, args) => args.is_empty(),
@@ -221,35 +202,35 @@ impl Type {
     }
 
     pub fn is_i64(&self) -> bool {
-        matches!(self.base, BaseType::I64)
+        matches!(self, Type::I64)
     }
 
     pub fn is_i8(&self) -> bool {
-        matches!(self.base, BaseType::I8)
+        matches!(self, Type::I8)
     }
 
     pub fn is_struct(&self) -> bool {
-        matches!(self.base, BaseType::Struct(_, _))
+        matches!(self, Type::Struct(_, _))
     }
 
     pub fn is_void(&self) -> bool {
-        matches!(self.base, BaseType::Void)
+        matches!(self, Type::Void)
     }
 
     pub fn is_error(&self) -> bool {
-        matches!(self.base, BaseType::Error)
+        matches!(self, Type::Error)
     }
 
     pub fn unwrap_struct(&self) -> usize {
-        match &self.base {
-            BaseType::Struct(i, _) => *i,
+        match self {
+            Type::Struct(i, _) => *i,
             _ => panic!("expected struct, got {self:?}"),
         }
     }
 
     pub fn dereference(&self) -> Type {
-        match &self.base {
-            BaseType::Pointer(inner) => inner.as_ref().clone(),
+        match self {
+            Type::Pointer(inner) => inner.as_ref().clone(),
             _ => panic!("expected pointer, got {self:?}"),
         }
     }
@@ -258,15 +239,6 @@ impl Type {
 impl From<Binding> for Value {
     fn from(binding: Binding) -> Value {
         Value::Binding(binding)
-    }
-}
-
-impl From<BaseType> for Type {
-    fn from(base: BaseType) -> Type {
-        Type {
-            predicates: Vec::new(),
-            base,
-        }
     }
 }
 
@@ -279,26 +251,21 @@ impl std::fmt::Debug for Binding {
 
 impl std::fmt::Debug for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "[")?;
-        for predicate in &self.predicates {
-            write!(f, "f{predicate} ")?;
-        }
-        match &self.base {
-            BaseType::I64 => write!(f, "i64")?,
-            BaseType::I8 => write!(f, "i8")?,
-            BaseType::Bool => write!(f, "bool")?,
-            BaseType::Pointer(inner) => write!(f, "ptr {inner:?}")?,
-            BaseType::Struct(struct_id, args) => {
+        match self {
+            Type::I64 => write!(f, "i64")?,
+            Type::I8 => write!(f, "i8")?,
+            Type::Bool => write!(f, "bool")?,
+            Type::Pointer(inner) => write!(f, "ptr {inner:?}")?,
+            Type::Struct(struct_id, args) => {
                 write!(f, "struct{struct_id}")?;
                 for arg in args {
                     write!(f, " {arg:?}")?;
                 }
             }
-            BaseType::Void => write!(f, "void")?,
-            BaseType::TypeVariable(id) => write!(f, "tv{id}")?,
-            BaseType::Error => write!(f, "error")?,
+            Type::Void => write!(f, "void")?,
+            Type::TypeVariable(id) => write!(f, "tv{id}")?,
+            Type::Error => write!(f, "error")?,
         }
-        write!(f, "]")?;
         Ok(())
     }
 }

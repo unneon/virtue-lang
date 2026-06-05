@@ -4,7 +4,7 @@ pub use subprocess::compile_c;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::vir;
-use crate::vir::{BaseType, Binding, Function, Program, Statement, Type};
+use crate::vir::{Binding, Function, Program, Statement, Type};
 use std::fmt::Write;
 
 struct State<'a> {
@@ -322,15 +322,15 @@ fn convert_value(value: &vir::Value) -> String {
 }
 
 fn convert_type(type_: &Type) -> String {
-    match &type_.base {
-        BaseType::I64 => "long long".to_owned(),
-        BaseType::I8 => "signed char".to_owned(),
-        BaseType::Bool => "unsigned char".to_owned(),
-        BaseType::Pointer(inner) => format!("{}*", convert_type(inner)),
-        BaseType::Struct(name, _) => format!("struct struct{name}"),
-        BaseType::Void => "void".to_owned(),
-        BaseType::TypeVariable(_) => unreachable!(),
-        BaseType::Error => unreachable!(),
+    match type_ {
+        Type::I64 => "long long".to_owned(),
+        Type::I8 => "signed char".to_owned(),
+        Type::Bool => "unsigned char".to_owned(),
+        Type::Pointer(inner) => format!("{}*", convert_type(inner)),
+        Type::Struct(name, _) => format!("struct struct{name}"),
+        Type::Void => "void".to_owned(),
+        Type::TypeVariable(_) => unreachable!(),
+        Type::Error => unreachable!(),
     }
 }
 

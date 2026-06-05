@@ -1,6 +1,6 @@
 use crate::ast;
 use crate::parser::parse;
-use crate::vir::{BaseType, Type};
+use crate::vir::Type;
 use std::sync::LazyLock;
 
 pub static STD_AST: LazyLock<ast::Module> = LazyLock::new(|| {
@@ -13,32 +13,4 @@ pub static STD_AST: LazyLock<ast::Module> = LazyLock::new(|| {
     }
 });
 
-pub const I64: Type = Type {
-    predicates: Vec::new(),
-    base: BaseType::I64,
-};
-
-pub const I8: Type = Type {
-    predicates: Vec::new(),
-    base: BaseType::I8,
-};
-
-pub const BOOL: Type = Type {
-    predicates: Vec::new(),
-    base: BaseType::Bool,
-};
-
-pub const STRING: Type = Type {
-    predicates: Vec::new(),
-    base: BaseType::Struct(0, Vec::new()),
-};
-
-pub const VOID: Type = Type {
-    predicates: Vec::new(),
-    base: BaseType::Void,
-};
-
-pub const ERROR: Type = Type {
-    predicates: Vec::new(),
-    base: BaseType::Error,
-};
+pub const STRING: Type = Type::Struct(0, Vec::new());

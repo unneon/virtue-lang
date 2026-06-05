@@ -2,8 +2,8 @@ pub mod std;
 
 use crate::ast::{BinaryOperator, FormatSegment, IncrementDecrementOperator, UnaryOperator};
 use crate::error::{Error, Span, SpanExt, Spanned};
-use crate::typecheck::std::{BOOL, ERROR, I8, I64, STD_AST, STRING, VOID};
-use crate::vir::{Binding, Value};
+use crate::typecheck::std::{STD_AST, STRING};
+use crate::vir::{Binding, Type, Value};
 use crate::{ast, vir};
 use ::std::borrow::Cow;
 use ::std::collections::{HashMap, hash_map};
@@ -62,7 +62,7 @@ impl<'a> State<'a> {
         }
         let return_type = match &function.return_type {
             Some(return_type) => self.resolve_ast_type_nocf(return_type, &type_arg_map),
-            None => VOID,
+            None => Type::Void,
         };
         self.functions.push(vir::Function {
             exported: function.name == "_start",
@@ -181,23 +181,23 @@ impl<'a> State<'a> {
                 } => {
                     let lower_span = lower.span;
                     let lower = self.process_expression(lower);
-                    self.check_type_compatible(&I64, &self.value_type(lower), lower_span);
+                    self.check_type_compatible(&Type::I64, &self.value_type(lower), lower_span);
 
                     let upper_span = upper.span;
                     let upper = self.process_expression(upper);
-                    self.check_type_compatible(&I64, &self.value_type(upper), upper_span);
+                    self.check_type_compatible(&Type::I64, &self.value_type(upper), upper_span);
 
                     let step = if let Some(step) = step {
                         let step_span = step.span;
                         let step = self.process_expression(step);
-                        self.check_type_compatible(&I64, &self.value_type(step), step_span);
+                        self.check_type_compatible(&Type::I64, &self.value_type(step), step_span);
                         step
                     } else {
                         Value::ConstI64(1)
                     };
 
-                    let index = self.make_variable(index, I64);
-                    let condition = self.make_temporary(BOOL);
+                    let index = self.make_variable(index, Type::I64);
+                    let condition = self.make_temporary(Type::Bool);
                     let condition_block = self.make_block();
                     let body_block = self.make_block();
                     let after_block = self.make_block();
@@ -243,7 +243,7 @@ impl<'a> State<'a> {
 
                     let condition_binding = self.process_expression(condition);
                     let condition_type = self.value_type(condition_binding);
-                    self.check_type_compatible(&BOOL, &condition_type, condition.span);
+                    self.check_type_compatible(&Type::Bool, &condition_type, condition.span);
                     self.add_statement(vir::Statement::JumpConditional {
                         condition: condition_binding,
                         true_block,
@@ -265,7 +265,7 @@ impl<'a> State<'a> {
                 ast::Statement::IncrementDecrement { value, op } => {
                     let value_span = value.span;
                     let value = self.process_expression(value).unwrap_binding();
-                    self.check_type_compatible(&I64, &self.binding_type(value), value_span);
+                    self.check_type_compatible(&Type::I64, &self.binding_type(value), value_span);
 
                     let one = Value::ConstI64(1);
                     let op = match op {
@@ -296,12 +296,12 @@ impl<'a> State<'a> {
                             FormatSegment::Variable(var) => {
                                 let var = self.variable_binding(var);
                                 let var_type = self.binding_type(var);
-                                let function_name = match var_type.base {
-                                    vir::BaseType::I64 => "virtue_print_int",
-                                    vir::BaseType::Bool => "virtue_print_bool",
-                                    vir::BaseType::Struct(0, _) => "virtue_print_str",
-                                    vir::BaseType::TypeVariable(_) => continue,
-                                    vir::BaseType::Error => continue,
+                                let function_name = match var_type {
+                                    vir::Type::I64 => "virtue_print_int",
+                                    vir::Type::Bool => "virtue_print_bool",
+                                    vir::Type::Struct(0, _) => "virtue_print_str",
+                                    vir::Type::TypeVariable(_) => continue,
+                                    vir::Type::Error => continue,
                                     _ => todo!(),
                                 };
                                 let function = self.function_map[function_name];
@@ -366,17 +366,15 @@ impl<'a> State<'a> {
                 let left_type = self.value_type(left);
                 let right = self.process_expression(right);
                 let right_type = self.value_type(right);
-                let type_ = match (**op, &left_type.base, &right_type.base) {
+                let type_ = match (**op, &left_type, &right_type) {
                     (
                         Add | Subtract | Multiply | Divide | Modulo | BitAnd | BitOr | Xor
                         | ShiftLeft | ShiftRight,
-                        vir::BaseType::I64,
-                        vir::BaseType::I64,
-                    ) => I64,
-                    (Add | Subtract, vir::BaseType::Pointer(inner), vir::BaseType::I64) => {
-                        inner.pointer()
-                    }
-                    (Add, vir::BaseType::Struct(0, _), vir::BaseType::Struct(0, _)) => {
+                        Type::I64,
+                        Type::I64,
+                    ) => Type::I64,
+                    (Add | Subtract, Type::Pointer(inner), vir::Type::I64) => inner.pointer(),
+                    (Add, Type::Struct(0, _), vir::Type::Struct(0, _)) => {
                         let binding = self.make_temporary(STRING);
                         self.add_statement(vir::Statement::Call {
                             return_: Some(binding),
@@ -406,11 +404,11 @@ impl<'a> State<'a> {
                     }
                     (
                         Less | LessOrEqual | Greater | GreaterOrEqual | Equal | NotEqual,
-                        vir::BaseType::I64,
-                        vir::BaseType::I64,
-                    ) => BOOL,
-                    (LogicAnd | LogicOr, vir::BaseType::Bool, vir::BaseType::Bool) => BOOL,
-                    (_, vir::BaseType::Error, _) | (_, _, vir::BaseType::Error) => ERROR,
+                        Type::I64,
+                        Type::I64,
+                    ) => Type::Bool,
+                    (LogicAnd | LogicOr, Type::Bool, Type::Bool) => Type::Bool,
+                    (_, Type::Error, _) | (_, _, Type::Error) => Type::Error,
                     _ => {
                         let op_fmt = **op;
                         let left_fmt = self.format_type(&left_type);
@@ -446,7 +444,7 @@ impl<'a> State<'a> {
                         .iter()
                         .map(|arg| self.process_expression(arg))
                         .collect();
-                    let binding = self.make_temporary(I64);
+                    let binding = self.make_temporary(Type::I64);
                     self.add_statement(vir::Statement::Syscall(binding, arg_bindings));
                     return binding.into();
                 }
@@ -542,10 +540,10 @@ impl<'a> State<'a> {
                 let (list, index) = indexing.as_ref();
                 let list = self.process_expression(list).unwrap_binding();
                 let index = self.process_expression(index);
-                if self.binding_type(list).base == STRING.base {
+                if self.binding_type(list) == STRING {
                     let string = list;
-                    let string_pointer = self.make_temporary(I8.pointer());
-                    let binding = self.make_temporary(I8);
+                    let string_pointer = self.make_temporary(Type::I8.pointer());
+                    let binding = self.make_temporary(Type::I8);
                     self.add_statement(vir::Statement::Field(string_pointer, string, 0));
                     self.add_statement(vir::Statement::Index(binding, string_pointer, index));
                     binding.into()
@@ -554,7 +552,7 @@ impl<'a> State<'a> {
                     if list_type.is_error() {
                         return Value::Error;
                     }
-                    let vir::BaseType::Struct(list_struct_id, _) = list_type.base else {
+                    let vir::Type::Struct(list_struct_id, _) = list_type else {
                         unreachable!()
                     };
                     let pointer_type = &self.structs[list_struct_id].fields[0];
@@ -572,7 +570,7 @@ impl<'a> State<'a> {
                     .map(|initial| self.process_expression(initial))
                     .collect();
                 let element_type = if let Some(initial_0) = initial_bindings.first() {
-                    let first_type = self.value_type(*initial_0).base.into();
+                    let first_type = self.value_type(*initial_0);
                     for (later_binding, later_expr) in initial_bindings.iter().zip(initial_exprs) {
                         self.check_type_compatible(
                             &first_type,
@@ -582,7 +580,7 @@ impl<'a> State<'a> {
                     }
                     first_type
                 } else {
-                    I64
+                    Type::I64
                 };
                 let list_type = self.resolve_type(element_type.list());
                 let length = Value::ConstI64(initial_bindings.len() as i64);
@@ -606,7 +604,11 @@ impl<'a> State<'a> {
                 let element_type = self.value_type(initial_binding);
 
                 let length_binding = self.process_expression(length);
-                self.check_type_compatible(&I64, &self.value_type(length_binding), length.span);
+                self.check_type_compatible(
+                    &Type::I64,
+                    &self.value_type(length_binding),
+                    length.span,
+                );
 
                 let pointer = self.make_temporary(element_type.pointer());
                 self.add_statement(vir::Statement::Alloc(pointer, length_binding));
@@ -614,8 +616,8 @@ impl<'a> State<'a> {
                 let init_condition_block = self.make_block();
                 let init_body_block = self.make_block();
                 let init_after_block = self.make_block();
-                let i_cmp = self.make_temporary(BOOL);
-                let i = self.make_temporary(I64);
+                let i_cmp = self.make_temporary(Type::Bool);
+                let i = self.make_temporary(Type::I64);
                 self.add_statement(vir::Statement::Assignment(i, Value::ConstI64(0)));
                 self.add_statement(vir::Statement::JumpAlways(init_condition_block));
 
@@ -671,8 +673,8 @@ impl<'a> State<'a> {
                 use UnaryOperator::*;
                 let arg = self.process_expression(arg);
                 let type_ = match op {
-                    Negate | BitNot => I64,
-                    LogicNot => BOOL,
+                    Negate | BitNot => Type::I64,
+                    LogicNot => Type::Bool,
                 };
                 let binding = self.make_temporary(type_);
                 self.add_statement(vir::Statement::UnaryOperator(binding, *op, arg));
@@ -707,9 +709,9 @@ impl<'a> State<'a> {
                 let (list, index) = indexing.as_ref();
                 let list = self.process_expression(list).unwrap_binding();
                 let index = self.process_expression(index);
-                if self.binding_type(list).base == STRING.base {
+                if self.binding_type(list) == STRING {
                     let string = list;
-                    let string_pointer = self.make_temporary(I8.pointer());
+                    let string_pointer = self.make_temporary(Type::I8.pointer());
                     // TODO: Typecheck src is either I64 or I8, and fix the backends probably?
                     self.add_statement(vir::Statement::Field(string_pointer, string, 0));
                     self.add_statement(vir::Statement::AssignmentIndex(
@@ -719,7 +721,7 @@ impl<'a> State<'a> {
                     ));
                 } else {
                     let list_type = self.binding_type(list);
-                    let vir::BaseType::Struct(list_struct_id, _) = list_type.base else {
+                    let vir::Type::Struct(list_struct_id, _) = list_type else {
                         unreachable!()
                     };
                     let pointer_type = &self.structs[list_struct_id].fields[0];
@@ -769,8 +771,8 @@ impl<'a> State<'a> {
     }
 
     fn compute_used_walk_type(&mut self, type_: vir::Type) {
-        match type_.base {
-            vir::BaseType::Struct(struct_id, _) => {
+        match type_ {
+            vir::Type::Struct(struct_id, _) => {
                 if !self.structs[struct_id].is_used {
                     self.structs[struct_id].is_used = true;
                     for field_id in 0..self.structs[struct_id].fields.len() {
@@ -780,7 +782,7 @@ impl<'a> State<'a> {
                     }
                 }
             }
-            vir::BaseType::Pointer(inner) => {
+            vir::Type::Pointer(inner) => {
                 self.compute_used_walk_type((*inner).clone());
             }
             _ => {}
@@ -788,7 +790,7 @@ impl<'a> State<'a> {
     }
 
     fn list_get_element(&self, type_: &vir::Type) -> Option<vir::Type> {
-        let vir::BaseType::Struct(early_struct_id, early_args) = &type_.base else {
+        let vir::Type::Struct(early_struct_id, early_args) = type_ else {
             return None;
         };
         if *early_struct_id == 1 {
@@ -833,9 +835,9 @@ impl<'a> State<'a> {
     }
 
     fn instantiate_type(&mut self, type_: vir::Type) -> vir::Type {
-        use vir::BaseType::*;
-        let base = match &type_.base {
-            I64 | I8 | Bool | Void | Error => type_.base.clone(),
+        use vir::Type::*;
+        match &type_ {
+            I64 | I8 | Bool | Void | Error => type_.clone(),
             Pointer(inner) => Pointer(Box::new(self.instantiate_type((**inner).clone()))),
             Struct(struct_id, args) if !args.is_empty() && type_.is_fully_substituted() => {
                 let args = args
@@ -844,12 +846,8 @@ impl<'a> State<'a> {
                     .collect();
                 Struct(self.generic_struct_request(*struct_id, args), Vec::new())
             }
-            Struct(_, _) => type_.base.clone(),
-            TypeVariable(_) => type_.base.clone(),
-        };
-        vir::Type {
-            predicates: type_.predicates.clone(),
-            base,
+            Struct(_, _) => type_.clone(),
+            TypeVariable(_) => type_.clone(),
         }
     }
 
@@ -1041,22 +1039,21 @@ impl<'a> State<'a> {
     ) -> (vir::Type, &'b [Spanned<&'a str>]) {
         let (head, tail) = segments.split_first().unwrap();
         match (**head, tail) {
-            ("int", []) => return (I64, &[]),
-            ("i8", []) => return (I8, &[]),
-            ("bool", []) => return (BOOL, &[]),
+            ("int", []) => return (Type::I64, &[]),
+            ("i8", []) => return (Type::I8, &[]),
+            ("bool", []) => return (Type::Bool, &[]),
             ("ptr", tail) => {
                 let (inner, tail) = self.convert_type_impl(tail, ctx);
-                return (vir::BaseType::Pointer(Box::new(inner)).into(), tail);
+                return (vir::Type::Pointer(Box::new(inner)), tail);
             }
             _ => {}
         }
-        if let Some(&function_id) = self.function_map.get(**head) {
-            let (mut type_, tail) = self.convert_type_impl(tail, ctx);
-            type_.predicates.push(function_id);
+        if let Some(&_function_id) = self.function_map.get(**head) {
+            let (type_, tail) = self.convert_type_impl(tail, ctx);
             return (type_, tail);
         }
         let mut type_ = self.struct_by_name(*head, ctx);
-        if let vir::BaseType::Struct(struct_id, struct_args) = &mut type_.base {
+        if let vir::Type::Struct(struct_id, struct_args) = &mut type_ {
             let mut tail = tail;
             for _ in 0..self.structs[*struct_id].type_arg_map.len() {
                 let (arg, new_tail) = self.convert_type_impl(tail, ctx);
@@ -1078,9 +1075,9 @@ impl<'a> State<'a> {
     fn value_type(&self, value: Value) -> vir::Type {
         match value {
             Value::Binding(binding) => self.binding_type(binding),
-            Value::ConstBool(_) => BOOL,
-            Value::ConstI64(_) => I64,
-            Value::Error => ERROR,
+            Value::ConstBool(_) => Type::Bool,
+            Value::ConstI64(_) => Type::I64,
+            Value::Error => Type::Error,
             Value::String(_) => STRING,
         }
     }
@@ -1116,7 +1113,7 @@ impl<'a> State<'a> {
                     note: String::new(),
                     note_span: name.span,
                 });
-                vir::BaseType::Error.into()
+                vir::Type::Error
             }
         }
     }
@@ -1131,11 +1128,11 @@ impl<'a> State<'a> {
             TypeArgContext::Custom(custom) => custom,
         };
         if let Some(type_variable) = type_variable_map.get(*name) {
-            return Some(vir::BaseType::TypeVariable(*type_variable).into());
+            return Some(vir::Type::TypeVariable(*type_variable));
         }
         self.struct_map
             .get(*name)
-            .map(|id| vir::BaseType::Struct(*id, Vec::new()).into())
+            .map(|id| vir::Type::Struct(*id, Vec::new()))
     }
 
     fn struct_field(&mut self, struct_id: usize, field_name: Spanned<&str>) -> Result<usize, ()> {
@@ -1158,18 +1155,12 @@ impl<'a> State<'a> {
     }
 
     fn format_type(&self, type_: &vir::Type) -> String {
-        let predicates: String = type_
-            .predicates
-            .iter()
-            .rev()
-            .flat_map(|id| format!("{} ", self.functions[*id].name).into_chars())
-            .collect();
-        let base = match &type_.base {
-            vir::BaseType::I64 => "int".to_owned(),
-            vir::BaseType::I8 => "i8".to_owned(),
-            vir::BaseType::Bool => "bool".to_owned(),
-            vir::BaseType::Pointer(inner) => format!("ptr {}", self.format_type(inner)),
-            vir::BaseType::Struct(struct_id, args) => {
+        match type_ {
+            vir::Type::I64 => "int".to_owned(),
+            vir::Type::I8 => "i8".to_owned(),
+            vir::Type::Bool => "bool".to_owned(),
+            vir::Type::Pointer(inner) => format!("ptr {}", self.format_type(inner)),
+            vir::Type::Struct(struct_id, args) => {
                 let struct_ = &self.structs[*struct_id];
                 let (name, args) = if let Some(instantiation_info) = &struct_.instantiation_info {
                     let generic_struct = &self.structs[instantiation_info.generic_struct_id];
@@ -1183,11 +1174,10 @@ impl<'a> State<'a> {
                     .collect();
                 format!("{name}{args}")
             }
-            vir::BaseType::Void => "void".to_owned(),
-            vir::BaseType::TypeVariable(id) => format!("(type variable {id})"),
-            vir::BaseType::Error => "(type error)".to_owned(),
-        };
-        format!("{predicates}{base}")
+            vir::Type::Void => "void".to_owned(),
+            vir::Type::TypeVariable(id) => format!("(type variable {id})"),
+            vir::Type::Error => "(type error)".to_owned(),
+        }
     }
 }
 
