@@ -722,7 +722,15 @@ impl<'a> State<'a> {
                 if self.binding_type(list) == STRING {
                     let string = list;
                     let string_pointer = self.make_temporary(Type::I8.pointer());
-                    // TODO: Typecheck src is either I64 or I8, and fix the backends probably?
+                    // TODO: Remove i64 option once i8 literals work.
+                    if !matches!(src_type, Type::I8 | Type::I64) {
+                        let src_fmt = self.format_type(&src_type);
+                        self.errors.push(Error {
+                            message: "type error",
+                            note: format!("expected i8, found {src_fmt}"),
+                            note_span: src.span,
+                        });
+                    }
                     self.add_statement(vir::Statement::Field(string_pointer, string, 0));
                     self.add_statement(vir::Statement::AssignmentIndex(
                         string_pointer,

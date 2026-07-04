@@ -1,4 +1,9 @@
 a = "Hello"
 a[2] = "cursed"
 
-# ignore
+# error: type error
+#  --> test.virtue:2:8
+#    |
+#  2 | a[2] = "cursed"
+#    |        ^^^^^^^^ expected i8, found string
+#
