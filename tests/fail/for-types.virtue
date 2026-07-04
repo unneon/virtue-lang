@@ -5,17 +5,17 @@ for i from "not much" to "a lot" by "small step"
 #  --> test.virtue:1:12
 #    |
 #  1 | for i from "not much" to "a lot" by "small step"
-#    |            ^^^^^^^^^^ expected int, found string
+#    |            ^^^^^^^^^^ expected i64, found string
 #
 # error: type error
 #  --> test.virtue:1:26
 #    |
 #  1 | for i from "not much" to "a lot" by "small step"
-#    |                          ^^^^^^^ expected int, found string
+#    |                          ^^^^^^^ expected i64, found string
 #
 # error: type error
 #  --> test.virtue:1:37
 #    |
 #  1 | for i from "not much" to "a lot" by "small step"
-#    |                                     ^^^^^^^^^^^^ expected int, found string
+#    |                                     ^^^^^^^^^^^^ expected i64, found string
 #

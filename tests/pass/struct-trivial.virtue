@@ -1,5 +1,5 @@
 struct trivial
-    a int
+    a i64
 t = new trivial
 t.a = 42
 a = t.a

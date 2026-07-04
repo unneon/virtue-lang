@@ -136,7 +136,7 @@ impl<'a> State<'a> {
             let fallthrough = self.process_block(self.functions[current_function].ast_block);
             if fallthrough == Fallthrough::Reachable {
                 if self.current_function().is_main {
-                    self.add_statement(vir::Statement::Return(Some(Value::ConstI64(0))));
+                    self.add_statement(vir::Statement::Return(Some(Value::ConstInt(0))));
                 } else if self.current_function().return_type.is_void() {
                     self.add_statement(vir::Statement::Return(None));
                 }
@@ -193,7 +193,7 @@ impl<'a> State<'a> {
                         self.check_type_compatible(&Type::I64, &self.value_type(step), step_span);
                         step
                     } else {
-                        Value::ConstI64(1)
+                        Value::ConstInt(1)
                     };
 
                     let index = self.make_variable(index, Type::I64);
@@ -267,7 +267,7 @@ impl<'a> State<'a> {
                     let value = self.process_expression(value).unwrap_binding();
                     self.check_type_compatible(&Type::I64, &self.binding_type(value), value_span);
 
-                    let one = Value::ConstI64(1);
+                    let one = Value::ConstInt(1);
                     let op = match op {
                         IncrementDecrementOperator::Increment => BinaryOperator::Add,
                         IncrementDecrementOperator::Decrement => BinaryOperator::Subtract,
@@ -286,7 +286,7 @@ impl<'a> State<'a> {
                                 let function = self.function_map["virtue_print_raw"];
                                 let string_id = self.make_string(text);
                                 let pointer = Value::String(string_id);
-                                let length = Value::ConstI64(self.string_len(string_id) as i64);
+                                let length = Value::ConstInt(self.string_len(string_id) as i64);
                                 self.add_statement(vir::Statement::Call {
                                     return_: None,
                                     function,
@@ -294,15 +294,18 @@ impl<'a> State<'a> {
                                 });
                             }
                             FormatSegment::Variable(var) => {
-                                let var = self.variable_binding(var);
+                                let Ok(var) = self.variable_binding(*var) else {
+                                    continue;
+                                };
                                 let var_type = self.binding_type(var);
                                 let function_name = match var_type {
+                                    vir::Type::I32 => "virtue_print_int",
                                     vir::Type::I64 => "virtue_print_int",
                                     vir::Type::Bool => "virtue_print_bool",
                                     vir::Type::Struct(0, _) => "virtue_print_str",
                                     vir::Type::TypeVariable(_) => continue,
                                     vir::Type::Error => continue,
-                                    _ => todo!(),
+                                    _ => todo!("{var_type:?}"),
                                 };
                                 let function = self.function_map[function_name];
                                 self.add_statement(vir::Statement::Call {
@@ -317,7 +320,7 @@ impl<'a> State<'a> {
                     self.add_statement(vir::Statement::Call {
                         return_: None,
                         function: self.function_map["virtue_print_raw"],
-                        args: vec![Value::String(newline_string_id), Value::ConstI64(1)],
+                        args: vec![Value::String(newline_string_id), Value::ConstInt(1)],
                     });
                 }
                 ast::Statement::Return { value } => {
@@ -523,7 +526,11 @@ impl<'a> State<'a> {
                 todo!()
             }
             ast::Expression::Field(object_expr, field_name) => {
-                let object_binding = self.process_expression(object_expr).unwrap_binding();
+                let object_value = self.process_expression(object_expr);
+                if object_value.is_error() {
+                    return Value::Error;
+                }
+                let object_binding = object_value.unwrap_binding();
                 let struct_type = self.binding_type(object_binding);
                 if struct_type.is_error() {
                     return Value::Error;
@@ -583,13 +590,13 @@ impl<'a> State<'a> {
                     Type::I64
                 };
                 let list_type = self.resolve_type(element_type.list());
-                let length = Value::ConstI64(initial_bindings.len() as i64);
+                let length = Value::ConstInt(initial_bindings.len() as i64);
                 let pointer = self.make_temporary(element_type.pointer());
                 self.add_statement(vir::Statement::Alloc(pointer, length));
                 for (i, initial_binding) in initial_bindings.iter().enumerate() {
                     self.add_statement(vir::Statement::AssignmentIndex(
                         pointer,
-                        Value::ConstI64(i as i64),
+                        Value::ConstInt(i as i64),
                         *initial_binding,
                     ));
                 }
@@ -618,7 +625,7 @@ impl<'a> State<'a> {
                 let init_after_block = self.make_block();
                 let i_cmp = self.make_temporary(Type::Bool);
                 let i = self.make_temporary(Type::I64);
-                self.add_statement(vir::Statement::Assignment(i, Value::ConstI64(0)));
+                self.add_statement(vir::Statement::Assignment(i, Value::ConstInt(0)));
                 self.add_statement(vir::Statement::JumpAlways(init_condition_block));
 
                 self.current_block = init_condition_block;
@@ -644,7 +651,7 @@ impl<'a> State<'a> {
                     i,
                     BinaryOperator::Add,
                     i.into(),
-                    Value::ConstI64(1),
+                    Value::ConstInt(1),
                 ));
                 self.add_statement(vir::Statement::JumpAlways(init_condition_block));
 
@@ -655,7 +662,7 @@ impl<'a> State<'a> {
                 self.add_statement(vir::Statement::AssignmentField(list, 1, length_binding));
                 list.into()
             }
-            ast::Expression::Literal(literal) => Value::ConstI64(*literal),
+            ast::Expression::Literal(literal) => Value::ConstInt(literal.value as i64),
             ast::Expression::New(type_) => {
                 let type_ = self.resolve_ast_type(type_);
                 self.make_temporary(type_).into()
@@ -664,7 +671,7 @@ impl<'a> State<'a> {
                 let string_id = self.make_string(literal);
                 let binding = self.make_temporary(STRING);
                 let pointer_binding = Value::String(string_id);
-                let length_binding = Value::ConstI64(self.string_len(string_id) as i64);
+                let length_binding = Value::ConstInt(self.string_len(string_id) as i64);
                 self.add_statement(vir::Statement::AssignmentField(binding, 0, pointer_binding));
                 self.add_statement(vir::Statement::AssignmentField(binding, 1, length_binding));
                 binding.into()
@@ -680,7 +687,10 @@ impl<'a> State<'a> {
                 self.add_statement(vir::Statement::UnaryOperator(binding, *op, arg));
                 binding.into()
             }
-            ast::Expression::Variable(variable) => self.variable_binding(variable).into(),
+            ast::Expression::Variable(variable) => match self.variable_binding(*variable) {
+                Ok(binding) => binding.into(),
+                Err(()) => Value::Error,
+            },
         }
     }
 
@@ -837,7 +847,7 @@ impl<'a> State<'a> {
     fn instantiate_type(&mut self, type_: vir::Type) -> vir::Type {
         use vir::Type::*;
         match &type_ {
-            I64 | I8 | Bool | Void | Error => type_.clone(),
+            U8 | U16 | U32 | U64 | I8 | I16 | I32 | I64 | Bool | Void | Error => type_.clone(),
             Pointer(inner) => Pointer(Box::new(self.instantiate_type((**inner).clone()))),
             Struct(struct_id, args) if !args.is_empty() && type_.is_fully_substituted() => {
                 let args = args
@@ -1039,8 +1049,14 @@ impl<'a> State<'a> {
     ) -> (vir::Type, &'b [Spanned<&'a str>]) {
         let (head, tail) = segments.split_first().unwrap();
         match (**head, tail) {
-            ("int", []) => return (Type::I64, &[]),
+            ("u8", []) => return (Type::I8, &[]),
+            ("u16", []) => return (Type::I16, &[]),
+            ("u32", []) => return (Type::I32, &[]),
+            ("u64", []) => return (Type::I64, &[]),
             ("i8", []) => return (Type::I8, &[]),
+            ("i16", []) => return (Type::I16, &[]),
+            ("i32", []) => return (Type::I32, &[]),
+            ("i64", []) => return (Type::I64, &[]),
             ("bool", []) => return (Type::Bool, &[]),
             ("ptr", tail) => {
                 let (inner, tail) = self.convert_type_impl(tail, ctx);
@@ -1076,14 +1092,23 @@ impl<'a> State<'a> {
         match value {
             Value::Binding(binding) => self.binding_type(binding),
             Value::ConstBool(_) => Type::Bool,
-            Value::ConstI64(_) => Type::I64,
+            Value::ConstInt(_) => Type::I64,
             Value::Error => Type::Error,
             Value::String(_) => STRING,
         }
     }
 
-    fn variable_binding(&self, variable: &str) -> Binding {
-        self.current_function().binding_map[variable]
+    fn variable_binding(&mut self, variable: Spanned<&str>) -> Result<Binding, ()> {
+        if let Some(binding) = self.current_function().binding_map.get(*variable) {
+            Ok(*binding)
+        } else {
+            self.errors.push(Error {
+                message: "variable does not exist",
+                note: String::new(),
+                note_span: variable.span,
+            });
+            Err(())
+        }
     }
 
     fn binding_type(&self, binding: Binding) -> vir::Type {
@@ -1156,8 +1181,14 @@ impl<'a> State<'a> {
 
     fn format_type(&self, type_: &vir::Type) -> String {
         match type_ {
-            vir::Type::I64 => "int".to_owned(),
+            vir::Type::U8 => "u8".to_owned(),
+            vir::Type::U16 => "u16".to_owned(),
+            vir::Type::U32 => "u32".to_owned(),
+            vir::Type::U64 => "u64".to_owned(),
             vir::Type::I8 => "i8".to_owned(),
+            vir::Type::I16 => "i16".to_owned(),
+            vir::Type::I32 => "i32".to_owned(),
+            vir::Type::I64 => "i64".to_owned(),
             vir::Type::Bool => "bool".to_owned(),
             vir::Type::Pointer(inner) => format!("ptr {}", self.format_type(inner)),
             vir::Type::Struct(struct_id, args) => {

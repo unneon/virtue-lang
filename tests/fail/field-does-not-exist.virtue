@@ -1,6 +1,6 @@
 struct hello
-    a int
-    b int
+    a i64
+    b i64
 h = new hello
 h.c = 3
 c = h.c

@@ -5,5 +5,5 @@ a[0] = "Hello?"
 #  --> test.virtue:2:8
 #    |
 #  2 | a[0] = "Hello?"
-#    |        ^^^^^^^^ expected int, found string
+#    |        ^^^^^^^^ expected i64, found string
 #

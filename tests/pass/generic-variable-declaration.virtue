@@ -1,7 +1,7 @@
 func f(x t, t type) t
     y t = x
     return y
-y = f(1, int)
+y = f(1, i64)
 print "{y}"
 
 # 1

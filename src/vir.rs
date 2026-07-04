@@ -72,7 +72,7 @@ pub struct Binding {
 pub enum Value {
     Binding(Binding),
     ConstBool(bool),
-    ConstI64(i64),
+    ConstInt(i64),
     Error,
     String(usize),
 }
@@ -90,8 +90,14 @@ pub struct Struct<'a> {
 
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub enum Type {
-    I64,
+    U8,
+    U16,
+    U32,
+    U64,
     I8,
+    I16,
+    I32,
+    I64,
     Bool,
     Pointer(Box<Type>),
     Struct(usize, Vec<Type>),
@@ -109,8 +115,14 @@ pub struct InstantiationInfo {
 impl Program<'_> {
     pub fn byte_size(&self, type_: &Type) -> usize {
         match type_ {
-            Type::I64 => 8,
+            Type::U8 => 1,
+            Type::U16 => 2,
+            Type::U32 => 4,
+            Type::U64 => 8,
             Type::I8 => 1,
+            Type::I16 => 2,
+            Type::I32 => 4,
+            Type::I64 => 8,
             Type::Bool => 1,
             Type::Pointer(_) => 8,
             Type::Struct(struct_id, _) => self.structs[*struct_id]
@@ -139,11 +151,16 @@ impl Function<'_> {
 }
 
 impl Value {
+    #[track_caller]
     pub fn unwrap_binding(&self) -> Binding {
         match self {
             Value::Binding(binding) => *binding,
-            _ => unreachable!(),
+            _ => unreachable!("not a binding {self:?}"),
         }
+    }
+
+    pub fn is_error(&self) -> bool {
+        matches!(self, Value::Error)
     }
 }
 
@@ -165,7 +182,7 @@ impl Type {
     pub fn substitute_types(&self, substitutions: &[Type]) -> Type {
         use Type::*;
         match self {
-            I64 | I8 | Bool => self.clone(),
+            U8 | U16 | U32 | U64 | I8 | I16 | I32 | I64 | Bool => self.clone(),
             Pointer(inner) => Pointer(Box::new(inner.substitute_types(substitutions))),
             Struct(id, args) => Struct(
                 *id,
@@ -183,7 +200,7 @@ impl Type {
         use Type::*;
         match self {
             Pointer(inner) => inner.is_fully_substituted(),
-            I64 | I8 | Bool | Void => true,
+            U8 | U16 | U32 | U64 | I8 | I16 | I32 | I64 | Bool | Void => true,
             Struct(_, args) => args.iter().all(Type::is_fully_substituted),
             TypeVariable(_) => false,
             Error => true,
@@ -194,7 +211,7 @@ impl Type {
         use Type::*;
         match self {
             Pointer(inner) => inner.is_fully_instantiated(),
-            I64 | I8 | Bool | Void => true,
+            U8 | U16 | U32 | U64 | I8 | I16 | I32 | I64 | Bool | Void => true,
             Struct(_, args) => args.is_empty(),
             TypeVariable(_) => true,
             Error => true,
@@ -252,8 +269,14 @@ impl std::fmt::Debug for Binding {
 impl std::fmt::Debug for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Type::I64 => write!(f, "i64")?,
+            Type::U8 => write!(f, "u8")?,
+            Type::U16 => write!(f, "u16")?,
+            Type::U32 => write!(f, "u32")?,
+            Type::U64 => write!(f, "u64")?,
             Type::I8 => write!(f, "i8")?,
+            Type::I16 => write!(f, "i16")?,
+            Type::I32 => write!(f, "i32")?,
+            Type::I64 => write!(f, "i64")?,
             Type::Bool => write!(f, "bool")?,
             Type::Pointer(inner) => write!(f, "ptr {inner:?}")?,
             Type::Struct(struct_id, args) => {

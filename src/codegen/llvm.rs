@@ -497,7 +497,7 @@ impl<'a> State<'a> {
             Value::ConstBool(value) => {
                 return self.ctx.bool_type().const_int(*value as u64, false).into();
             }
-            Value::ConstI64(value) => {
+            Value::ConstInt(value) => {
                 return self.ctx.i64_type().const_int(*value as u64, true).into();
             }
             Value::Error => unreachable!(),
@@ -541,7 +541,7 @@ impl<'a> State<'a> {
                 self.vir.functions[self.current_function].bindings[binding.id].clone()
             }
             Value::ConstBool(_) => Type::Bool,
-            Value::ConstI64(_) => Type::I64,
+            Value::ConstInt(_) => Type::I64,
             Value::Error => unreachable!(),
             Value::String(_) => Type::I8.pointer(),
         }
@@ -549,8 +549,14 @@ impl<'a> State<'a> {
 
     fn convert_type(&self, type_: &Type) -> BasicTypeEnum<'a> {
         match *type_ {
-            Type::I64 => self.ctx.i64_type().into(),
+            Type::U8 => self.ctx.i8_type().into(),
+            Type::U16 => self.ctx.i16_type().into(),
+            Type::U32 => self.ctx.i32_type().into(),
+            Type::U64 => self.ctx.i64_type().into(),
             Type::I8 => self.ctx.i8_type().into(),
+            Type::I16 => self.ctx.i16_type().into(),
+            Type::I32 => self.ctx.i32_type().into(),
+            Type::I64 => self.ctx.i64_type().into(),
             Type::Bool => self.ctx.i8_type().into(),
             Type::Pointer(_) => self.ctx.ptr_type(AddressSpace::default()).into(),
             Type::Struct(id, _) => self.struct_types[id].into(),

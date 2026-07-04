@@ -1,4 +1,4 @@
-func f(a int, b int)
+func f(a i64, b i64)
 
 f(0)
 f(0, 0, 0)

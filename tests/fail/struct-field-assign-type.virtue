@@ -1,5 +1,5 @@
 struct hello
-    a int
+    a i64
 h = new hello
 h.a = "what"
 
@@ -7,5 +7,5 @@ h.a = "what"
 #  --> test.virtue:4:7
 #    |
 #  4 | h.a = "what"
-#    |       ^^^^^^ expected int, found string
+#    |       ^^^^^^ expected i64, found string
 #

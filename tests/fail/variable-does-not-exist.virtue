@@ -1,0 +1,8 @@
+print "{a}"
+
+# error: variable does not exist
+#  --> test.virtue:1:9
+#    |
+#  1 | print "{a}"
+#    |         ^
+#

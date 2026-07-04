@@ -1,6 +1,6 @@
 struct pair
-    a int
-    b int
+    a i64
+    b i64
 
 p = new pair
 p.a = 42

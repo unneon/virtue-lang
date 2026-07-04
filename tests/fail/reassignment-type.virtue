@@ -1,9 +1,9 @@
-a int = 42
+a i64 = 42
 a = "what now"
 
 # error: type error
 #  --> test.virtue:2:5
 #    |
 #  2 | a = "what now"
-#    |     ^^^^^^^^^^ expected int, found string
+#    |     ^^^^^^^^^^ expected i64, found string
 #

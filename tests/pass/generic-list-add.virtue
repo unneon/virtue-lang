@@ -1,6 +1,6 @@
 func add_lists(a list t, b list t, t type) list t
     return a + b
-c = add_lists([1, 2], [3, 4, 5], int)
+c = add_lists([1, 2], [3, 4, 5], i64)
 first = c[0]
 last = c[4]
 length = c.length

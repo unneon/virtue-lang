@@ -1,6 +1,6 @@
 struct simple
-    a int
-    b int
+    a i64
+    b i64
 func f() simple
     s = new simple
     s.a = 1234

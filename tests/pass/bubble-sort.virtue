@@ -1,4 +1,4 @@
-func bubble_sort(xs list int)
+func bubble_sort(xs list i64)
     for j from 0 to xs.length - 2
         for i from 0 to xs.length - 2
             if xs[i] > xs[i + 1]

@@ -1,9 +1,9 @@
-func (a int, b int) int
+func (a i64, b i64) i64
     return a + b
 
 # error: parse error
 #  --> test.virtue:1:6
 #    |
-#  1 | func (a int, b int) int
+#  1 | func (a i64, b i64) i64
 #    |      ^ expected identifier
 #

@@ -80,7 +80,7 @@ pub enum Expression<'a> {
     Index(Box<(Expression<'a>, Spanned<Expression<'a>>)>),
     ListLiteral(Vec<Spanned<Expression<'a>>>),
     ListRepeat(Box<(Spanned<Expression<'a>>, Spanned<Expression<'a>>)>),
-    Literal(i64),
+    Literal(Spanned<i128>),
     New(Type<'a>),
     Field(Box<Expression<'a>>, Spanned<&'a str>),
     StringLiteral(Vec<&'a str>),
@@ -131,7 +131,7 @@ pub struct Format<'a> {
 #[derive(Debug)]
 pub enum FormatSegment<'a> {
     Text(Vec<&'a str>),
-    Variable(&'a str),
+    Variable(Spanned<&'a str>),
 }
 
 impl Type<'_> {

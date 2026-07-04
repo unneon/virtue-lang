@@ -5,5 +5,5 @@ func hello() string
 #  --> test.virtue:2:12
 #    |
 #  2 |     return 42
-#    |            ^^ expected string, found int
+#    |            ^^ expected string, found i64
 #

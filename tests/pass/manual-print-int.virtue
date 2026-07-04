@@ -1,4 +1,4 @@
-func print_int(n int)
+func print_int(n i64)
     is_negative = n < 0
     if is_negative
         n = -n

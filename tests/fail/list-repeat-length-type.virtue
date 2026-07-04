@@ -4,5 +4,5 @@ a = [0; "100"]
 #  --> test.virtue:1:9
 #    |
 #  1 | a = [0; "100"]
-#    |         ^^^^^ expected int, found string
+#    |         ^^^^^ expected i64, found string
 #

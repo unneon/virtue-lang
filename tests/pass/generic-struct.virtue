@@ -1,7 +1,7 @@
 struct generic_struct(t type)
     field t
 
-ints = new generic_struct int
+ints = new generic_struct i64
 strings = new generic_struct string
 
 ints.field = 42

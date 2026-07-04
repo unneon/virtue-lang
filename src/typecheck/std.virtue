@@ -1,10 +1,10 @@
 struct string
     pointer ptr i8
-    length int
+    length i64
 
 struct list(t type)
     pointer ptr t
-    length int
+    length i64
 
 func virtue_add_str(left string, right string) string
     result = new string
@@ -26,13 +26,13 @@ func virtue_add_list(left list t, right list t, t type) list t
         result[left.length + i] = right[i]
     return result
 
-func virtue_print_raw(pointer ptr i8, length int)
+func virtue_print_raw(pointer ptr i8, length i64)
     syscall(1, 1, pointer, length)
 
 func virtue_print_str(s string)
     syscall(1, 1, s.pointer, s.length)
 
-func virtue_print_int(n int)
+func virtue_print_int(n i64)
     is_negative = n < 0
     if is_negative
         n = -n

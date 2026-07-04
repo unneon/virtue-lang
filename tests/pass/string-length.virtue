@@ -1,4 +1,4 @@
-func get_string_length(s string) int
+func get_string_length(s string) i64
     return s.length
 
 x = get_string_length("Hello, world!")

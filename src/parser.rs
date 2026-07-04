@@ -88,7 +88,7 @@ fn module(input: &str) -> Result<Module> {
                 name: "_start",
                 args: Vec::new(),
                 return_type: Some(Type {
-                    segments: vec![Spanned::fake("int")],
+                    segments: vec![Spanned::fake("i64")],
                 }),
                 body,
             };
@@ -332,7 +332,7 @@ fn format_segment_text<'a>() -> impl Parser<'a, FormatSegment<'a>> {
 }
 
 fn format_segment_variable<'a>() -> impl Parser<'a, FormatSegment<'a>> {
-    delimited(char('{'), identifier, char('}')).map(FormatSegment::Variable)
+    delimited(char('{'), spanned(identifier), char('}')).map(FormatSegment::Variable)
 }
 
 fn expression<'a>() -> impl Parser<'a, Spanned<Expression<'a>>> {
@@ -485,9 +485,14 @@ fn identifier(input: &str) -> Result<&str> {
 }
 
 fn integer_literal(input: &str) -> Result<Expression> {
-    let (input, literal) = preceded(sp, digit1).parse(input)?;
-    let literal = literal.parse().unwrap();
-    let expression = Expression::Literal(literal);
+    let (input, literal) = preceded(sp, spanned(digit1)).parse(input)?;
+    let expression = Expression::Literal(
+        literal
+            .value
+            .parse::<i128>()
+            .unwrap()
+            .with_span(literal.span),
+    );
     Ok((input, expression))
 }
 

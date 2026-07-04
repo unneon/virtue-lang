@@ -5,7 +5,9 @@ pub use subprocess::compile_il;
 use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::vir;
 use crate::vir::{Binding, Function, Program, Statement, Type};
-use qbe::Type::{Byte, Long, SignedByte, UnsignedByte};
+use qbe::Type::{
+    Byte, Halfword, Long, SignedByte, SignedHalfword, UnsignedByte, UnsignedHalfword, Word,
+};
 use qbe::{Cmp, DataDef, DataItem, Instr, Linkage, TypeDef, Value};
 use std::sync::Arc;
 
@@ -247,7 +249,7 @@ impl<'a> State<'a> {
         match value {
             vir::Value::Binding(binding) => self.vir_func.bindings[binding.id].clone(),
             vir::Value::ConstBool(_) => Type::Bool,
-            vir::Value::ConstI64(_) => Type::I64,
+            vir::Value::ConstInt(_) => Type::I64,
             vir::Value::Error => unreachable!(),
             vir::Value::String(_) => Type::I8.pointer(),
         }
@@ -265,7 +267,7 @@ impl From<&vir::Value> for Value {
         match value {
             vir::Value::Binding(binding) => binding.into(),
             vir::Value::ConstBool(value) => Value::Const(*value as u64),
-            vir::Value::ConstI64(value) => Value::Const(*value as u64),
+            vir::Value::ConstInt(value) => Value::Const(*value as u64),
             vir::Value::Error => unreachable!(),
             vir::Value::String(string_id) => Value::Global(format!("string_{string_id}")),
         }
@@ -373,8 +375,14 @@ pub fn make_il(vir: &Program) -> String {
 
 fn extended_type(type_: &Type) -> qbe::Type {
     match type_ {
-        Type::I64 => Long,
+        Type::U8 => Byte,
+        Type::U16 => Halfword,
+        Type::U32 => Word,
+        Type::U64 => Long,
         Type::I8 => Byte,
+        Type::I16 => Halfword,
+        Type::I32 => Word,
+        Type::I64 => Long,
         Type::Bool => Byte,
         Type::Pointer(_) => Long,
         Type::Struct(_, _) => Long,
@@ -386,8 +394,14 @@ fn extended_type(type_: &Type) -> qbe::Type {
 
 fn abi_type(type_: &Type, aggregates: &[Option<Arc<TypeDef>>]) -> qbe::Type {
     match type_ {
-        Type::I64 => Long,
+        Type::U8 => UnsignedByte,
+        Type::U16 => UnsignedHalfword,
+        Type::U32 => Word,
+        Type::U64 => Long,
         Type::I8 => SignedByte,
+        Type::I16 => SignedHalfword,
+        Type::I32 => Word,
+        Type::I64 => Long,
         Type::Bool => UnsignedByte,
         Type::Pointer(_) => Long,
         Type::Struct(struct_id, _) => {
@@ -401,8 +415,14 @@ fn abi_type(type_: &Type, aggregates: &[Option<Arc<TypeDef>>]) -> qbe::Type {
 
 fn load_type(type_: &Type) -> qbe::Type {
     match type_ {
-        Type::I64 => Long,
+        Type::U8 => UnsignedByte,
+        Type::U16 => UnsignedHalfword,
+        Type::U32 => Word,
+        Type::U64 => Long,
         Type::I8 => SignedByte,
+        Type::I16 => SignedHalfword,
+        Type::I32 => Word,
+        Type::I64 => Long,
         Type::Bool => UnsignedByte,
         Type::Pointer(_) => Long,
         Type::Struct(_, _) => Long,

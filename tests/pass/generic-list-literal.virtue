@@ -1,7 +1,7 @@
 func f(x t, t type) list t
     return [x, x, x, x]
 xs = f("nya", string)
-ys = f(123, int)
+ys = f(123, i64)
 x = xs[2]
 y = ys[2]
 xl = xs.length

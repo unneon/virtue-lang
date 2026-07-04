@@ -304,7 +304,7 @@ impl From<vir::Value> for Value {
         match value {
             vir::Value::Binding(binding) => Value::Binding(binding),
             vir::Value::ConstBool(value) => Value::Const(value as i64),
-            vir::Value::ConstI64(value) => Value::Const(value),
+            vir::Value::ConstInt(value) => Value::Const(value),
             vir::Value::Error => unreachable!(),
             vir::Value::String(string_id) => Value::String(string_id),
         }
@@ -315,7 +315,7 @@ fn convert_value(value: &vir::Value) -> String {
     match value {
         vir::Value::Binding(binding) => format!("_{}", binding.id),
         vir::Value::ConstBool(value) => (*value as i64).to_string(),
-        vir::Value::ConstI64(value) => value.to_string(),
+        vir::Value::ConstInt(value) => value.to_string(),
         vir::Value::Error => unreachable!(),
         vir::Value::String(string_id) => format!("str{string_id}"),
     }
@@ -323,8 +323,14 @@ fn convert_value(value: &vir::Value) -> String {
 
 fn convert_type(type_: &Type) -> String {
     match type_ {
-        Type::I64 => "long long".to_owned(),
-        Type::I8 => "signed char".to_owned(),
+        Type::U8 => "uint8_t".to_owned(),
+        Type::U16 => "uint16_t".to_owned(),
+        Type::U32 => "uint32_t".to_owned(),
+        Type::U64 => "uint64_t".to_owned(),
+        Type::I8 => "int8_t".to_owned(),
+        Type::I16 => "int16_t".to_owned(),
+        Type::I32 => "int32_t".to_owned(),
+        Type::I64 => "int64_t".to_owned(),
         Type::Bool => "unsigned char".to_owned(),
         Type::Pointer(inner) => format!("{}*", convert_type(inner)),
         Type::Struct(name, _) => format!("struct struct{name}"),
@@ -343,6 +349,7 @@ pub fn make_c(vir: &Program) -> String {
         extended_register_counter: 0,
     };
 
+    state.write("#include <stdint.h>");
     state.declare_structs();
     state.declare_functions();
     state.declare_strings();

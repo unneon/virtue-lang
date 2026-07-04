@@ -1,5 +1,5 @@
 struct simple
-    a int
+    a i64
 func f() simple
     s = new simple
     s.a = 1234

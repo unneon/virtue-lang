@@ -1,15 +1,15 @@
-a int = "Hello, world!"
+a i64 = "Hello, world!"
 b string = 42
 
 # error: type error
 #  --> test.virtue:1:9
 #    |
-#  1 | a int = "Hello, world!"
-#    |         ^^^^^^^^^^^^^^^ expected int, found string
+#  1 | a i64 = "Hello, world!"
+#    |         ^^^^^^^^^^^^^^^ expected i64, found string
 #
 # error: type error
 #  --> test.virtue:2:12
 #    |
 #  2 | b string = 42
-#    |            ^^ expected string, found int
+#    |            ^^ expected string, found i64
 #

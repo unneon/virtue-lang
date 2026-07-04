@@ -5,11 +5,11 @@ b = "10" + 20
 #  --> test.virtue:1:8
 #    |
 #  1 | a = 10 + "20"
-#    |        ^ can't add int and string
+#    |        ^ can't add i64 and string
 #
 # error: incompatible types
 #  --> test.virtue:2:10
 #    |
 #  2 | b = "10" + 20
-#    |          ^ can't add string and int
+#    |          ^ can't add string and i64
 #
