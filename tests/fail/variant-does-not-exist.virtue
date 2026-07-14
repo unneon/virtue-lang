@@ -1,0 +1,13 @@
+enum yoyo
+    a
+    b
+x = yoyo.a
+y = yoyo.b
+z = yoyo.c
+
+# error: variant does not exist
+#  --> test.virtue:6:10
+#    |
+#  6 | z = yoyo.c
+#    |          ^ enum yoyo does not have this variant
+#

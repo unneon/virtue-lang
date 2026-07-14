@@ -62,7 +62,7 @@ impl<'a> State<'a> {
         let args: Vec<_> = f
             .value_args
             .iter()
-            .map(|arg| self.convert_type(&f.bindings[arg.binding.id]).into())
+            .map(|arg| self.convert_type(&f.bindings[arg.binding.id()]).into())
             .collect();
         self.module.add_function(
             f.name.as_ref(),
@@ -144,7 +144,7 @@ impl<'a> State<'a> {
         for statement in block {
             match statement {
                 Statement::Alloc(pointer, count) => {
-                    let element_type = function.bindings[pointer.id].dereference();
+                    let element_type = function.bindings[pointer.id()].dereference();
                     let element_size = self.convert_type(&element_type).size_of().unwrap();
                     let count = self.load(count).into_int_value();
                     let size_temp = self.temp();
@@ -176,7 +176,7 @@ impl<'a> State<'a> {
                 }
                 Statement::AssignmentIndex(list, index, value) => {
                     let value_type = self.value_type(value);
-                    let element_type = &function.bindings[list.id].dereference();
+                    let element_type = &function.bindings[list.id()].dereference();
                     let pointer = self.index(list, index);
                     let value = self.load(value);
                     if value_type == *element_type {
@@ -334,7 +334,7 @@ impl<'a> State<'a> {
                     }
                 }
                 Statement::Field(result_binding, object, field_id) => {
-                    let struct_id = function.bindings[object.id].unwrap_struct();
+                    let struct_id = function.bindings[object.id()].unwrap_struct();
                     let field_type =
                         self.convert_type(&self.vir.structs[struct_id].fields[*field_id]);
                     let field = self.field(object, *field_id);
@@ -343,7 +343,8 @@ impl<'a> State<'a> {
                     self.store(result_binding, result);
                 }
                 Statement::Index(result_binding, list, index) => {
-                    let element_type = self.convert_type(&function.bindings[list.id].dereference());
+                    let element_type =
+                        self.convert_type(&function.bindings[list.id()].dereference());
                     let pointer = self.index(list, index);
                     let temp = self.temp();
                     let result = self
@@ -435,8 +436,8 @@ impl<'a> State<'a> {
     }
 
     fn field(&mut self, object: &Binding, field: usize) -> PointerValue<'a> {
-        let object_type = &self.vir.functions[self.current_function].bindings[object.id];
-        let object = self.bindings.as_ref().unwrap()[object.id].unwrap();
+        let object_type = &self.vir.functions[self.current_function].bindings[object.id()];
+        let object = self.bindings.as_ref().unwrap()[object.id()].unwrap();
         let struct_id = object_type.unwrap_struct();
         let temp = self.temp();
         self.builder
@@ -445,7 +446,7 @@ impl<'a> State<'a> {
     }
 
     fn index(&mut self, list: &Binding, index: &Value) -> PointerValue<'a> {
-        let list_type = &self.vir.functions[self.current_function].bindings[list.id];
+        let list_type = &self.vir.functions[self.current_function].bindings[list.id()];
         let element_type = list_type.dereference();
         let list = self.load(&(*list).into()).into_pointer_value();
         let index = self.load(index).into_int_value();
@@ -461,7 +462,7 @@ impl<'a> State<'a> {
         let arg_types = vec![self.ctx.i64_type().into(); args.len()];
         let func_type = if let Some(return_binding) = return_binding {
             self.convert_type(
-                &self.vir.functions[self.current_function].bindings[return_binding.id],
+                &self.vir.functions[self.current_function].bindings[return_binding.id()],
             )
             .fn_type(&arg_types, false)
         } else {
@@ -512,12 +513,12 @@ impl<'a> State<'a> {
             }
         };
         let type_ =
-            self.convert_type(&self.vir.functions[self.current_function].bindings[source.id]);
+            self.convert_type(&self.vir.functions[self.current_function].bindings[source.id()]);
         let temp = self.temp();
         self.builder
             .build_load(
                 type_,
-                self.bindings.as_ref().unwrap()[source.id].unwrap(),
+                self.bindings.as_ref().unwrap()[source.id()].unwrap(),
                 &temp,
             )
             .unwrap()
@@ -525,7 +526,7 @@ impl<'a> State<'a> {
 
     fn store(&mut self, dest: &Binding, source: BasicValueEnum<'a>) {
         self.builder
-            .build_store(self.bindings.as_ref().unwrap()[dest.id].unwrap(), source)
+            .build_store(self.bindings.as_ref().unwrap()[dest.id()].unwrap(), source)
             .unwrap();
     }
 
@@ -538,7 +539,7 @@ impl<'a> State<'a> {
     fn value_type(&self, value: &Value) -> Type {
         match value {
             Value::Binding(binding) => {
-                self.vir.functions[self.current_function].bindings[binding.id].clone()
+                self.vir.functions[self.current_function].bindings[binding.id()].clone()
             }
             Value::ConstBool(_) => Type::Bool,
             Value::ConstInt(_) => Type::I64,

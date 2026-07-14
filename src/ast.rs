@@ -17,6 +17,7 @@ pub enum Statement<'a> {
         left: Spanned<Expression<'a>>,
         right: Spanned<Expression<'a>>,
     },
+    Enum(Enum<'a>),
     Expression(Spanned<Expression<'a>>),
     ForRange {
         index: &'a str,
@@ -46,6 +47,12 @@ pub enum Statement<'a> {
         condition: Spanned<Expression<'a>>,
         body: Vec<Statement<'a>>,
     },
+}
+
+#[derive(Debug)]
+pub struct Enum<'a> {
+    pub name: &'a str,
+    pub variants: Vec<&'a str>,
 }
 
 #[derive(Debug)]

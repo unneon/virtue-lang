@@ -1,5 +1,5 @@
 use crate::ast::{
-    BinaryOperator, Expression, Format, FormatSegment, Function, IncrementDecrementOperator,
+    BinaryOperator, Enum, Expression, Format, FormatSegment, Function, IncrementDecrementOperator,
     Module, Statement, Struct, Type, UnaryOperator,
 };
 use crate::error::{Span, SpanExt, Spanned};
@@ -117,6 +117,7 @@ fn statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
             for_range_statement(nesting),
             func_statement(nesting),
             return_statement(),
+            enum_statement(nesting),
             struct_statement(nesting),
             variable_declaration_statement(),
             increment_decrement_statement(),
@@ -274,6 +275,24 @@ fn func_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
 fn return_statement<'a>() -> impl Parser<'a, Statement<'a>> {
     delimited((keyword("return"), sp), expression(), newline)
         .map(|value| Statement::Return { value })
+}
+
+fn enum_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {
+    preceded(
+        (keyword("enum"), sp),
+        cut((
+            identifier,
+            preceded(
+                (sp, newline),
+                many0(delimited(
+                    (empty_lines, indentiation(nesting + 1)),
+                    identifier,
+                    newline,
+                )),
+            ),
+        )),
+    )
+    .map(|(name, variants)| Statement::Enum(Enum { name, variants }))
 }
 
 fn struct_statement<'a>(nesting: usize) -> impl Parser<'a, Statement<'a>> {

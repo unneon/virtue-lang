@@ -96,7 +96,7 @@ impl State<'_> {
     fn statement(&mut self, statement: &Statement) {
         match statement {
             Statement::Alloc(pointer, length) => {
-                let pointer_id = pointer.id;
+                let pointer_id = pointer.id();
                 let length = convert_value(length);
                 let size = self.make_temporary();
                 self.write(format!(
@@ -105,25 +105,25 @@ impl State<'_> {
                 self.malloc(pointer, Value::Temporary(size));
             }
             Statement::Assignment(left, right) => {
-                if !self.vir.functions[self.current_function].bindings[left.id].is_void() {
-                    let left_id = left.id;
+                if !self.vir.functions[self.current_function].bindings[left.id()].is_void() {
+                    let left_id = left.id();
                     let right = convert_value(right);
                     self.write(format!("    _{left_id} = {right};"));
                 }
             }
             Statement::AssignmentField(object, field, value) => {
-                let object_id = object.id;
+                let object_id = object.id();
                 let value = convert_value(value);
                 self.write(format!("    _{object_id}._{field} = {value};"));
             }
             Statement::AssignmentIndex(list, index, value) => {
-                let list_id = list.id;
+                let list_id = list.id();
                 let index = convert_value(index);
                 let value = convert_value(value);
                 self.write(format!("    _{list_id}[{index}] = {value};"));
             }
             Statement::BinaryOperator(result, op, left, right) => {
-                let result_id = result.id;
+                let result_id = result.id();
                 let left = convert_value(left);
                 let right = convert_value(right);
                 let op = match op {
@@ -154,7 +154,7 @@ impl State<'_> {
                 args,
             } => {
                 let result_assignment = if let Some(result) = result {
-                    let result_id = result.id;
+                    let result_id = result.id();
                     format!("_{result_id} = ")
                 } else {
                     String::new()
@@ -171,13 +171,13 @@ impl State<'_> {
                 self.write(format!("    {result_assignment}{callee_name}({c_args});"));
             }
             Statement::Field(result, object, field) => {
-                let result_id = result.id;
-                let object_id = object.id;
+                let result_id = result.id();
+                let object_id = object.id();
                 self.write(format!("    _{result_id} = _{object_id}._{field};"));
             }
             Statement::Index(result, list, index) => {
-                let result_id = result.id;
-                let list_id = list.id;
+                let result_id = result.id();
+                let list_id = list.id();
                 let index = convert_value(index);
                 self.write(format!("    _{result_id} = _{list_id}[{index}];"));
             }
@@ -210,7 +210,7 @@ impl State<'_> {
                 self.syscall(Some(result), &args);
             }
             Statement::UnaryOperator(result, op, arg) => {
-                let result_id = result.id;
+                let result_id = result.id();
                 let arg = convert_value(arg);
                 let op = match op {
                     UnaryOperator::Negate => "-",
@@ -253,7 +253,7 @@ impl State<'_> {
 
     fn syscall(&mut self, result: Option<&Binding>, arg_bindings: &[Value]) {
         let result = if let Some(result) = result {
-            let result_id = result.id;
+            let result_id = result.id();
             &format!("\"=a\" (_{result_id})")
         } else {
             ""
@@ -266,7 +266,7 @@ impl State<'_> {
                 args += ", ";
             }
             let arg = match arg {
-                Value::Binding(binding) => format!("_{}", binding.id),
+                Value::Binding(binding) => format!("_{}", binding.id()),
                 Value::Const(value) => value.to_string(),
                 Value::String(string_id) => format!("str{string_id}"),
                 Value::Temporary(temporary) => format!("tmp{temporary}"),
@@ -313,7 +313,7 @@ impl From<vir::Value> for Value {
 
 fn convert_value(value: &vir::Value) -> String {
     match value {
-        vir::Value::Binding(binding) => format!("_{}", binding.id),
+        vir::Value::Binding(binding) => format!("_{}", binding.id()),
         vir::Value::ConstBool(value) => (*value as i64).to_string(),
         vir::Value::ConstInt(value) => value.to_string(),
         vir::Value::Error => unreachable!(),

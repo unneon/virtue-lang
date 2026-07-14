@@ -46,7 +46,7 @@ impl<'a> State<'a> {
         let mut binding_map = HashMap::new();
         for (name, type_) in &function.args {
             if !type_.is_type() {
-                let binding = Binding { id: bindings.len() };
+                let binding = Binding::FunctionScope(bindings.len());
                 let type_ = self.resolve_ast_type_nocf(type_, &type_arg_map);
                 value_args.push(vir::Arg { binding });
                 bindings.push(type_);
@@ -92,6 +92,7 @@ impl<'a> State<'a> {
             match statement {
                 ast::Statement::Assignment { .. } => {}
                 ast::Statement::AssignmentBinary { .. } => {}
+                ast::Statement::Enum(enum_) => self.preprocess_enum(enum_),
                 ast::Statement::Expression(_) => {}
                 ast::Statement::ForRange { .. } => {}
                 ast::Statement::Function(function) => self.preprocess_function(function),
@@ -103,6 +104,28 @@ impl<'a> State<'a> {
                 ast::Statement::While { .. } => {}
             }
         }
+    }
+
+    fn preprocess_enum(&mut self, enum_: &'a ast::Enum<'a>) {
+        let enum_id = self.structs.len();
+        self.struct_map.insert(enum_.name, enum_id);
+
+        self.structs.push(vir::Struct {
+            name: Cow::Borrowed(enum_.name),
+            fields: vec![Type::I64],
+            field_map: HashMap::from_iter([("tag", 0)]),
+            is_enum: true,
+            variants: enum_
+                .variants
+                .iter()
+                .enumerate()
+                .map(|(i, name)| (*name, i))
+                .collect(),
+            is_instantiated: true,
+            is_used: false,
+            type_arg_map: HashMap::new(),
+            instantiation_info: None,
+        });
     }
 
     fn preprocess_struct(&mut self, struct_: &'a ast::Struct<'a>) {
@@ -121,6 +144,8 @@ impl<'a> State<'a> {
             name: Cow::Borrowed(struct_.name),
             fields,
             field_map,
+            is_enum: false,
+            variants: HashMap::new(),
             is_instantiated: type_arg_map.is_empty(),
             is_used: false,
             type_arg_map,
@@ -169,6 +194,7 @@ impl<'a> State<'a> {
                         right,
                     ));
                 }
+                ast::Statement::Enum(_) => {}
                 ast::Statement::Expression(expression) => {
                     self.process_expression(expression);
                 }
@@ -410,6 +436,55 @@ impl<'a> State<'a> {
                         Type::I64,
                         Type::I64,
                     ) => Type::Bool,
+                    (
+                        Equal,
+                        Type::Struct(left_struct_id, left_struct_args),
+                        Type::Struct(right_struct_id, right_struct_args),
+                    ) if left_struct_id == right_struct_id
+                        && left_struct_args == right_struct_args =>
+                    {
+                        let mut last: Option<Binding> = None;
+                        for field_id in 0..self.structs[*left_struct_id].fields.len() {
+                            let field_type = self.structs[*left_struct_id].fields[field_id].clone();
+                            let curr = self.make_temporary(Type::Bool);
+                            let left_field = self.make_temporary(field_type.clone());
+                            let right_field = self.make_temporary(field_type);
+                            self.add_statement(vir::Statement::Field(
+                                left_field,
+                                left.unwrap_binding(),
+                                field_id,
+                            ));
+                            self.add_statement(vir::Statement::Field(
+                                right_field,
+                                right.unwrap_binding(),
+                                field_id,
+                            ));
+                            self.add_statement(vir::Statement::BinaryOperator(
+                                curr,
+                                Equal,
+                                left_field.into(),
+                                right_field.into(),
+                            ));
+                            let joined = match last {
+                                Some(last) => {
+                                    let joined = self.make_temporary(Type::Bool);
+                                    self.add_statement(vir::Statement::BinaryOperator(
+                                        joined,
+                                        LogicAnd,
+                                        last.into(),
+                                        curr.into(),
+                                    ));
+                                    joined
+                                }
+                                None => curr,
+                            };
+                            last = Some(joined);
+                        }
+                        return match last {
+                            Some(last) => last.into(),
+                            None => Value::ConstBool(true),
+                        };
+                    }
                     (LogicAnd | LogicOr, Type::Bool, Type::Bool) => Type::Bool,
                     (_, Type::Error, _) | (_, _, Type::Error) => Type::Error,
                     _ => {
@@ -485,7 +560,7 @@ impl<'a> State<'a> {
                         let callee = &self.functions[callee_id];
                         let callee_arg = callee.value_args[arg_index].binding;
                         let callee_arg_type =
-                            callee.bindings[callee_arg.id].substitute_types(&type_substitutions);
+                            callee.bindings[callee_arg.id()].substitute_types(&type_substitutions);
                         let callee_arg_type = self.resolve_type(callee_arg_type);
                         self.check_type_compatible(
                             &callee_arg_type,
@@ -531,6 +606,26 @@ impl<'a> State<'a> {
                     return Value::Error;
                 }
                 let object_binding = object_value.unwrap_binding();
+                if let Binding::Struct(struct_id) = object_binding {
+                    assert!(self.structs[struct_id].is_enum);
+                    let Some(&variant_id) = self.structs[struct_id].variants.get(field_name.value)
+                    else {
+                        let enum_name = &self.structs[struct_id].name;
+                        self.errors.push(Error {
+                            message: "variant does not exist",
+                            note: format!("enum {enum_name} does not have this variant"),
+                            note_span: field_name.span,
+                        });
+                        return Value::Error;
+                    };
+                    let binding = self.make_temporary(Type::Struct(struct_id, Vec::new()));
+                    self.add_statement(vir::Statement::AssignmentField(
+                        binding,
+                        0,
+                        Value::ConstInt(variant_id as i64),
+                    ));
+                    return binding.into();
+                }
                 let struct_type = self.binding_type(object_binding);
                 if struct_type.is_error() {
                     return Value::Error;
@@ -973,7 +1068,7 @@ impl<'a> State<'a> {
                 if f.type_arg_substitutions.is_some() {
                     assert!(type_.is_fully_substituted());
                 }
-                let binding = Binding { id: binding_count };
+                let binding = Binding::FunctionScope(binding_count);
                 f.bindings.push(type_);
                 *e.insert(binding)
             }
@@ -988,9 +1083,7 @@ impl<'a> State<'a> {
                 "type {type_:?} is not fully substituted"
             );
         }
-        let binding = Binding {
-            id: f.bindings.len(),
-        };
+        let binding = Binding::FunctionScope(f.bindings.len());
         f.bindings.push(type_);
         binding
     }
@@ -1109,6 +1202,8 @@ impl<'a> State<'a> {
     fn variable_binding(&mut self, variable: Spanned<&str>) -> Result<Binding, ()> {
         if let Some(binding) = self.current_function().binding_map.get(*variable) {
             Ok(*binding)
+        } else if let Some(struct_id) = self.struct_map.get(variable.value) {
+            Ok(Binding::Struct(*struct_id))
         } else {
             self.errors.push(Error {
                 message: "variable does not exist",
@@ -1120,7 +1215,7 @@ impl<'a> State<'a> {
     }
 
     fn binding_type(&self, binding: Binding) -> vir::Type {
-        self.current_function().bindings[binding.id].clone()
+        self.current_function().bindings[binding.id()].clone()
     }
 
     fn function_by_name(&mut self, name: Spanned<&str>) -> Result<usize, ()> {

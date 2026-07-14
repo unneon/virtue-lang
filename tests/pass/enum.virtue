@@ -1,0 +1,15 @@
+enum direction
+    left
+    right
+
+func print_direction(dir direction)
+    if dir == direction.left
+        print "left"
+    else
+        print "right"
+
+print_direction(direction.left)
+print_direction(direction.right)
+
+# left
+# right

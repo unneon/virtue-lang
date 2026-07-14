@@ -64,8 +64,9 @@ pub enum Statement {
 }
 
 #[derive(Clone, Copy)]
-pub struct Binding {
-    pub id: usize,
+pub enum Binding {
+    FunctionScope(usize),
+    Struct(usize),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -82,6 +83,8 @@ pub struct Struct<'a> {
     pub name: Cow<'a, str>,
     pub fields: Vec<Type>,
     pub field_map: HashMap<&'a str, usize>,
+    pub is_enum: bool,
+    pub variants: HashMap<&'a str, usize>,
     pub type_arg_map: HashMap<&'a str, usize>,
     pub is_instantiated: bool,
     pub is_used: bool,
@@ -147,6 +150,16 @@ impl Program<'_> {
 impl Function<'_> {
     pub fn should_codegen(&self) -> bool {
         self.type_arg_substitutions.is_some() && self.is_used
+    }
+}
+
+impl Binding {
+    #[track_caller]
+    pub fn id(&self) -> usize {
+        match self {
+            Binding::FunctionScope(id) => *id,
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -261,7 +274,7 @@ impl From<Binding> for Value {
 
 impl std::fmt::Debug for Binding {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let id = self.id;
+        let id = self.id();
         write!(f, "_{id}")
     }
 }
