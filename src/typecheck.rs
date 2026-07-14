@@ -1013,7 +1013,7 @@ impl<'a> State<'a> {
     }
 
     fn check_type_compatible(&mut self, dst: &vir::Type, src: &vir::Type, span: Span) {
-        if dst != src {
+        if dst != src && *src != Type::Error {
             let dst_fmt = self.format_type(dst);
             let src_fmt = self.format_type(src);
             self.errors.push(Error {

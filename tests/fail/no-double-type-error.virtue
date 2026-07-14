@@ -1,0 +1,8 @@
+a string = 2 + "hello"
+
+# error: incompatible types
+#  --> test.virtue:1:14
+#    |
+#  1 | a string = 2 + "hello"
+#    |              ^ can't add i64 and string
+#
