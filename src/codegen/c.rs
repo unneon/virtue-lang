@@ -226,11 +226,14 @@ impl State<'_> {
         let return_type = convert_type(&function.return_type);
         let name = function.name.as_ref();
         let mut args = String::new();
-        for arg_index in 0..function.value_args.len() {
+        for (arg_index, arg_binding) in function.bindings[..function.value_args.len()]
+            .iter()
+            .enumerate()
+        {
             if arg_index > 0 {
                 args += ", ";
             }
-            let arg_type = convert_type(&function.bindings[arg_index]);
+            let arg_type = convert_type(arg_binding);
             args += &format!("{arg_type} _{arg_index}");
         }
         format!("{return_type} {name}({args})")

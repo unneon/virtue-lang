@@ -1,4 +1,3 @@
-#![feature(string_into_chars)]
 #![feature(trait_alias)]
 #![allow(mismatched_lifetime_syntaxes)]
 
